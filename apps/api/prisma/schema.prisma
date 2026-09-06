@@ -1,0 +1,208 @@
+// Prisma schema — 模具注塑报价系统
+// 8 张核心表 + 1 张会话表
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. 企业租户（多租户 SaaS 模式下用）
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  users     User[]
+  customers Customer[]
+  quotes    Quote[]
+  materialOverrides MaterialOverride[]
+  steelOverrides    SteelOverride[]
+  businessTermOverrides BusinessTermOverride[]
+  complexityOverrides  ComplexityOverride[]
+}
+
+// 2. 用户
+model User {
+  id           String   @id @default(cuid())
+  companyId    String
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         UserRole @default(quoter)
+  createdAt    DateTime @default(now())
+  lastLoginAt  DateTime?
+
+  company   Company @relation(fields: [companyId], references: [id])
+  quotes    Quote[] @relation("CreatedBy")
+  approved  Quote[] @relation("ApprovedBy")
+
+  @@index([companyId])
+}
+
+enum UserRole {
+  quoter
+  auditor
+  admin
+}
+
+// 3. 客户库
+model Customer {
+  id           String   @id @default(cuid())
+  companyId    String
+  name         String
+  contactName  String?
+  phone        String?
+  address      String?
+  industry     String?
+  size         String?  // 大型企业 / 中小企业 / 个体
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+  quotes  Quote[]
+
+  @@index([companyId, name])
+  @@index([companyId, phone])
+}
+
+// 4. 报价单（仅最新版本指针 + 基础信息）
+model Quote {
+  id              String   @id @default(cuid())
+  companyId       String
+  customerId      String?
+  createdById     String
+  approvedById    String?
+  quoteNo         String   @unique  // BJ-2026-0906-A02
+  status          QuoteStatus @default(draft)
+  effectiveDays   Int      @default(30)
+  expiresAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  sentAt          DateTime?
+  confirmedAt     DateTime?
+
+  company     Company  @relation(fields: [companyId], references: [id])
+  customer    Customer? @relation(fields: [customerId], references: [id])
+  createdBy   User     @relation("CreatedBy", fields: [createdById], references: [id])
+  approvedBy  User?    @relation("ApprovedBy", fields: [approvedById], references: [id])
+  versions    QuoteVersion[]
+  shares      QuoteShare[]
+  logs        QuoteLog[]
+
+  @@index([companyId, status])
+  @@index([companyId, createdById, createdAt])
+  @@index([companyId, customerId])
+}
+
+enum QuoteStatus {
+  draft
+  pending
+  approved
+  rejected
+  sent
+  confirmed
+  expired
+}
+
+// 5. 报价单版本快照（核心：所有参数 + 计算结果存 JSON）
+model QuoteVersion {
+  id            String   @id @default(cuid())
+  quoteId       String
+  versionNo     Int      // 1, 2, 3...
+  parentVersionId String?
+  paramsJson    Json     // 所有输入参数
+  calcResultJson Json    // 所有计算结果 + 公式
+  businessTermsJson Json // 商务条款覆盖
+  createdAt     DateTime @default(now())
+  createdById   String?
+  changeNote    String?  // 修改说明
+
+  quote      Quote @relation(fields: [quoteId], references: [id])
+  parent     QuoteVersion? @relation("ParentVersion", fields: [parentVersionId], references: [id])
+  children   QuoteVersion[] @relation("ParentVersion")
+
+  @@unique([quoteId, versionNo])
+  @@index([quoteId])
+}
+
+// 6. 报价单分享（客户视图）
+model QuoteShare {
+  id          String   @id @default(cuid())
+  quoteId     String
+  versionId   String
+  shareToken  String   @unique
+  email       String   // 客户邮箱
+  expiresAt   DateTime
+  accessedAt  DateTime?
+  confirmedAt DateTime?
+
+  quote Quote @relation(fields: [quoteId], references: [id])
+
+  @@index([quoteId])
+}
+
+// 7. 操作日志
+model QuoteLog {
+  id        String   @id @default(cuid())
+  quoteId   String
+  userId    String?
+  action    String   // 'created' / 'edited' / 'submitted' / 'approved' / 'rejected' / 'sent' / 'confirmed'
+  detail    String?
+  createdAt DateTime @default(now())
+
+  quote Quote @relation(fields: [quoteId], references: [id])
+
+  @@index([quoteId, createdAt])
+}
+
+// 8. 企业参数覆盖（每个企业可覆盖平台默认值）
+model MaterialOverride {
+  id        String @id @default(cuid())
+  companyId String
+  key       String  // ABS / PP / ...
+  unitPrice Float
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, key])
+}
+
+model SteelOverride {
+  id         String @id @default(cuid())
+  companyId  String
+  key        String
+  unitPrice  Float
+  coeff      Float  @default(1.0)
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, key])
+}
+
+model ComplexityOverride {
+  id        String @id @default(cuid())
+  companyId String
+  level     String  // simple / medium / complex / ultra_precision
+  coeff     Float
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, level])
+}
+
+model BusinessTermOverride {
+  id        String @id @default(cuid())
+  companyId String
+  index     Int
+  enabled   Boolean @default(true)
+  text      String
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, index])
+}
