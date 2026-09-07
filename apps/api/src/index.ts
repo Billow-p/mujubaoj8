@@ -7,6 +7,7 @@ import { authRoutes } from './routes/auth';
 import { calcRoutes } from './routes/calc';
 import { quoteRoutes } from './routes/quotes';
 import { customerRoutes } from './routes/customers';
+import { verifySmtpConnection } from './services/email';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -45,6 +46,17 @@ async function bootstrap() {
   const port = parseInt(process.env.PORT || '3000');
   await app.listen({ port, host: '0.0.0.0' });
   console.log(`🚀 API server listening on http://localhost:${port}`);
+
+  // 启动后异步自检 SMTP（不阻塞启动，失败仅告警）
+  verifySmtpConnection()
+    .then((ok) => {
+      if (ok) {
+        console.log('✅ 邮件服务就绪（QQ SMTP）');
+      } else {
+        console.warn('⚠️  邮件服务未就绪：SMTP 连接失败，验证码/报价单邮件将无法发送');
+      }
+    })
+    .catch(() => {});
 }
 
 bootstrap().catch((err) => {

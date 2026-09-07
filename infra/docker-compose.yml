@@ -5,15 +5,15 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: mqs
-      POSTGRES_PASSWORD: mqs_dev_password
-      POSTGRES_DB: mold_quote
+      POSTGRES_USER: ${POSTGRES_USER:-mqs}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mqs_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-mold_quote}
     ports:
       - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U mqs']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-mqs}']
       interval: 5s
       timeout: 5s
       retries: 10
@@ -27,10 +27,20 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://mqs:mqs_dev_password@postgres:5432/mold_quote
-      JWT_SECRET: change-me-in-prod
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mqs}:${POSTGRES_PASSWORD:-mqs_dev_password}@postgres:5432/${POSTGRES_DB:-mold_quote}?schema=public
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-prod}
       NODE_ENV: production
       PORT: 3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # ---- 邮件服务（QQ 邮箱 SMTP）----
+      SMTP_HOST: ${SMTP_HOST:-smtp.qq.com}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      SMTP_USER: ${SMTP_USER:-729503962@qq.com}
+      SMTP_PASS: ${SMTP_PASS:-lbukpgyzzmtqbcfl}
+      SMTP_FROM: ${SMTP_FROM:-模具注塑报价系统 <729503962@qq.com>}
+      # ---- 公网地址（生成报价单分享链接）----
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-https://wycl.chat}
     ports:
       - '3000:3000'
 

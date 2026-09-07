@@ -27,14 +27,15 @@ model Company {
 
 // 2. 用户
 model User {
-  id           String   @id @default(cuid())
-  companyId    String
-  email        String   @unique
-  passwordHash String
-  name         String
-  role         UserRole @default(quoter)
-  createdAt    DateTime @default(now())
-  lastLoginAt  DateTime?
+  id            String   @id @default(cuid())
+  companyId     String
+  email         String   @unique
+  passwordHash  String
+  name          String
+  role          UserRole @default(quoter)
+  emailVerified Boolean  @default(false)  // 邮箱是否已通过验证码验证
+  createdAt     DateTime @default(now())
+  lastLoginAt   DateTime?
 
   company   Company @relation(fields: [companyId], references: [id])
   quotes    Quote[] @relation("CreatedBy")
@@ -47,6 +48,37 @@ enum UserRole {
   quoter
   auditor
   admin
+}
+
+// 2.1 邮箱验证码（注册 / 找回密码 / 通用）
+model EmailVerification {
+  id        String   @id @default(cuid())
+  email     String
+  code      String   // 6 位数字
+  scene     String   // 'register' | 'reset_password'
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email, scene, createdAt])
+  @@index([email, scene, used])
+}
+
+// 2.2 报价单邮件发送记录（客户报价单通知留痕）
+model QuoteEmailLog {
+  id        String   @id @default(cuid())
+  quoteId   String
+  versionId String?
+  toEmail   String
+  subject   String
+  status    String   // 'sent' | 'failed'
+  errorMsg  String?
+  sentById  String?
+  createdAt DateTime @default(now())
+
+  quote Quote @relation(fields: [quoteId], references: [id])
+
+  @@index([quoteId, createdAt])
 }
 
 // 3. 客户库
@@ -93,6 +125,7 @@ model Quote {
   versions    QuoteVersion[]
   shares      QuoteShare[]
   logs        QuoteLog[]
+  emailLogs   QuoteEmailLog[]
 
   @@index([companyId, status])
   @@index([companyId, createdById, createdAt])
