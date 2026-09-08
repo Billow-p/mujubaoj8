@@ -56,11 +56,13 @@ export interface InjectionItems {
 // 汇总
 export interface QuoteSummary {
   moldSubtotal: number;             // 12 项模具小计
+  moldExtrasTotal: number;          // 附加模具费合计
   moldManagementFee: number;       // 13 项管理费+利润
   moldTotalExVat: number;           // 14 项模具合计(不含税)
   moldVat: number;
   moldIncVat: number;
-  unitCostExVat: number;            // 单件成本小计
+  unitCostExVat: number;            // 单件成本小计（含注塑附加项）
+  injectionExtrasUnit: number;      // 注塑附加项单件合计
   injectionTotalExVat: number;      // 注塑合计 = 单件 × 数量
   injectionVat: number;
   injectionIncVat: number;
@@ -74,6 +76,7 @@ export interface QuoteInput {
   // 客户信息
   customerId?: string;
   customerName: string;
+  customerEmail?: string;       // 客户邮箱（提交时若非空，自动发送 + 直发）
 
   // 产品 + 材料
   productName: string;
@@ -106,6 +109,26 @@ export interface QuoteInput {
 
   // 后加工类型
   postProcessType: string;
+
+  // 附加费用项（用户动态加的项，不参与引擎公式，但会进入总价）
+  extras?: QuoteExtras;
+
+  // 自由备注参数（用户加的"新参数"，仅存档展示，不参与计算）
+  customParams?: Record<string, string | number | boolean>;
+}
+
+// 单条用户自定义的附加费用项
+export interface ExtraItem {
+  id: string;           // uuid，前端生成，保证唯一
+  name: string;         // 名称，例如"运输费"、"二次加工"
+  amount: number;       // 金额（元，模具费为总价，注塑为单件价）
+  note?: string;        // 备注
+}
+
+// 附加费用项集合
+export interface QuoteExtras {
+  moldExtras: ExtraItem[];       // 加在模具费上的固定金额
+  injectionExtras: ExtraItem[];  // 加在注塑单件上的单价（按首单数量乘入总价）
 }
 
 // 商务条款覆盖（每条独立开关 + 文字）
@@ -121,6 +144,11 @@ export interface QuoteCalcResult {
   injectionItems: InjectionItems;
   summary: QuoteSummary;
   businessTerms: BusinessTermItem[];
+  // 用户自定义的附加项（连同公式来源一起返回，便于 UI 渲染）
+  extras?: {
+    moldExtras: { id: string; name: string; amount: number; note?: string }[];
+    injectionExtras: { id: string; name: string; amount: number; note?: string }[];
+  };
   // 用于追溯：每个分项的"输入来源"标签
   provenance: {
     complexityCoeff: number;

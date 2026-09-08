@@ -5,19 +5,13 @@ import { useAuth } from '../store';
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
-  pending: '审核中',
-  approved: '已审核',
-  rejected: '已退回',
   sent: '已发送',
-  confirmed: '已确认',
+  confirmed: '已成交',
   expired: '已过期',
 };
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-700',
-  pending: 'bg-yellow-100 text-yellow-800',
-  approved: 'bg-green-100 text-green-800',
-  rejected: 'bg-red-100 text-red-800',
   sent: 'bg-blue-100 text-blue-800',
   confirmed: 'bg-emerald-100 text-emerald-800',
   expired: 'bg-gray-200 text-gray-500',
@@ -27,6 +21,7 @@ export default function Dashboard() {
   const user = useAuth((s) => s.user);
   const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState<string | null>(null);
 
   useEffect(() => {
     quotes.list().then((data) => {
@@ -38,9 +33,19 @@ export default function Dashboard() {
   const stats = {
     total: list.length,
     draft: list.filter((q) => q.status === 'draft').length,
-    pending: list.filter((q) => q.status === 'pending').length,
     sent: list.filter((q) => q.status === 'sent').length,
     confirmed: list.filter((q) => q.status === 'confirmed').length,
+  };
+
+  const handleExport = async (id: string) => {
+    setExporting(id);
+    try {
+      await quotes.exportExcel(id);
+    } catch (e: any) {
+      alert('导出失败：' + (e.response?.data?.error || e.message));
+    } finally {
+      setExporting(null);
+    }
   };
 
   return (
@@ -58,11 +63,10 @@ export default function Dashboard() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         {[
           ['报价总数', stats.total],
           ['草稿', stats.draft],
-          ['审核中', stats.pending],
           ['已发送', stats.sent],
           ['已成交', stats.confirmed],
         ].map(([label, value]) => (
@@ -94,6 +98,7 @@ export default function Dashboard() {
                 <th className="text-right px-5 py-2.5">含税总价</th>
                 <th className="text-center px-5 py-2.5">状态</th>
                 <th className="text-left px-5 py-2.5">报价日期</th>
+                <th className="text-center px-5 py-2.5">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -105,11 +110,20 @@ export default function Dashboard() {
                   <td className="px-5 py-2.5 text-right">¥{(q.grandTotal || 0).toLocaleString()}</td>
                   <td className="px-5 py-2.5 text-center">
                     <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLOR[q.status]}`}>
-                      {STATUS_LABEL[q.status]}
+                      {STATUS_LABEL[q.status] || q.status}
                     </span>
                   </td>
                   <td className="px-5 py-2.5 text-xs text-gray-600">
                     {new Date(q.createdAt).toLocaleDateString()}
+                  </td>
+                  <td className="px-5 py-2.5 text-center">
+                    <button
+                      onClick={() => handleExport(q.id)}
+                      disabled={exporting === q.id}
+                      className="text-xs text-blue-600 border border-blue-200 px-2 py-1 rounded hover:bg-blue-50 disabled:opacity-50"
+                    >
+                      {exporting === q.id ? '导出中...' : '导出 Excel'}
+                    </button>
                   </td>
                 </tr>
               ))}

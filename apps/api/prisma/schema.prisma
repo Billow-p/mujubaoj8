@@ -87,6 +87,7 @@ model Customer {
   companyId    String
   name         String
   contactName  String?
+  email        String?  // 客户邮箱（发报价单用）
   phone        String?
   address      String?
   industry     String?
@@ -100,6 +101,7 @@ model Customer {
 
   @@index([companyId, name])
   @@index([companyId, phone])
+  @@index([companyId, email])
 }
 
 // 4. 报价单（仅最新版本指针 + 基础信息）

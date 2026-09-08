@@ -82,3 +82,31 @@ const errs1 = validateQuoteInput(baseInput);
 console.log(`  完整输入: ${errs1.length === 0 ? '✓ 通过' : '✗ ' + errs1.length + ' 个错误'}`);
 const errs2 = validateQuoteInput({ ...baseInput, singleWeightKg: 0 });
 console.log(`  重量为 0: ${errs2.length === 1 ? '✓ 检出' : '✗ 未检出'}`);
+
+// 测试 extras（附加项）
+console.log('\n===== 附加项 extras =====');
+const rExtras = calculateQuote({
+  input: {
+    ...baseInput,
+    extras: {
+      moldExtras: [
+        { id: '1', name: '包装木箱', amount: 1500 },
+        { id: '2', name: '运输费', amount: 800, note: '省外' },
+      ],
+      injectionExtras: [
+        { id: '3', name: '二次喷涂', amount: 0.5, note: '每件+0.5元' },
+      ],
+    },
+  },
+});
+const baseSubtotal = r.summary.grandTotalIncVat;
+const newSubtotal = rExtras.summary.grandTotalIncVat;
+const diff = newSubtotal - baseSubtotal;
+const expectedDiff = (1500 + 800) * 1.13 + 0.5 * 300000 * 1.13;
+console.log(`  基础含税: ¥${baseSubtotal}`);
+console.log(`  加 extras 后: ¥${newSubtotal}（差值 ¥${diff}）`);
+console.log(`  期望差值: ¥${expectedDiff.toFixed(0)} → ${Math.abs(diff - expectedDiff) < 5 ? '✓' : '✗'}`);
+console.log(`  moldExtrasTotal = ¥${rExtras.summary.moldExtrasTotal}（期望 2300） → ${rExtras.summary.moldExtrasTotal === 2300 ? '✓' : '✗'}`);
+console.log(`  injectionExtrasUnit = ¥${rExtras.summary.injectionExtrasUnit}（期望 0.5） → ${rExtras.summary.injectionExtrasUnit === 0.5 ? '✓' : '✗'}`);
+console.log(`  extras.moldExtras.length = ${rExtras.extras?.moldExtras.length}（期望 2） → ${rExtras.extras?.moldExtras.length === 2 ? '✓' : '✗'}`);
+console.log(`  extras.injectionExtras.length = ${rExtras.extras?.injectionExtras.length}（期望 1） → ${rExtras.extras?.injectionExtras.length === 1 ? '✓' : '✗'}`);

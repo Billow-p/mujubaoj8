@@ -265,17 +265,19 @@ function calcSummary(
   moldItems: MoldFeeItems,
   injectionItems: InjectionItems,
   input: QuoteInput,
+  extras: { moldExtrasTotal: number; injectionExtrasUnit: number },
 ): QuoteSummary {
   const moldSubtotal = calcMoldSubtotal(moldItems);
   const moldManagementFee = Math.round(moldSubtotal * input.managementRate);
-  const moldTotalExVat = moldSubtotal + moldManagementFee;
+  const moldTotalExVat = moldSubtotal + moldManagementFee + extras.moldExtrasTotal;
 
   const unitCostExVat = round(
     injectionItems.material.value +
       injectionItems.machining.value +
       injectionItems.postProcess.value +
       injectionItems.packaging.value +
-      injectionItems.moldAmortization.value,
+      injectionItems.moldAmortization.value +
+      extras.injectionExtrasUnit,
   );
 
   const injectionTotalExVat = Math.round(unitCostExVat * input.firstOrderQty);
@@ -291,11 +293,13 @@ function calcSummary(
 
   return {
     moldSubtotal,
+    moldExtrasTotal: extras.moldExtrasTotal,
     moldManagementFee,
     moldTotalExVat,
     moldVat,
     moldIncVat,
     unitCostExVat,
+    injectionExtrasUnit: extras.injectionExtrasUnit,
     injectionTotalExVat,
     injectionVat,
     injectionIncVat,
@@ -339,10 +343,10 @@ export function calculateQuote(req: CalcQuoteRequest): QuoteCalcResult {
   // 模具费小计（用于注塑的"模具分摊"）
   const moldSubtotal = calcMoldSubtotal(moldFeeItems);
   const moldManagementFee = Math.round(moldSubtotal * input.managementRate);
-  const moldTotalExVat = moldSubtotal + moldManagementFee;
+  const moldTotalExVatBase = moldSubtotal + moldManagementFee;
 
   // 计算注塑（依赖模具合计）
-  const injectionItems = calcInjectionItems(input, moldTotalExVat);
+  const injectionItems = calcInjectionItems(input, moldTotalExVatBase);
 
   // 应用注塑 overrides
   if (req.overrides) {
@@ -363,8 +367,22 @@ export function calculateQuote(req: CalcQuoteRequest): QuoteCalcResult {
     }
   });
 
+  // 用户自定义附加项
+  const extrasIn = input.extras ?? { moldExtras: [], injectionExtras: [] };
+  const moldExtras = extrasIn.moldExtras ?? [];
+  const injectionExtras = extrasIn.injectionExtras ?? [];
+  const moldExtrasTotal = Math.round(
+    moldExtras.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+  );
+  const injectionExtrasUnit = round(
+    injectionExtras.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+  );
+
   // 重算汇总（注入最终值）
-  const summary = calcSummary(moldFeeItems, injectionItems, input);
+  const summary = calcSummary(moldFeeItems, injectionItems, input, {
+    moldExtrasTotal,
+    injectionExtrasUnit,
+  });
 
   // 商务条款
   const businessTerms = applyBusinessTermOverrides(req.businessTermOverrides);
@@ -374,6 +392,20 @@ export function calculateQuote(req: CalcQuoteRequest): QuoteCalcResult {
     injectionItems,
     summary,
     businessTerms,
+    extras: {
+      moldExtras: moldExtras.map((e) => ({
+        id: e.id,
+        name: e.name,
+        amount: Number(e.amount) || 0,
+        note: e.note,
+      })),
+      injectionExtras: injectionExtras.map((e) => ({
+        id: e.id,
+        name: e.name,
+        amount: Number(e.amount) || 0,
+        note: e.note,
+      })),
+    },
     provenance,
   };
 }

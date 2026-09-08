@@ -54,12 +54,17 @@ export const auth = {
 export const quotes = {
   list: (params?: any) => api.get('/quotes', { params }).then((r) => r.data),
   get: (id: string) => api.get(`/quotes/${id}`).then((r) => r.data),
-  create: (body: any) => api.post('/quotes', body).then((r) => r.data),
+  // 创建（支持 customerEmail 自动直发）
+  create: (body: {
+    customerId?: string;
+    customerName: string;
+    customerEmail?: string;
+    input: any;
+  }) => api.post('/quotes', body).then((r) => r.data),
+
   update: (id: string, versionNo: string, body: any) =>
     api.patch(`/quotes/${id}/versions/${versionNo}`, body).then((r) => r.data),
-  submit: (id: string) => api.post(`/quotes/${id}/submit`).then((r) => r.data),
-  approve: (id: string) => api.post(`/quotes/${id}/approve`).then((r) => r.data),
-  reject: (id: string, reason: string) => api.post(`/quotes/${id}/reject`, { reason }).then((r) => r.data),
+
   // 发送：生成分享链接 + 邮件通知客户（sendEmail 默认 true）
   send: (id: string, email: string, sendEmail = true) =>
     api.post(`/quotes/${id}/send`, { email, sendEmail }).then((r) => r.data),
@@ -70,6 +75,26 @@ export const quotes = {
 
   // 邮件发送记录
   emailLogs: (id: string) => api.get(`/quotes/${id}/email-logs`).then((r) => r.data),
+
+  // 导出 Excel（返回 Blob）
+  exportExcel: async (id: string): Promise<void> => {
+    const resp = await api.get(`/quotes/${id}/export-excel`, {
+      responseType: 'blob',
+    });
+    const blob = new Blob([resp.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const disposition = resp.headers['content-disposition'] || '';
+    const m = /filename="?([^"]+)"?/.exec(disposition as string);
+    a.download = m ? decodeURIComponent(m[1]) : `quote_${id}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
 };
 
 // 计算

@@ -1,15 +1,24 @@
 // 新建报价单 — 核心页面
-// 实时计算（前端用 @mqs/calc-engine）+ 保存（调后端）
+// 实时计算（前端用 @mqs/calc-engine）+ 提交即生成报价单
+// 流程：填参数 → 实时看总价 → 提交（可选填客户邮箱自动发邮件 + 可下载 Excel）
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { calculateQuote, validateQuoteInput, compareOptimalCavity } from '@mqs/calc-engine';
-import type { QuoteInput, QuoteCalcResult, MoldFeeItems, InjectionItems } from '@mqs/shared';
+import type {
+  QuoteInput,
+  QuoteCalcResult,
+  MoldFeeItems,
+  InjectionItems,
+  ExtraItem,
+  QuoteExtras,
+} from '@mqs/shared';
 import type { CavityComparison } from '@mqs/calc-engine';
 import { calc, quotes } from '../api';
 
 const DEFAULT_INPUT: QuoteInput = {
   customerName: '',
+  customerEmail: '',
   productName: '',
   material: 'ABS',
   steel: 'P20',
@@ -30,7 +39,13 @@ const DEFAULT_INPUT: QuoteInput = {
   steelDensity: 7.85,
   steelUnitPrice: 25,
   postProcessType: '去飞边/装箱',
+  extras: { moldExtras: [], injectionExtras: [] },
+  customParams: {},
 };
+
+function genId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
 
 export default function NewQuote() {
   const navigate = useNavigate();
@@ -40,21 +55,21 @@ export default function NewQuote() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [cavityComparison, setCavityComparison] = useState<CavityComparison[] | null>(null);
+  const [successMsg, setSuccessMsg] = useState('');
+
+  // 附加项本地状态（与 input.extras 同步）
+  const moldExtras: ExtraItem[] = input.extras?.moldExtras ?? [];
+  const injectionExtras: ExtraItem[] = input.extras?.injectionExtras ?? [];
+  const customParams: Record<string, string> = useMemo(() => {
+    const obj: Record<string, string> = {};
+    Object.entries(input.customParams ?? {}).forEach(([k, v]) => {
+      obj[k] = String(v);
+    });
+    return obj;
+  }, [input.customParams]);
 
   const update = <K extends keyof QuoteInput>(k: K, v: QuoteInput[K]) => {
     setInput((prev: QuoteInput) => ({ ...prev, [k]: v }));
-    // 改动参数时清空覆盖和锁定
-    if (overrides[overridesKeyForInput(k)]) {
-      const nk = overridesKeyForInput(k);
-      const next = { ...overrides };
-      delete next[nk];
-      setOverrides(next);
-    }
-  };
-
-  const overridesKeyForInput = (k: keyof QuoteInput): string => {
-    // 这里简化：input 变化不直接清覆盖，由后端重算时识别
-    return '';
   };
 
   const setOverride = (key: string, value: number) => {
@@ -69,7 +84,7 @@ export default function NewQuote() {
     setLocks(next);
   };
 
-  // 实时计算
+  // 实时计算（包含 extras）
   const result: QuoteCalcResult | { error: string } = useMemo(() => {
     const errors = validateQuoteInput(input);
     if (errors.length > 0) return { error: errors.map((e) => e.field + ': ' + e.message).join('；') };
@@ -87,6 +102,54 @@ export default function NewQuote() {
   const isError = 'error' in result;
   const r = isError ? null : (result as QuoteCalcResult);
 
+  // === 附加项操作 ===
+  const updateMoldExtras = (next: ExtraItem[]) => {
+    setInput((prev) => ({
+      ...prev,
+      extras: { ...(prev.extras ?? { moldExtras: [], injectionExtras: [] }), moldExtras: next },
+    }));
+  };
+  const updateInjectionExtras = (next: ExtraItem[]) => {
+    setInput((prev) => ({
+      ...prev,
+      extras: { ...(prev.extras ?? { moldExtras: [], injectionExtras: [] }), injectionExtras: next },
+    }));
+  };
+  const updateCustomParams = (next: Record<string, string>) => {
+    const obj: Record<string, any> = {};
+    Object.entries(next).forEach(([k, v]) => {
+      if (k) obj[k] = v;
+    });
+    setInput((prev) => ({ ...prev, customParams: obj }));
+  };
+
+  const addMoldExtra = () => {
+    updateMoldExtras([...moldExtras, { id: genId(), name: '', amount: 0 }]);
+  };
+  const removeMoldExtra = (id: string) => {
+    updateMoldExtras(moldExtras.filter((e) => e.id !== id));
+  };
+
+  const addInjectionExtra = () => {
+    updateInjectionExtras([...injectionExtras, { id: genId(), name: '', amount: 0 }]);
+  };
+  const removeInjectionExtra = (id: string) => {
+    updateInjectionExtras(injectionExtras.filter((e) => e.id !== id));
+  };
+
+  const addCustomParam = () => {
+    const next = { ...customParams };
+    let i = 1;
+    while (next[`新参数${i}`] !== undefined) i++;
+    next[`新参数${i}`] = '';
+    updateCustomParams(next);
+  };
+  const removeCustomParam = (k: string) => {
+    const next = { ...customParams };
+    delete next[k];
+    updateCustomParams(next);
+  };
+
   const runCavityComparison = async () => {
     try {
       const cmp = await calc.cavity(input);
@@ -96,33 +159,39 @@ export default function NewQuote() {
     }
   };
 
-  const save = async (submitForReview: boolean) => {
+  const submit = async () => {
     if (isError) {
-      setError('请先修正参数错误');
+      setError('请先修正参数错误：' + (result as any).error);
       return;
     }
     setError('');
+    setSuccessMsg('');
     setSaving(true);
     try {
-      // 1. 先调后端计算（权威）
+      // 1. 后端权威计算（含 extras）
       const calcResult = await calc.quote({
         input,
         overrides,
         locks: Array.from(locks),
       });
-      // 2. 保存草稿
-      const created = await quotes.create({
+      // 2. 创建（带 customerEmail 时自动直发 + 生成 sent 状态）
+      const created: any = await quotes.create({
         customerName: input.customerName,
+        customerEmail: input.customerEmail || undefined,
         input,
-        overrides,
-        locks: Array.from(locks),
-        businessTermOverrides: calcResult.businessTerms,
       });
-      // 3. 如要提交审核
-      if (submitForReview) {
-        await quotes.submit(created.id);
+      // 3. 自动下载 Excel（不阻塞导航）
+      try {
+        await quotes.exportExcel(created.id);
+      } catch (e) {
+        console.warn('Excel 下载失败，可稍后手动重试', e);
       }
-      navigate('/');
+      const okMsg = input.customerEmail
+        ? `已生成报价单 ${created.quoteNo}，邮件已${created.emailSent ? '发送' : '尝试发送'}至 ${input.customerEmail}（${created.emailSent ? '成功' : (created.emailError || '失败')})`
+        : `已生成报价单 ${created.quoteNo}（草稿）`;
+      setSuccessMsg(okMsg);
+      // 短暂停留后跳走
+      setTimeout(() => navigate('/'), 1200);
     } catch (e: any) {
       setError(e.response?.data?.error || '保存失败');
     } finally {
@@ -135,20 +204,23 @@ export default function NewQuote() {
       {/* 顶部 */}
       <div className="bg-white border border-gray-200 rounded-lg p-5 flex items-center justify-between">
         <h1 className="text-lg font-semibold">新建报价单</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <input
+            type="checkbox"
+            id="autoEmail"
+            checked={!!input.customerEmail}
+            onChange={(e) => update('customerEmail', e.target.checked ? (input.customerEmail || '') : '')}
+            className="mr-1"
+          />
+          <label htmlFor="autoEmail" className="text-xs text-gray-600 mr-3 cursor-pointer">
+            提交后自动发邮件给客户
+          </label>
           <button
-            onClick={() => save(false)}
+            onClick={submit}
             disabled={saving}
-            className="text-xs border border-gray-300 px-3 py-1.5 rounded hover:bg-gray-50 disabled:opacity-50"
+            className="text-xs bg-gray-900 text-white px-4 py-2 rounded hover:bg-gray-800 disabled:opacity-50"
           >
-            {saving ? '保存中...' : '保存草稿'}
-          </button>
-          <button
-            onClick={() => save(true)}
-            disabled={saving}
-            className="text-xs bg-gray-900 text-white px-3 py-1.5 rounded hover:bg-gray-800 disabled:opacity-50"
-          >
-            提交审核
+            {saving ? '生成中...' : '生成报价单（Excel + 可选邮件）'}
           </button>
         </div>
       </div>
@@ -156,11 +228,20 @@ export default function NewQuote() {
       {error && (
         <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-700">{error}</div>
       )}
+      {successMsg && (
+        <div className="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-700">{successMsg}</div>
+      )}
 
       {/* ① 客户 */}
       <Section title="① 客户与产品">
         <div className="grid grid-cols-4 gap-4">
           <Field label="客户名称 *" value={input.customerName} onChange={(v) => update('customerName', v)} />
+          <Field
+            label="客户邮箱（可选，留空仅下载 Excel）"
+            value={input.customerEmail || ''}
+            placeholder="client@example.com"
+            onChange={(v) => update('customerEmail', v)}
+          />
           <Field label="产品名称 *" value={input.productName} onChange={(v) => update('productName', v)} />
           <SelectField label="产品材质 *" value={input.material} options={['ABS', 'PP', 'PE', 'PA', 'PC', 'POM', 'PMMA', 'PBT']} onChange={(v) => update('material', v as any)} />
           <SelectField label="模具钢材 *" value={input.steel} options={['P20', '718H', 'S136', 'NAK80', 'H13', 'S50C']} onChange={(v) => update('steel', v as any)} />
@@ -237,22 +318,57 @@ export default function NewQuote() {
                   </tr>
                 );
               })}
+              {/* 用户加的附加模具项 */}
+              {moldExtras.map((e, i) => (
+                <tr key={e.id} className="bg-blue-50">
+                  <td className="py-2">{12 + i}</td>
+                  <td className="py-2">
+                    <input
+                      value={e.name}
+                      placeholder="附加项名称"
+                      onChange={(ev) => updateMoldExtras(moldExtras.map((x) => x.id === e.id ? { ...x, name: ev.target.value } : x))}
+                      className="w-full bg-transparent border-b border-blue-300 focus:outline-none"
+                    />
+                  </td>
+                  <td className="py-2">
+                    <input
+                      value={e.note || ''}
+                      placeholder="备注（可选）"
+                      onChange={(ev) => updateMoldExtras(moldExtras.map((x) => x.id === e.id ? { ...x, note: ev.target.value } : x))}
+                      className="w-full bg-transparent border-b border-blue-200 text-xs text-gray-500 focus:outline-none"
+                    />
+                  </td>
+                  <td className="py-2 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <input
+                        type="number"
+                        value={e.amount}
+                        step={0.01}
+                        onChange={(ev) => updateMoldExtras(moldExtras.map((x) => x.id === e.id ? { ...x, amount: parseFloat(ev.target.value) || 0 } : x))}
+                        className="w-24 text-right bg-white border border-blue-300 rounded px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                      />
+                      <button onClick={() => removeMoldExtra(e.id)} className="text-xs text-red-500 px-1 hover:text-red-700">×</button>
+                    </div>
+                  </td>
+                  <td></td>
+                </tr>
+              ))}
               <tr className="bg-gray-50">
-                <td className="py-2">12</td>
+                <td className="py-2"></td>
                 <td className="py-2 font-medium">小计</td>
-                <td className="py-2 font-mono text-xs text-gray-500">SUM(1~11)</td>
-                <td className="py-2 text-right font-semibold">¥ {r.summary.moldSubtotal.toLocaleString()}</td>
+                <td className="py-2 font-mono text-xs text-gray-500">SUM(1~11) + 附加</td>
+                <td className="py-2 text-right font-semibold">¥ {(r.summary.moldSubtotal + (r.summary.moldExtrasTotal || 0)).toLocaleString()}</td>
                 <td></td>
               </tr>
               <tr>
-                <td className="py-2">13</td>
+                <td className="py-2"></td>
                 <td className="py-2 font-medium">管理费 + 利润</td>
                 <td className="py-2 font-mono text-xs text-gray-500">小计 × 管理费率</td>
                 <td className="py-2 text-right">¥ {r.summary.moldManagementFee.toLocaleString()}</td>
                 <td></td>
               </tr>
               <tr className="bg-gray-100">
-                <td className="py-2">14</td>
+                <td className="py-2"></td>
                 <td className="py-2 font-semibold">模具合计（不含税）</td>
                 <td className="py-2 font-mono text-xs text-gray-500">小计 + 管理费</td>
                 <td className="py-2 text-right text-base font-bold">¥ {r.summary.moldTotalExVat.toLocaleString()}</td>
@@ -260,6 +376,14 @@ export default function NewQuote() {
               </tr>
             </tbody>
           </table>
+          <div className="mt-3">
+            <button
+              onClick={addMoldExtra}
+              className="text-xs border border-blue-300 text-blue-600 px-3 py-1.5 rounded hover:bg-blue-50"
+            >
+              + 添加模具附加项（如运输费/包装升级/试模加次）
+            </button>
+          </div>
         </Section>
       )}
 
@@ -303,24 +427,109 @@ export default function NewQuote() {
                   </tr>
                 );
               })}
+              {injectionExtras.map((e) => (
+                <tr key={e.id} className="bg-blue-50">
+                  <td className="py-2"></td>
+                  <td className="py-2">
+                    <input
+                      value={e.name}
+                      placeholder="附加项名称（如喷涂/丝印/装配）"
+                      onChange={(ev) => updateInjectionExtras(injectionExtras.map((x) => x.id === e.id ? { ...x, name: ev.target.value } : x))}
+                      className="w-full bg-transparent border-b border-blue-300 focus:outline-none"
+                    />
+                  </td>
+                  <td className="py-2">
+                    <input
+                      value={e.note || ''}
+                      placeholder="备注（可选）"
+                      onChange={(ev) => updateInjectionExtras(injectionExtras.map((x) => x.id === e.id ? { ...x, note: ev.target.value } : x))}
+                      className="w-full bg-transparent border-b border-blue-200 text-xs text-gray-500 focus:outline-none"
+                    />
+                  </td>
+                  <td className="py-2 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <input
+                        type="number"
+                        value={e.amount}
+                        step={0.01}
+                        onChange={(ev) => updateInjectionExtras(injectionExtras.map((x) => x.id === e.id ? { ...x, amount: parseFloat(ev.target.value) || 0 } : x))}
+                        className="w-24 text-right bg-white border border-blue-300 rounded px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                      />
+                      <button onClick={() => removeInjectionExtra(e.id)} className="text-xs text-red-500 px-1 hover:text-red-700">×</button>
+                    </div>
+                  </td>
+                  <td></td>
+                </tr>
+              ))}
               <tr className="bg-gray-50">
                 <td className="py-2"></td>
                 <td className="py-2 font-semibold">单件成本小计</td>
-                <td className="py-2 font-mono text-xs text-gray-500">SUM(1~5)</td>
+                <td className="py-2 font-mono text-xs text-gray-500">SUM(1~5) + 附加</td>
                 <td className="py-2 text-right text-base font-bold">¥ {r.summary.unitCostExVat.toFixed(2)} /件</td>
                 <td></td>
               </tr>
             </tbody>
           </table>
+          <div className="mt-3">
+            <button
+              onClick={addInjectionExtra}
+              className="text-xs border border-blue-300 text-blue-600 px-3 py-1.5 rounded hover:bg-blue-50"
+            >
+              + 添加注塑附加项（如喷涂/丝印/装配的每件单价）
+            </button>
+          </div>
         </Section>
       )}
 
-      {/* ⑥ 汇总 */}
+      {/* ⑥ 自定义参数（仅记录，不参与计算） */}
+      <Section title="⑥ 自定义参数 · 仅存档，不参与计算">
+        <p className="text-xs text-gray-500 mb-3">
+          用于记录临时出现的新参数（如热流道规格、特殊工艺要求）。这些字段不会被计算引擎使用，但会随报价单存档、出现在 Excel 中。
+        </p>
+        <div className="space-y-2">
+          {Object.entries(customParams).map(([k, v]) => (
+            <div key={k} className="flex items-center gap-2">
+              <input
+                value={k}
+                onChange={(e) => {
+                  const next = { ...customParams };
+                  delete next[k];
+                  next[e.target.value] = v;
+                  updateCustomParams(next);
+                }}
+                placeholder="参数名（如 热流道品牌）"
+                className="w-48 bg-yellow-50 border border-yellow-300 rounded px-3 py-1.5 text-sm focus:border-yellow-500 focus:outline-none"
+              />
+              <input
+                value={v}
+                onChange={(e) => updateCustomParams({ ...customParams, [k]: e.target.value })}
+                placeholder="值（如 HASCO 8 点）"
+                className="flex-1 bg-yellow-50 border border-yellow-300 rounded px-3 py-1.5 text-sm focus:border-yellow-500 focus:outline-none"
+              />
+              <button onClick={() => removeCustomParam(k)} className="text-xs text-red-500 px-2 hover:text-red-700">删除</button>
+            </div>
+          ))}
+          {Object.keys(customParams).length === 0 && (
+            <div className="text-xs text-gray-400">暂无自定义参数，点击下方按钮添加</div>
+          )}
+          <button
+            onClick={addCustomParam}
+            className="text-xs border border-gray-300 px-3 py-1.5 rounded hover:bg-gray-50"
+          >
+            + 添加新参数
+          </button>
+        </div>
+      </Section>
+
+      {/* ⑦ 汇总 */}
       {r && (
-        <Section title="⑥ 含税报价汇总">
+        <Section title="⑦ 含税报价汇总">
           <div className="grid grid-cols-3 gap-4">
             <SummaryCard label="模具费（含税）" value={r.summary.moldIncVat} />
-            <SummaryCard label={`注塑费（${input.firstOrderQty.toLocaleString()}件 × ¥${r.summary.unitCostExVat.toFixed(2)}）含税`} value={r.summary.injectionIncVat} />
+            <SummaryCard
+              label={`注塑费（${input.firstOrderQty.toLocaleString()}件 × ¥${r.summary.unitCostExVat.toFixed(2)}）含税`}
+              value={r.summary.injectionIncVat}
+            />
             <div className="bg-gray-900 text-white rounded-lg p-5">
               <div className="text-xs opacity-80">报价总计（含税）</div>
               <div className="text-3xl font-bold mt-2">¥ {r.summary.grandTotalIncVat.toLocaleString()}</div>
@@ -399,12 +608,13 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
     <div>
       <div className="text-xs text-gray-500 mb-1">{label}</div>
       <input
         value={value}
+        placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         className="w-full bg-yellow-50 border border-yellow-300 rounded px-3 py-2 text-sm focus:border-yellow-500 focus:outline-none"
       />

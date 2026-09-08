@@ -1,4 +1,6 @@
-// 报价单路由 — CRUD + 状态机
+// 报价单路由 — CRUD + 状态机 + Excel 导出
+// 流程：创建草稿 → （可选发邮件/客户确认）→ 已成交
+// 设计：去掉了"审核"环节，提交即生成正式报价单（按业务方要求）
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -6,11 +8,13 @@ import { prisma } from '../db.js';
 import { calculateQuote, validateQuoteInput } from '@mqs/calc-engine';
 import type { CalcQuoteRequest } from '@mqs/shared';
 import { sendQuoteNotification } from '../services/email.js';
+import { buildQuoteExcel } from '../services/excel.js';
 
 const CreateQuoteSchema = z.object({
   customerId: z.string().optional(),
   customerName: z.string().min(1),
-  input: z.any(), // QuoteInput - 已校验
+  customerEmail: z.string().email().optional(), // 新增：客户邮箱（直发场景）
+  input: z.any(), // QuoteInput - 已校验（含 extras/customParams）
 });
 
 const UpdateQuoteSchema = z.object({
@@ -69,6 +73,7 @@ export async function quoteRoutes(app: FastifyInstance) {
       quoteNo: q.quoteNo,
       status: q.status,
       customerName: q.customer?.name || '',
+      customerEmail: q.customer?.email || '',
       productName: (q.versions[0]?.paramsJson as any)?.productName || '',
       grandTotal: (q.versions[0]?.calcResultJson as any)?.summary?.grandTotalIncVat || 0,
       createdBy: q.createdBy.name,
@@ -135,7 +140,13 @@ export async function quoteRoutes(app: FastifyInstance) {
     },
   );
 
-  // 创建草稿
+  // ================================================================
+  // 创建报价单
+  // 行为：
+  //   1) 找到或创建客户（客户邮箱会一并写进 Customer.email）
+  //   2) 落库（含 input.extras、input.customParams 在 paramsJson 内）
+  //   3) 若 customerEmail 给了 → 直接进入 'sent' 状态，生成分享链接+发邮件
+  // ================================================================
   app.post('/api/quotes', { preHandler: [app.authenticate] }, async (req, reply) => {
     const { companyId, userId } = req.user as any;
     const body = CreateQuoteSchema.parse(req.body);
@@ -155,9 +166,20 @@ export async function quoteRoutes(app: FastifyInstance) {
       });
       if (existing) {
         customerId = existing.id;
+        // 若已有客户且传了新邮箱，则更新
+        if (body.customerEmail && existing.email !== body.customerEmail) {
+          await prisma.customer.update({
+            where: { id: existing.id },
+            data: { email: body.customerEmail },
+          });
+        }
       } else {
         const c = await prisma.customer.create({
-          data: { companyId, name: body.customerName },
+          data: {
+            companyId,
+            name: body.customerName,
+            email: body.customerEmail || null,
+          },
         });
         customerId = c.id;
       }
@@ -166,14 +188,16 @@ export async function quoteRoutes(app: FastifyInstance) {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30);
 
+    const autoSend = !!body.customerEmail;
     const quote = await prisma.quote.create({
       data: {
         companyId,
         customerId,
         createdById: userId,
         quoteNo: genQuoteNo(),
-        status: 'draft',
+        status: autoSend ? 'sent' : 'draft',
         expiresAt,
+        sentAt: autoSend ? new Date() : null,
         versions: {
           create: {
             versionNo: 1,
@@ -185,16 +209,78 @@ export async function quoteRoutes(app: FastifyInstance) {
           },
         },
         logs: {
-          create: { userId, action: 'created', detail: '创建报价单' },
+          create: {
+            userId,
+            action: autoSend ? 'sent' : 'created',
+            detail: autoSend
+              ? `创建并直发至客户邮箱 ${body.customerEmail}`
+              : '创建报价单',
+          },
         },
       },
       include: { versions: true },
     });
 
-    return quote;
+    // 若指定了客户邮箱：生成分享链接 + 发邮件（不阻塞主流程）
+    let emailSent = false;
+    let emailError: string | null = null;
+    let shareUrl: string | null = null;
+    if (autoSend && body.customerEmail) {
+      const version = quote.versions[0];
+      const summary = result.summary;
+      const share = await prisma.quoteShare.create({
+        data: {
+          quoteId: quote.id,
+          versionId: version.id,
+          shareToken: genShareToken(),
+          email: body.customerEmail,
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        },
+      });
+      shareUrl = `${process.env.PUBLIC_WEB_URL || 'http://47.242.248.104'}/share/${share.shareToken}`;
+
+      const me = await prisma.user.findUnique({ where: { id: userId } });
+      const emailResult = await sendQuoteNotification({
+        to: body.customerEmail,
+        customerName: body.customerName,
+        quoteNo: quote.quoteNo,
+        productName: body.input.productName,
+        grandTotalIncVat: summary.grandTotalIncVat,
+        moldTotalExVat: summary.moldTotalExVat,
+        unitCostExVat: summary.unitCostExVat,
+        firstOrderQty: body.input.firstOrderQty,
+        validUntil: expiresAt,
+        shareUrl,
+        senderName: me?.name || '报价员',
+      });
+      emailSent = emailResult.ok;
+      emailError = emailResult.ok ? null : emailResult.error;
+
+      await prisma.quoteEmailLog.create({
+        data: {
+          quoteId: quote.id,
+          versionId: version.id,
+          toEmail: body.customerEmail,
+          subject: `【报价单】${quote.quoteNo} — ${body.input.productName}`,
+          status: emailSent ? 'sent' : 'failed',
+          errorMsg: emailError,
+          sentById: userId,
+        },
+      });
+    }
+
+    return {
+      ...quote,
+      autoSend,
+      emailSent,
+      emailError,
+      shareUrl,
+    };
   });
 
+  // ================================================================
   // 修改参数（自动派生新版本）
+  // ================================================================
   app.patch(
     '/api/quotes/:id/versions/:versionNo',
     { preHandler: [app.authenticate] },
@@ -261,94 +347,22 @@ export async function quoteRoutes(app: FastifyInstance) {
     },
   );
 
-  // 提交审核
-  app.post(
-    '/api/quotes/:id/submit',
-    { preHandler: [app.authenticate] },
-    async (req, reply) => {
-      const { companyId, userId } = req.user as any;
-      const { id } = req.params as any;
-      const q = await prisma.quote.findFirst({ where: { id, companyId } });
-      if (!q) return reply.code(404).send({ error: '报价单不存在' });
-      if (q.status !== 'draft' && q.status !== 'rejected') {
-        return reply.code(400).send({ error: '当前状态不可提交' });
-      }
-      await prisma.quote.update({ where: { id }, data: { status: 'pending' } });
-      await prisma.quoteLog.create({
-        data: { quoteId: id, userId, action: 'submitted', detail: '提交审核' },
-      });
-      return { ok: true };
-    },
-  );
-
-  // 审核通过
-  app.post(
-    '/api/quotes/:id/approve',
-    { preHandler: [app.authenticate] },
-    async (req, reply) => {
-      const { companyId, userId, role } = req.user as any;
-      if (!['auditor', 'admin'].includes(role)) {
-        return reply.code(403).send({ error: '无审核权限' });
-      }
-      const { id } = req.params as any;
-      const q = await prisma.quote.findFirst({ where: { id, companyId } });
-      if (!q) return reply.code(404).send({ error: '报价单不存在' });
-      if (q.status !== 'pending') {
-        return reply.code(400).send({ error: '当前状态不可审核' });
-      }
-      await prisma.quote.update({
-        where: { id },
-        data: { status: 'approved', approvedById: userId },
-      });
-      await prisma.quoteLog.create({
-        data: { quoteId: id, userId, action: 'approved', detail: '审核通过' },
-      });
-      return { ok: true };
-    },
-  );
-
-  // 审核退回
-  app.post(
-    '/api/quotes/:id/reject',
-    { preHandler: [app.authenticate] },
-    async (req, reply) => {
-      const { companyId, userId, role } = req.user as any;
-      if (!['auditor', 'admin'].includes(role)) {
-        return reply.code(403).send({ error: '无审核权限' });
-      }
-      const { id } = req.params as any;
-      const body = z.object({ reason: z.string() }).parse(req.body);
-      const q = await prisma.quote.findFirst({ where: { id, companyId } });
-      if (!q) return reply.code(404).send({ error: '报价单不存在' });
-      if (q.status !== 'pending') {
-        return reply.code(400).send({ error: '当前状态不可退回' });
-      }
-      await prisma.quote.update({ where: { id }, data: { status: 'draft' } });
-      await prisma.quoteLog.create({
-        data: {
-          quoteId: id,
-          userId,
-          action: 'rejected',
-          detail: `退回：${body.reason}`,
-        },
-      });
-      return { ok: true };
-    },
-  );
-
-const SendQuoteSchema = z.object({
-  email: z.string().email('邮箱格式不正确'),
-  sendEmail: z.boolean().optional().default(true), // 是否同时发送邮件通知
-});
-
-// 发送（生成分享链接 + 可选邮件通知客户）
+  // ================================================================
+  // 发送（生成分享链接 + 邮件通知客户）
+  // 适用场景：draft 想补发邮件 / sent 状态再次发送
+  // ================================================================
   app.post(
     '/api/quotes/:id/send',
     { preHandler: [app.authenticate] },
     async (req, reply) => {
       const { companyId, userId } = req.user as any;
       const { id } = req.params as any;
-      const body = SendQuoteSchema.parse(req.body);
+      const body = z
+        .object({
+          email: z.string().email('邮箱格式不正确'),
+          sendEmail: z.boolean().optional().default(true),
+        })
+        .parse(req.body);
 
       const q = await prisma.quote.findFirst({
         where: { id, companyId },
@@ -359,8 +373,8 @@ const SendQuoteSchema = z.object({
         },
       });
       if (!q) return reply.code(404).send({ error: '报价单不存在' });
-      if (!['approved', 'sent'].includes(q.status)) {
-        return reply.code(400).send({ error: '报价单未通过审核，不可发送' });
+      if (['confirmed', 'expired'].includes(q.status)) {
+        return reply.code(400).send({ error: '当前状态不可发送' });
       }
 
       const version = q.versions[0];
@@ -380,7 +394,7 @@ const SendQuoteSchema = z.object({
 
       await prisma.quote.update({
         where: { id },
-        data: { status: 'sent', sentAt: new Date() },
+        data: { status: 'sent', sentAt: q.sentAt || new Date() },
       });
 
       await prisma.quoteLog.create({
@@ -392,9 +406,8 @@ const SendQuoteSchema = z.object({
         },
       });
 
-      const shareUrl = `${process.env.PUBLIC_WEB_URL || 'http://localhost:5173'}/share/${share.shareToken}`;
+      const shareUrl = `${process.env.PUBLIC_WEB_URL || 'http://47.242.248.104'}/share/${share.shareToken}`;
 
-      // 邮件通知客户（默认开启；失败不影响分享链接生成）
       let emailResult: { ok: boolean; error?: string } = { ok: false, error: '未发送' };
       if (body.sendEmail) {
         emailResult = await sendQuoteNotification({
@@ -411,7 +424,6 @@ const SendQuoteSchema = z.object({
           senderName: q.createdBy?.name || '报价员',
         });
 
-        // 邮件发送留痕
         await prisma.quoteEmailLog.create({
           data: {
             quoteId: id,
@@ -419,7 +431,7 @@ const SendQuoteSchema = z.object({
             toEmail: body.email,
             subject: `【报价单】${q.quoteNo} — ${params?.productName || '产品'}`,
             status: emailResult.ok ? 'sent' : 'failed',
-            errorMsg: emailResult.ok ? null : (emailResult.error || '未知错误'),
+            errorMsg: emailResult.ok ? null : emailResult.error,
             sentById: userId,
           },
         });
@@ -435,7 +447,9 @@ const SendQuoteSchema = z.object({
     },
   );
 
+  // ================================================================
   // 单独重发报价单邮件（不改状态，仅重发通知）
+  // ================================================================
   app.post(
     '/api/quotes/:id/resend-email',
     { preHandler: [app.authenticate] },
@@ -464,7 +478,7 @@ const SendQuoteSchema = z.object({
       const calc = version.calcResultJson as any;
       const params = version.paramsJson as any;
       const summary = calc?.summary || {};
-      const shareUrl = `${process.env.PUBLIC_WEB_URL || 'http://localhost:5173'}/share/${share.shareToken}`;
+      const shareUrl = `${process.env.PUBLIC_WEB_URL || 'http://47.242.248.104'}/share/${share.shareToken}`;
 
       const result = await sendQuoteNotification({
         to: body.email,
@@ -487,7 +501,7 @@ const SendQuoteSchema = z.object({
           toEmail: body.email,
           subject: `【报价单】${q.quoteNo} — ${params?.productName || '产品'}`,
           status: result.ok ? 'sent' : 'failed',
-          errorMsg: result.ok ? null : (result.error || '未知错误'),
+          errorMsg: result.ok ? null : result.error,
           sentById: userId,
         },
       });
@@ -497,7 +511,9 @@ const SendQuoteSchema = z.object({
     },
   );
 
+  // ================================================================
   // 邮件发送记录
+  // ================================================================
   app.get(
     '/api/quotes/:id/email-logs',
     { preHandler: [app.authenticate] },
@@ -513,7 +529,55 @@ const SendQuoteSchema = z.object({
     },
   );
 
+  // ================================================================
+  // Excel 导出（下载 .xlsx）
+  // ================================================================
+  app.get(
+    '/api/quotes/:id/export-excel',
+    { preHandler: [app.authenticate] },
+    async (req, reply) => {
+      const { companyId } = req.user as any;
+      const { id } = req.params as any;
+      const q = await prisma.quote.findFirst({
+        where: { id, companyId },
+        include: {
+          versions: { orderBy: { versionNo: 'desc' }, take: 1 },
+          customer: true,
+          createdBy: { select: { name: true } },
+        },
+      });
+      if (!q) return reply.code(404).send({ error: '报价单不存在' });
+
+      const version = q.versions[0];
+      if (!version) return reply.code(400).send({ error: '报价单无可用版本' });
+
+      const buf = await buildQuoteExcel({
+        quoteNo: q.quoteNo,
+        customerName: q.customer?.name || '',
+        productName: (version.paramsJson as any)?.productName || '',
+        input: version.paramsJson as any,
+        result: version.calcResultJson as any,
+        businessTerms: (version.businessTermsJson as any) || undefined,
+        senderName: q.createdBy?.name,
+        createdAt: q.createdAt,
+      });
+
+      reply
+        .header(
+          'Content-Type',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        .header(
+          'Content-Disposition',
+          `attachment; filename="${encodeURIComponent(`报价单_${q.quoteNo}.xlsx`)}"`,
+        )
+        .send(buf);
+    },
+  );
+
+  // ================================================================
   // 客户通过分享链接确认
+  // ================================================================
   app.post('/api/share/:token/confirm', async (req, reply) => {
     const { token } = req.params as any;
     const share = await prisma.quoteShare.findUnique({
