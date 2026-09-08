@@ -6,7 +6,8 @@
 
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
-import { prisma } from '../db';
+import { randomInt } from 'node:crypto';
+import { prisma } from '../db.js';
 
 // ------------------------------------------------------------------
 // 配置
@@ -15,7 +16,7 @@ const SMTP_HOST = process.env.SMTP_HOST || 'smtp.qq.com';
 const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
 const SMTP_SECURE = (process.env.SMTP_SECURE || 'true') === 'true';
 const SMTP_USER = process.env.SMTP_USER || '729503962@qq.com';
-const SMTP_PASS = process.env.SMTP_PASS || 'lbukpgyzzmtqbcfl';
+const SMTP_PASS = process.env.SMTP_PASS || 'zdxcbqeinqokbcec';
 const SMTP_FROM = process.env.SMTP_FROM || `模具注塑报价系统 <${SMTP_USER}>`;
 
 // 验证码有效期（分钟）
@@ -51,7 +52,6 @@ const SCENE_LABEL: Record<CodeScene, string> = {
 // ------------------------------------------------------------------
 function generateCode(): string {
   // 用 crypto 保证随机性（不用 Math.random，防止被预测）
-  const { randomInt } = require('crypto');
   return String(randomInt(100000, 1000000)).padStart(6, '0');
 }
 

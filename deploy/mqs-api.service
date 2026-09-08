@@ -1,0 +1,25 @@
+[Unit]
+Description=Mold Quote System API (Fastify)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/mold-quote-system/apps/api
+EnvironmentFile=/opt/mold-quote-system/apps/api/.env
+ExecStart=/usr/bin/node /opt/mold-quote-system/apps/api/dist/index.js
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+StandardOutput=append:/var/log/mqs-api.log
+StandardError=append:/var/log/mqs-api.log
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+MemoryMax=600M
+
+[Install]
+WantedBy=multi-user.target

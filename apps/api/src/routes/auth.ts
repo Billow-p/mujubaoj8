@@ -3,8 +3,8 @@
 import type { FastifyInstance } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { prisma } from '../db';
-import { sendVerificationCode, verifyCode, verifySmtpConnection } from '../services/email';
+import { prisma } from '../db.js';
+import { sendVerificationCode, verifyCode, verifySmtpConnection } from '../services/email.js';
 
 const EmailSchema = z.object({
   email: z.string().email('邮箱格式不正确'),

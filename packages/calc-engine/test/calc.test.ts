@@ -2,8 +2,8 @@
 // Excel 案例: B7=0.18, B11=12, E11=0.05, B12=130, E9=45, B8=2, B10=0.8, E10=300000
 //             B14=500, E14=400, B15=150, E15=7.85, B16=25, E16=0.15, E12=0.13
 
-import { calculateQuote, compareOptimalCavity, validateQuoteInput } from '../src/index.ts';
-import type { QuoteInput } from '../../shared/src/index.ts';
+import { calculateQuote, compareOptimalCavity, validateQuoteInput } from '../src/index';
+import type { QuoteInput } from '@mqs/shared';
 
 const baseInput: QuoteInput = {
   customerName: '美的电器股份有限公司',

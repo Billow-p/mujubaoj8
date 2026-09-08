@@ -10,8 +10,8 @@ import type {
   QuoteInput,
   QuoteSummary,
   BusinessTermItem,
-} from '../../shared/src/index.ts';
-import { DEFAULT_BUSINESS_TERMS } from '../../shared/src/index.ts';
+} from '@mqs/shared';
+import { DEFAULT_BUSINESS_TERMS } from '@mqs/shared';
 import {
   COMPLEXITY_COEFF,
   STEEL_COEFF,
@@ -26,7 +26,7 @@ import {
   PROVINCE_INNER_SHIPPING,
   POST_PROCESS_UNIT_PRICE,
   DEFAULT_PACKAGING_FEE,
-} from './tables.ts';
+} from './tables.js';
 
 const round = (n: number): number => Math.round(n * 100) / 100;
 const yuan = (n: number): number => Math.round(n);
@@ -330,8 +330,9 @@ export function calculateQuote(req: CalcQuoteRequest): QuoteCalcResult {
 
   // 应用 lock（仅锁，不改值）
   locks.forEach((k) => {
-    if (moldFeeItems[k]) {
-      moldFeeItems[k].locked = true;
+    const key = k as keyof MoldFeeItems;
+    if (moldFeeItems[key]) {
+      moldFeeItems[key].locked = true;
     }
   });
 

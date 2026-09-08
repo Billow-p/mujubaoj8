@@ -3,11 +3,11 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
-import { authRoutes } from './routes/auth';
-import { calcRoutes } from './routes/calc';
-import { quoteRoutes } from './routes/quotes';
-import { customerRoutes } from './routes/customers';
-import { verifySmtpConnection } from './services/email';
+import { authRoutes } from './routes/auth.js';
+import { calcRoutes } from './routes/calc.js';
+import { quoteRoutes } from './routes/quotes.js';
+import { customerRoutes } from './routes/customers.js';
+import { verifySmtpConnection } from './services/email.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -36,6 +36,8 @@ async function bootstrap() {
 
   // 健康检查
   app.get('/api/health', async () => ({ ok: true, ts: new Date().toISOString() }));
+  // 供 nginx / 容器健康检查直接探测（无 /api 前缀）
+  app.get('/health', async () => ({ ok: true, ts: new Date().toISOString() }));
 
   // 注册路由
   await app.register(authRoutes);

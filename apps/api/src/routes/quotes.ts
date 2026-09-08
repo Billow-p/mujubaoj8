@@ -2,10 +2,10 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../db';
+import { prisma } from '../db.js';
 import { calculateQuote, validateQuoteInput } from '@mqs/calc-engine';
 import type { CalcQuoteRequest } from '@mqs/shared';
-import { sendQuoteNotification } from '../services/email';
+import { sendQuoteNotification } from '../services/email.js';
 
 const CreateQuoteSchema = z.object({
   customerId: z.string().optional(),
@@ -64,7 +64,7 @@ export async function quoteRoutes(app: FastifyInstance) {
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
-    return quotes.map((q) => ({
+    return quotes.map((q: any) => ({
       id: q.id,
       quoteNo: q.quoteNo,
       status: q.status,
@@ -111,7 +111,7 @@ export async function quoteRoutes(app: FastifyInstance) {
         calcResultJson: true,
       },
     });
-    return versions.map((v) => ({
+    return versions.map((v: any) => ({
       id: v.id,
       versionNo: v.versionNo,
       createdAt: v.createdAt,
@@ -177,9 +177,9 @@ export async function quoteRoutes(app: FastifyInstance) {
         versions: {
           create: {
             versionNo: 1,
-            paramsJson: body.input,
-            calcResultJson: result,
-            businessTermsJson: result.businessTerms,
+            paramsJson: body.input as any,
+            calcResultJson: result as any,
+            businessTermsJson: result.businessTerms as any,
             createdById: userId,
             changeNote: '初始创建',
           },
@@ -235,9 +235,9 @@ export async function quoteRoutes(app: FastifyInstance) {
           quoteId: id,
           versionNo: latestVersion.versionNo + 1,
           parentVersionId: latestVersion.id,
-          paramsJson: body.input,
-          calcResultJson: result,
-          businessTermsJson: result.businessTerms,
+          paramsJson: body.input as any,
+          calcResultJson: result as any,
+          businessTermsJson: result.businessTerms as any,
           createdById: userId,
           changeNote: body.changeNote,
         },
@@ -450,7 +450,7 @@ const SendQuoteSchema = z.object({
           versions: { orderBy: { versionNo: 'desc' }, take: 1 },
           customer: true,
           createdBy: { select: { name: true } },
-          shares: { orderBy: { createdAt: 'desc' }, take: 1 },
+          shares: { orderBy: { expiresAt: 'desc' }, take: 1 },
         },
       });
       if (!q) return reply.code(404).send({ error: '报价单不存在' });

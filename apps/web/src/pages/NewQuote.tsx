@@ -4,7 +4,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { calculateQuote, validateQuoteInput, compareOptimalCavity } from '@mqs/calc-engine';
-import type { QuoteInput, QuoteCalcResult, CavityComparison } from '@mqs/calc-engine';
+import type { QuoteInput, QuoteCalcResult, MoldFeeItems, InjectionItems } from '@mqs/shared';
+import type { CavityComparison } from '@mqs/calc-engine';
 import { calc, quotes } from '../api';
 
 const DEFAULT_INPUT: QuoteInput = {
@@ -15,6 +16,7 @@ const DEFAULT_INPUT: QuoteInput = {
   complexity: 'medium',
   singleWeightKg: 0.18,
   cavityCount: 2,
+  machineTonnageT: 160,
   cycleTimeS: 45,
   efficiencyFactor: 0.8,
   firstOrderQty: 300000,
@@ -40,7 +42,7 @@ export default function NewQuote() {
   const [cavityComparison, setCavityComparison] = useState<CavityComparison[] | null>(null);
 
   const update = <K extends keyof QuoteInput>(k: K, v: QuoteInput[K]) => {
-    setInput((prev) => ({ ...prev, [k]: v }));
+    setInput((prev: QuoteInput) => ({ ...prev, [k]: v }));
     // 改动参数时清空覆盖和锁定
     if (overrides[overridesKeyForInput(k)]) {
       const nk = overridesKeyForInput(k);
@@ -364,7 +366,7 @@ export default function NewQuote() {
   );
 }
 
-const MOLD_FEE_ROWS: { key: keyof import('@mqs/calc-engine').MoldFeeItems; label: string }[] = [
+const MOLD_FEE_ROWS: { key: keyof MoldFeeItems; label: string }[] = [
   { key: 'coreSteel', label: '模芯钢料费' },
   { key: 'designFee', label: '模具设计费' },
   { key: 'moldBase', label: '模架费' },
@@ -378,7 +380,7 @@ const MOLD_FEE_ROWS: { key: keyof import('@mqs/calc-engine').MoldFeeItems; label
   { key: 'packagingShipping', label: '包装运输' },
 ];
 
-const INJECTION_ROWS: { key: keyof import('@mqs/calc-engine').InjectionItems; label: string }[] = [
+const INJECTION_ROWS: { key: keyof InjectionItems; label: string }[] = [
   { key: 'material', label: '材料费' },
   { key: 'machining', label: '注塑加工费' },
   { key: 'postProcess', label: '后加工费' },

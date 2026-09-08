@@ -2,7 +2,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../db';
+import { prisma } from '../db.js';
 
 const CreateCustomerSchema = z.object({
   name: z.string().min(1),
@@ -50,12 +50,12 @@ export async function customerRoutes(app: FastifyInstance) {
       },
     });
 
-    const confirmed = quotes.filter((q) => q.status === 'confirmed');
+    const confirmed = quotes.filter((q: any) => q.status === 'confirmed');
     const grandTotals = quotes.map(
-      (q) => (q.versions[0]?.calcResultJson as any)?.summary?.grandTotalIncVat || 0,
+      (q: any) => (q.versions[0]?.calcResultJson as any)?.summary?.grandTotalIncVat || 0,
     );
     const avgGrandTotal =
-      grandTotals.length > 0 ? Math.round(grandTotals.reduce((a, b) => a + b, 0) / grandTotals.length) : 0;
+      grandTotals.length > 0 ? Math.round(grandTotals.reduce((a: number, b: number) => a + b, 0) / grandTotals.length) : 0;
 
     return {
       ...customer,
