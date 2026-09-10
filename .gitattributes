@@ -1,0 +1,32 @@
+# 统一换行符为 LF。
+#
+# 背景：开发机是 Windows（git core.autocrlf=true），提交时容易混入 CRLF。
+# 一旦部署文件带上 CRLF，Linux 上会出现：
+#   - post-install.sh 报 "bad interpreter: /bin/bash^M"
+#   - nginx.conf 的 server_name 值混入 \r，域名匹配异常
+#   - mqs-api.service / certbot-renew.* 被 systemd 拒绝解析
+#
+# 本项目产物全部部署到 Linux，因此显式锁定 LF（当前仓库内已是 LF，此为防回归）。
+
+* text=auto eol=lf
+
+*.sh          text eol=lf
+*.conf        text eol=lf
+*.service     text eol=lf
+*.timer       text eol=lf
+*.ts          text eol=lf
+*.tsx         text eol=lf
+*.mjs         text eol=lf
+*.js          text eol=lf
+*.json        text eol=lf
+*.md          text eol=lf
+*.prisma      text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+Dockerfile    text eol=lf
+
+# 二进制产物不要动
+*.xlsx        binary
+*.png         binary
+*.jpg         binary
+*.pdf         binary
