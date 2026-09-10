@@ -5,6 +5,9 @@ import { calculateConfigured } from '@mqs/calc-engine';
 import type { QuoteItemDef } from '@mqs/shared';
 
 const money = (n: number) => '¥ ' + Math.round(n || 0).toLocaleString('zh-CN');
+/** 单件成本：保留小数 */
+const money2 = (n: number) =>
+  '¥ ' + (Number(n) || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 
 export default function ConfiguredQuote() {
   const navigate = useNavigate();
@@ -70,6 +73,7 @@ export default function ConfiguredQuote() {
         expression: it.expression,
         enabled: it.enabled !== false,
         sortOrder: it.sortOrder ?? i,
+        perUnit: it.scope === 'injection' && it.perUnit === true,
       };
       const amt = manuals[it.name];
       if (it.calcType === 'manual' && amt != null) {
@@ -280,7 +284,14 @@ export default function ConfiguredQuote() {
                 {l.error ? (
                   <div className="text-[12.5px] text-red-600 mt-0.5">{l.error}</div>
                 ) : (
-                  <div className="text-[12px] text-blue-700 mt-0.5">{l.readable}</div>
+                  <>
+                    <div className="text-[12px] text-blue-700 mt-0.5">{l.readable}</div>
+                    {l.scope === 'injection' && l.unitPrice != null && (
+                      <div className="text-[12px] text-emerald-700 mt-0.5">
+                        单件 {money2(l.unitPrice)}　×　{(l.qty ?? 0).toLocaleString('zh-CN')} 件
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             ))}
@@ -293,9 +304,16 @@ export default function ConfiguredQuote() {
               <span>模具费用</span>
               <span>{money(result?.mold ?? 0)}</span>
             </div>
-            <div className="flex justify-between text-[13px] text-gray-600 py-0.5">
-              <span>注塑费用</span>
-              <span>{money(result?.injection ?? 0)}</span>
+            <div className="flex justify-between text-[13px] text-gray-600 py-0.5 gap-2">
+              <span className="min-w-0">
+                注塑费用
+                {result?.unitCost != null && result?.injectionQty != null && (
+                  <span className="text-[11.5px] text-emerald-700 ml-1 whitespace-nowrap">
+                    单件 {money2(result.unitCost)} × {result.injectionQty.toLocaleString('zh-CN')} 件
+                  </span>
+                )}
+              </span>
+              <span className="tabular-nums">{money(result?.injection ?? 0)}</span>
             </div>
             <div className="flex justify-between text-[13px] text-gray-600 py-0.5">
               <span>利润（{Math.round((result?.profitRate ?? 0) * 1000) / 10}%）</span>

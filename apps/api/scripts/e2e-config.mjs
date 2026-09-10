@@ -106,17 +106,21 @@ async function main() {
     check('模具类型列表', types.status === 200 && types.data.length === 3);
     console.log('        类型：' + types.data.map((t) => `${t.name}(${t.counts.items}项费用)`).join('、'));
     const injection = types.data.find((t) => t.code === 'injection');
-    check('注塑含 5 项费用', injection?.counts.items === 5, `${injection?.counts.items}`);
-    check('注塑含 8 项参数', injection?.counts.parameters === 8, `${injection?.counts.parameters}`);
+    check('注塑含 8 项费用（5 模具 + 3 注塑）', injection?.counts.items === 8, `${injection?.counts.items}`);
+    check('注塑含 10 项参数', injection?.counts.parameters === 10, `${injection?.counts.parameters}`);
 
     // ---------- 2 读配置 ----------
     console.log('\n[2] 读取整类配置');
     const cfg = await req('GET', `/api/config/${injection.id}`, undefined, token);
     check('配置可读', cfg.status === 200 && !!cfg.data.moldType);
-    check('含参数', cfg.data.parameters.length === 8, `${cfg.data.parameters.length} 项`);
+    check('含参数', cfg.data.parameters.length === 10, `${cfg.data.parameters.length} 项`);
     check('含材料', cfg.data.materials.length === 5, `${cfg.data.materials.length} 种`);
     check('含条款', cfg.data.terms.length === 3, `${cfg.data.terms.length} 条`);
-    check('含费用项', cfg.data.items.length === 5, `${cfg.data.items.length} 项`);
+    check('含费用项', cfg.data.items.length === 8, `${cfg.data.items.length} 项`);
+    const injItems = cfg.data.items.filter((x) => x.scope === 'injection');
+    check('注塑费用项已预置 3 条', injItems.length === 3, injItems.map((x) => x.name).join('、'));
+    check('注塑费用项默认按件计价', injItems.every((x) => x.perUnit === true));
+    check('含「注塑数量」参数', cfg.data.parameters.some((p) => p.name === '注塑数量'));
 
     // ---------- 3 试算 ----------
     console.log('\n[3] 按配置试算');

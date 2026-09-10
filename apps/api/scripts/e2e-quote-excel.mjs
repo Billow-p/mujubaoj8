@@ -107,12 +107,16 @@ async function main() {
     const cfg = await req('GET', `/api/config/${inj.id}`, undefined, token);
     await req('PUT', `/api/config/${inj.id}`, {
       items: [
-        ...cfg.data.items.map((it) => ({ id: it.id, name: it.name, category: it.category, scope: it.scope, calcType: it.calcType, calcConfig: it.calcConfig, enabled: it.enabled })),
+        ...cfg.data.items.map((it) => ({ id: it.id, name: it.name, category: it.category, scope: it.scope, calcType: it.calcType, calcConfig: it.calcConfig, perUnit: it.perUnit, enabled: it.enabled })),
         { name: '差旅费', category: '自定义', scope: 'mold', calcType: 'manual', enabled: true },
       ],
     }, token);
     const cfg2 = await req('GET', `/api/config/${inj.id}`, undefined, token);
     check('手填项已加入', cfg2.data.items.some((x) => x.name === '差旅费'));
+    check(
+      '按件计价标记在保存后保留',
+      cfg2.data.items.filter((x) => x.scope === 'injection').every((x) => x.perUnit === true),
+    );
 
     // ---------- 创建报价单 ----------
     console.log('\n[2] 按配置创建报价单');
@@ -120,7 +124,10 @@ async function main() {
       moldTypeId: inj.id,
       customerName: '顺德电器有限公司',
       productName: '洗衣机控制面板',
-      values: { 腔数: 2, 单件重量: 0.18, 模芯长: 500, 模芯宽: 400, 模芯高: 150, 钢材单价: 25, 首单数量: 300000 },
+      values: {
+        腔数: 2, 单件重量: 0.18, 模芯长: 500, 模芯宽: 400, 模芯高: 150,
+        钢材单价: 25, 原料单价: 12, 注塑数量: 5000, 首单数量: 300000,
+      },
       manualAmounts: { 差旅费: 3500 },
     }, token);
     check('报价单创建成功', created.status === 200 && !!created.data.id, created.data?.quoteNo);
@@ -141,6 +148,26 @@ async function main() {
     check('含税总价 > 0', calc.total > 0, String(calc.total));
     check('报价单已关联模具类型', detail.data.moldTypeId === inj.id);
     check('参数值已冻结到版本', ver.paramsJson?.values?.['腔数'] === 2);
+
+    // ---------- 注塑费用：按件计价 ----------
+    console.log('\n[2.1] 注塑费用：单件成本 × 注塑数量');
+    const mat = lineOf('产品材料费');
+    const proc = lineOf('注塑加工费');
+    const pack = lineOf('包装费');
+    check('产品材料费单件成本 2.27 元', mat?.unitPrice === 2.27, String(mat?.unitPrice));
+    check('产品材料费金额 2.268 × 5000 = 11340', mat?.value === 11340, String(mat?.value));
+    check('注塑加工费 0.3 元/件 × 5000 = 1500', proc?.value === 1500 && proc?.unitPrice === 0.3, String(proc?.value));
+    check('包装费 0.05 元/件 × 5000 = 250', pack?.value === 250, String(pack?.value));
+    check('按件计价标记已存储', mat?.perUnit === true);
+    check('数量回填 5000', mat?.qty === 5000, String(mat?.qty));
+    check('注塑单件成本合计 2.62 元', calc.unitCost === 2.62, String(calc.unitCost));
+    check('注塑数量 5000', calc.injectionQty === 5000, String(calc.injectionQty));
+    check('注塑费用合计 13090', calc.injection === 13090, String(calc.injection));
+
+    const beforeProfit = calc.mold + calc.injection;
+    const expProfit = Math.round(beforeProfit * 0.1);
+    const expTotal = beforeProfit + expProfit + Math.round((beforeProfit + expProfit) * 0.13);
+    check('含税总价 = 模具 + 注塑 + 利润 + 税', Math.abs(calc.total - expTotal) < 0.01, `${calc.total} vs ${expTotal}`);
 
     // ---------- Excel 导出 ----------
     console.log('\n[3] Excel 导出');
@@ -212,6 +239,25 @@ async function main() {
     const hasReadable = allText.some((t) => t.includes('模芯长') && t.includes('钢材单价'));
     check('明细含中文计算说明', hasReadable);
 
+    // 注塑明细行：单价 / 数量 / 金额 三列都要有值
+    let matRow = null;
+    ws.eachRow((row) => {
+      if (String(row.getCell(2).value) === '产品材料费') matRow = row;
+    });
+    check('找到产品材料费行', !!matRow);
+    check('单价列 = 2.27', Math.abs(Number(matRow?.getCell(4).value) - 2.27) < 0.001, String(matRow?.getCell(4).value));
+    check('数量列 = 5000', Number(matRow?.getCell(5).value) === 5000, String(matRow?.getCell(5).value));
+    check('金额列 = 11340', Number(matRow?.getCell(6).value) === 11340, String(matRow?.getCell(6).value));
+    check('单价列有小数格式', matRow?.getCell(4).numFmt === '#,##0.0000', String(matRow?.getCell(4).numFmt));
+    check('数量列带「件」单位', matRow?.getCell(5).numFmt === '#,##0" 件"', String(matRow?.getCell(5).numFmt));
+
+    // 模具费行没有单价/数量，应显示「—」而不是空
+    let moldRow = null;
+    ws.eachRow((row) => {
+      if (String(row.getCell(2).value) === '模芯钢材费') moldRow = row;
+    });
+    check('模具费行单价列显示「—」', moldRow?.getCell(4).value === '—', String(moldRow?.getCell(4).value));
+
     // 明细 sheet
     const ws2 = wb.getWorksheet('计算明细');
     const text2 = [];
@@ -227,6 +273,12 @@ async function main() {
     check('100.5 → 壹佰元伍角', toChineseAmount(100.5) === '壹佰元伍角', toChineseAmount(100.5));
     check('0 → 零元整', toChineseAmount(0) === '零元整', toChineseAmount(0));
     check('10000 → 壹万元整', toChineseAmount(10000) === '壹万元整', toChineseAmount(10000));
+    // 跨节补「零」：万位与千位之间
+    check('100305.5 → 壹拾万零叁佰零伍元伍角', toChineseAmount(100305.5) === '壹拾万零叁佰零伍元伍角', toChineseAmount(100305.5));
+    check('10100 → 壹万零壹佰元整', toChineseAmount(10100) === '壹万零壹佰元整', toChineseAmount(10100));
+    check('100000 → 壹拾万元整', toChineseAmount(100000) === '壹拾万元整', toChineseAmount(100000));
+    check('1000000 → 壹佰万元整', toChineseAmount(1000000) === '壹佰万元整', toChineseAmount(1000000));
+    check('本单金额大写正确', toChineseAmount(calc.total) === toChineseAmount(100305.5), toChineseAmount(calc.total));
 
     // ---------- Excel 落盘供人工查看 ----------
     const out = path.join(apiDir, '..', '..', 'prototype', 'sample-quote.xlsx');

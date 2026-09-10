@@ -62,25 +62,28 @@ export function buildItemExpression(item: QuoteItemDef): string {
 export function describeItem(item: QuoteItemDef): string {
   const c: QuoteItemCalcConfig = item.calcConfig ?? {};
   const yuan = (n: unknown) => '¥' + Number(n || 0).toLocaleString('zh-CN');
+  /** 注塑按件计价：末尾补一句「× 注塑数量」，让用户明白这是单件价 */
+  const per = item.perUnit && item.scope === 'injection';
+  const tail = per ? '　×　注塑数量' : '';
   switch (item.calcType) {
     case 'fixed':
-      return `固定金额 ${yuan(c.amount)}`;
+      return per ? `单件 ${yuan(c.amount)}${tail}` : `固定金额 ${yuan(c.amount)}`;
     case 'qty': {
       const q = c.src ? c.src : String(Number(c.srcQty) || 0);
       return `${q} × ${Number(c.price) || 0} 元`;
     }
     case 'size': {
       const dims = [c.l, c.w, c.h].filter((x) => x && String(x).trim());
-      return `${dims.join(' × ')} → 换算重量 × ${c.priceVar || (Number(c.priceFixed) || 0) + ' 元'}`;
+      return `${dims.join(' × ')} → 换算重量 × ${c.priceVar || (Number(c.priceFixed) || 0) + ' 元'}${tail}`;
     }
     case 'hours':
-      return `${Number(c.hours) || 0} 小时 × ${Number(c.rate) || 0} 元/小时`;
+      return `${Number(c.hours) || 0} 小时 × ${Number(c.rate) || 0} 元/小时${tail}`;
     case 'weight':
-      return `${c.wVar || '重量'} × ${c.priceVar || (Number(c.priceFixed) || 0) + ' 元'} × (1 + 损耗 ${Number(c.loss) || 0})`;
+      return `${c.wVar || '重量'} × ${c.priceVar || (Number(c.priceFixed) || 0) + ' 元'} × (1 + 损耗 ${Number(c.loss) || 0})${tail}`;
     case 'percent':
       return `${c.base || '模具小计'} × ${r2((Number(c.rate) || 0) * 100)}%`;
     case 'manual':
-      return '报价时手动填写金额';
+      return per ? '报价时手动填写单件成本' : '报价时手动填写金额';
     case 'formula':
       return item.expression || '（未填写公式）';
     default:
@@ -91,6 +94,7 @@ export function describeItem(item: QuoteItemDef): string {
 /** 把求值器的技术性报错转成人话 */
 export function friendlyCalcError(e: unknown): string {
   const m = e instanceof Error ? e.message : String(e);
+  if (m === NO_QTY) return '缺「注塑数量」，按件计价算不出来。请到配置中心加一个名为「注塑数量」的参数';
   if (/未定义变量|未赋值/.test(m)) return '用到的数据项不存在了，可能已被删掉，请重新选';
   if (/除数为 0/.test(m)) return '算到「除以 0」了，检查一下填的数字';
   if (/意外结束|缺少右括号|未消费|意外的 token|无法识别/.test(m)) {
@@ -100,9 +104,28 @@ export function friendlyCalcError(e: unknown): string {
   return m;
 }
 
+/** 内部：缺少注塑数量的哨兵错误 */
+const NO_QTY = '__NO_INJECTION_QTY__';
+
 export interface ConfiguredOptions {
   profitRate?: number;
   taxRate?: number;
+  /** 「注塑数量」的参数名。不指定时按常用名自动查找 */
+  injectionQtyVar?: string;
+}
+
+/** 按件计价用的数量参数，按优先级自动查找 */
+const QTY_VAR_CANDIDATES = ['注塑数量', '本次数量', '生产数量', '订单数量', '首单数量'];
+
+export function resolveInjectionQty(
+  params: Record<string, number>,
+  want?: string,
+): { qty: number; varName: string } {
+  if (want && Number.isFinite(params[want])) return { qty: Number(params[want]), varName: want };
+  for (const k of QTY_VAR_CANDIDATES) {
+    if (Number.isFinite(params[k])) return { qty: Number(params[k]), varName: k };
+  }
+  return { qty: 0, varName: '' };
 }
 
 /**
@@ -121,6 +144,9 @@ export function calculateConfigured(
     if (Number.isFinite(n)) scope[k] = n;
   }
   const allowed = new Set<string>(Object.keys(scope));
+
+  // 按件计价要用到的「注塑数量」
+  const { qty: injectionQty } = resolveInjectionQty(params, opts.injectionQtyVar);
 
   const sorted = [...items].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
   const lines: ConfigCalcLine[] = new Array(sorted.length);
@@ -152,21 +178,50 @@ export function calculateConfigured(
     }
 
     const expression = buildItemExpression(it);
+    const isInjection = it.scope === 'injection';
+    const perUnit = isInjection && it.perUnit === true;
     try {
-      const v = evaluateExpression(expression, scope, allowed);
-      const rounded = r2(v);
+      const raw = evaluateExpression(expression, scope, allowed);
+      let value = raw;
+      let unitPrice: number | undefined;
+      let qty: number | undefined;
+
+      if (isInjection) {
+        qty = injectionQty;
+        if (perUnit) {
+          // 按件计价：算出来的就是单件成本，总额 = 单件成本 × 注塑数量
+          if (!injectionQty) throw new Error(NO_QTY);
+          unitPrice = r2(raw);
+          value = raw * injectionQty;
+        } else {
+          // 直接是总额：反推单件成本，供表格展示
+          unitPrice = injectionQty > 0 ? r2(raw / injectionQty) : undefined;
+        }
+      }
+
+      const rounded = r2(value);
       scope[it.name] = rounded;
       allowed.add(it.name);
-      if (it.scope === 'injection') directInjection += rounded;
+      if (isInjection) directInjection += rounded;
       else directMold += rounded;
       if (it.category === '材料费') materialTotal += rounded;
-      lines[idx] = { ...meta(it), value: rounded, expression, readable: describeItem(it) };
+      lines[idx] = {
+        ...meta(it),
+        value: rounded,
+        expression,
+        readable: describeItem(it),
+        perUnit: perUnit || undefined,
+        unitPrice,
+        qty,
+      };
     } catch (e) {
       lines[idx] = {
         ...meta(it),
         value: 0,
         expression,
         readable: describeItem(it),
+        perUnit: perUnit || undefined,
+        qty: isInjection ? injectionQty : undefined,
         error: friendlyCalcError(e),
       };
     }
@@ -185,7 +240,8 @@ export function calculateConfigured(
           ? directInjection
           : directMold;
     const v = Math.round(from * rate);
-    if (it.scope === 'injection') injection += v;
+    const isInj = it.scope === 'injection';
+    if (isInj) injection += v;
     else mold += v;
     scope[it.name] = v;
     allowed.add(it.name);
@@ -194,6 +250,8 @@ export function calculateConfigured(
       value: r2(v),
       expression: `${from} * ${rate}`,
       readable: describeItem(it),
+      qty: isInj ? injectionQty : undefined,
+      unitPrice: isInj && injectionQty > 0 ? r2(v / injectionQty) : undefined,
     };
   }
 
@@ -204,6 +262,13 @@ export function calculateConfigured(
   const beforeTax = beforeProfit + profit;
   const tax = Math.round(beforeTax * taxRate);
 
+  // 注塑单件成本合计 = 各注塑项的单件成本之和
+  const unitCost = r2(
+    lines
+      .filter((l) => l && l.scope === 'injection' && !l.skipped && !l.error)
+      .reduce((s, l) => s + (Number(l.unitPrice) || 0), 0),
+  );
+
   return {
     lines,
     mold: r2(mold),
@@ -213,5 +278,7 @@ export function calculateConfigured(
     taxRate,
     tax,
     total: r2(beforeTax + tax),
+    injectionQty: injectionQty || undefined,
+    unitCost: unitCost || undefined,
   };
 }

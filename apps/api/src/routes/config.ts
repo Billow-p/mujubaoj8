@@ -18,6 +18,7 @@ const ItemSchema = z.object({
   calcType: z.enum(CALC_TYPES),
   calcConfig: z.record(z.any()).nullable().optional(),
   expression: z.string().max(1000).nullable().optional(),
+  perUnit: z.boolean().optional(),
   unit: z.string().max(20).nullable().optional(),
   enabled: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
@@ -248,6 +249,7 @@ export async function configRoutes(app: FastifyInstance) {
             calcType: it.calcType,
             calcConfig: it.calcConfig ?? undefined,
             expression: it.expression ?? null,
+            perUnit: it.perUnit === true,
             unit: it.unit ?? null,
             enabled: it.enabled !== false,
             sortOrder: i,
@@ -304,6 +306,7 @@ export async function configRoutes(app: FastifyInstance) {
       expression: it.expression ?? undefined,
       enabled: it.enabled,
       sortOrder: i,
+      perUnit: it.scope === 'injection' && it.perUnit === true,
       unit: it.unit ?? undefined,
       note: it.note ?? undefined,
     }));
@@ -367,6 +370,7 @@ async function createPresetMoldType(companyId: string, p: (typeof MOLD_PRESETS)[
       scope: it.scope,
       calcType: it.calcType,
       calcConfig: it.calcConfig as any,
+      perUnit: it.perUnit === true,
       sortOrder: i,
     })),
   });
@@ -407,7 +411,7 @@ async function copyConfig(companyId: string, fromId: string, toId: string) {
       data: items.map((it, i) => ({
         companyId, moldTypeId: toId, name: it.name, category: it.category, scope: it.scope,
         calcType: it.calcType, calcConfig: it.calcConfig as any, expression: it.expression,
-        enabled: it.enabled, sortOrder: i, unit: it.unit, note: it.note,
+        perUnit: it.perUnit, enabled: it.enabled, sortOrder: i, unit: it.unit, note: it.note,
       })),
     });
   }

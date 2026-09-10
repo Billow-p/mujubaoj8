@@ -32,6 +32,9 @@ function takeLines(lines: any[], scope: 'mold' | 'injection'): ExcelLine[] {
       name: l.name,
       readable: l.readable,
       value: Number(l.value) || 0,
+      unitPrice: l.unitPrice != null ? Number(l.unitPrice) : undefined,
+      qty: l.qty != null ? Number(l.qty) : undefined,
+      perUnit: l.perUnit === true,
     }));
 }
 
@@ -81,14 +84,29 @@ export function toExcelModel(quote: QuoteLike, version: VersionLike, moldTypeNam
       steel: '模具钢材',
     };
 
-    const project = Object.entries(vals)
+    // 顺序必须按 parameters 数组来 —— values 存在 jsonb 字段里，
+    // jsonb 会按「键长度 + 字节序」重排对象键，中文参数名的顺序会被打乱。
+    const paramDefs = (params.parameters ?? []) as any[];
+    const orderedVals: [string, any][] = [];
+    const seenKeys = new Set<string>();
+    for (const p of paramDefs) {
+      if (vals[p.name] !== undefined) {
+        orderedVals.push([p.name, vals[p.name]]);
+        seenKeys.add(p.name);
+      }
+    }
+    for (const [k, v] of Object.entries(vals)) {
+      if (!seenKeys.has(k)) orderedVals.push([k, v]);
+    }
+
+    const project = orderedVals
       .map(([k, v]) => {
-        const item = (params.parameters ?? []).find((p: any) => p.name === k);
         const label = labelMap[k] ?? k;
-        const unit = item?.unit ? ` ${item.unit}` : '';
-        return { label, value: `${v}${unit}` };
+        const unit = paramDefs.find((p) => p.name === k)?.unit;
+        return { label, value: unit ? `${v} ${unit}` : `${v}` };
       })
-      .slice(0, 8);
+      // 参数多的类型（注塑有 10 个）别把「注塑数量」这类关键参数截掉
+      .slice(0, 14);
 
     if (params.productName) project.unshift({ label: '产品名称', value: String(params.productName) });
 
@@ -110,6 +128,8 @@ export function toExcelModel(quote: QuoteLike, version: VersionLike, moldTypeNam
         taxRate: Number(calc.taxRate) || 0,
         tax: Number(calc.tax) || 0,
         total: Number(calc.total) || 0,
+        injectionQty: Number(calc.injectionQty) || undefined,
+        unitCost: Number(calc.unitCost) || undefined,
       },
       terms: (version.businessTermsJson ?? [])
         .filter((t: any) => t?.enabled !== false)

@@ -15,6 +15,8 @@ export interface PresetItem {
   scope: 'mold' | 'injection';
   calcType: string;
   calcConfig: Record<string, unknown>;
+  /** 按件计价：算出来的是单件成本，总额 = 单件成本 × 注塑数量 */
+  perUnit?: boolean;
 }
 
 export interface PresetMaterial {
@@ -57,6 +59,8 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { code: 'coreHeightMm', name: '模芯高', value: 150, unit: 'mm', group: '模具' },
       { code: 'materialPrice', name: '钢材单价', value: 25, unit: '元/kg', group: '材料' },
       { code: 'steelDensity', name: '钢材密度', value: 7.85, unit: 'g/cm³', group: '材料' },
+      { code: 'materialUnitPrice', name: '原料单价', value: 12, unit: '元/kg', group: '材料' },
+      { code: 'injectionQty', name: '注塑数量', value: 5000, unit: '件', group: '商务' },
       { code: 'firstOrderQty', name: '首单数量', value: 300000, unit: '件', group: '商务' },
     ],
     materials: [
@@ -72,12 +76,21 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       '模具 40 天交货，首单注塑于收到定金后 45 天交付。',
     ],
     items: [
+      // ------- 模具费用（一次性） -------
       { name: '模芯钢材费', category: '材料费', scope: 'mold', calcType: 'size',
         calcConfig: { l: '模芯长', w: '模芯宽', h: '模芯高', density: 7.85, priceVar: '钢材单价' } },
       { name: 'CNC 加工费', category: 'CNC', scope: 'mold', calcType: 'hours', calcConfig: { hours: 96, rate: 400 } },
       { name: '设计费', category: '自定义', scope: 'mold', calcType: 'fixed', calcConfig: { amount: 6000 } },
       { name: '试模费', category: '试模', scope: 'mold', calcType: 'qty', calcConfig: { src: '腔数', price: 2500 } },
       { name: '管理费', category: '管理费', scope: 'mold', calcType: 'percent', calcConfig: { base: '模具小计', rate: 0.15 } },
+
+      // ------- 注塑费用（按件计价：单件成本 × 注塑数量） -------
+      { name: '产品材料费', category: '注塑材料', scope: 'injection', calcType: 'weight', perUnit: true,
+        calcConfig: { wVar: '单件重量', priceVar: '原料单价', loss: 0.05 } },
+      { name: '注塑加工费', category: '注塑加工', scope: 'injection', calcType: 'fixed', perUnit: true,
+        calcConfig: { amount: 0.3 } },
+      { name: '包装费', category: '注塑包装', scope: 'injection', calcType: 'fixed', perUnit: true,
+        calcConfig: { amount: 0.05 } },
     ],
   },
   {

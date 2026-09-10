@@ -642,7 +642,10 @@ export async function quoteRoutes(app: FastifyInstance) {
     if (!moldType) return reply.code(404).send({ error: '模具类型不存在' });
 
     const [parameters, items, terms] = await Promise.all([
-      prisma.customParameter.findMany({ where: { companyId, moldTypeId: moldType.id } }),
+      prisma.customParameter.findMany({
+        where: { companyId, moldTypeId: moldType.id },
+        orderBy: { sortOrder: 'asc' },
+      }),
       prisma.quoteItem.findMany({
         where: { companyId, moldTypeId: moldType.id },
         orderBy: { sortOrder: 'asc' },
@@ -676,6 +679,8 @@ export async function quoteRoutes(app: FastifyInstance) {
         expression: it.expression ?? undefined,
         enabled: it.enabled,
         sortOrder: i,
+        // 注塑按件计价：结果是单件成本，再乘注塑数量
+        perUnit: (it.scope as string) === 'injection' && (it as any).perUnit === true,
         unit: it.unit ?? undefined,
       };
       const amt = body.manualAmounts?.[it.name];

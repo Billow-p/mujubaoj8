@@ -246,6 +246,11 @@ export interface QuoteItemDef {
   sortOrder?: number;
   note?: string;
   unit?: string;
+  /**
+   * 按件计价：算出来的结果是「单件成本」，总额 = 单件成本 × 注塑数量。
+   * 仅 scope='injection' 有意义。注塑费用基本都是按件算的（如 0.3 元/件）。
+   */
+  perUnit?: boolean;
 }
 
 export interface ConfigCalcLine {
@@ -259,6 +264,14 @@ export interface ConfigCalcLine {
   skipped?: boolean;
   manual?: boolean;
   error?: string;
+  /** 按件计价：该项结果是单件成本 */
+  perUnit?: boolean;
+  /** 单件成本（元/件）——注塑项才有 */
+  unitPrice?: number;
+  /** 数量 —— 注塑项才有 */
+  qty?: number;
+  /** 数量的单位，如「件」 */
+  qtyUnit?: string;
 }
 
 export interface ConfigCalcResult {
@@ -270,6 +283,10 @@ export interface ConfigCalcResult {
   taxRate: number;
   tax: number;
   total: number;
+  /** 本次注塑数量 */
+  injectionQty?: number;
+  /** 注塑单件成本合计（元/件） */
+  unitCost?: number;
 }
 
 // 计算方式的中文说明（前后端共用）

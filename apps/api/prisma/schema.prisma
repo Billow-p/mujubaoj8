@@ -425,6 +425,7 @@ model QuoteItem {
   calcType   String   @default("fixed")  // fixed|qty|size|hours|weight|percent|manual|formula
   calcConfig Json?                       // 各计算方式的填空
   expression String?                     // 仅 formula 模式使用
+  perUnit    Boolean  @default(false)    // 按件计价：结果是单件成本，总额 = 单件成本 × 注塑数量
   unit       String?
   enabled    Boolean  @default(true)
   sortOrder  Int      @default(0)

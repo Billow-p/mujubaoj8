@@ -5,6 +5,9 @@ import { CALC_TYPE_META } from '@mqs/shared';
 import type { MoldCalcType, QuoteItemDef } from '@mqs/shared';
 
 const money = (n: number) => '¥ ' + Math.round(n || 0).toLocaleString('zh-CN');
+/** 单价/单件成本：保留小数，不取整 */
+const money2 = (n: number) =>
+  '¥ ' + (Number(n) || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const num = (n: any) => (n === '' || n == null ? '' : String(n));
 
 const emptyParam = () => ({ code: '', name: '', unit: '', defaultValue: '', group: '产品', enabled: true });
@@ -16,6 +19,7 @@ const emptyItem = (): any => ({
   scope: 'mold',
   calcType: 'fixed',
   calcConfig: { amount: 0 },
+  perUnit: false,
   enabled: true,
 });
 
@@ -81,6 +85,7 @@ export default function ConfigCenter() {
       expression: it.expression,
       enabled: it.enabled !== false,
       sortOrder: it.sortOrder ?? i,
+      perUnit: it.scope === 'injection' && it.perUnit === true,
     }));
     return calculateConfigured(defs, params, {
       profitRate: cfg.moldType?.profitRate ?? 0.1,
@@ -149,6 +154,7 @@ export default function ConfigCenter() {
       items: cfg.items.map((it: any, i: number) => ({
         id: it.id, name: it.name, category: it.category, scope: it.scope,
         calcType: it.calcType, calcConfig: it.calcConfig ?? {}, expression: it.expression ?? null,
+        perUnit: it.perUnit === true,
         enabled: it.enabled !== false, sortOrder: i,
       })),
       profitRate: Number(cfg.moldType.profitRate) || 0,
@@ -497,6 +503,21 @@ export default function ConfigCenter() {
                             <option value="mold">模具</option>
                             <option value="injection">注塑</option>
                           </select>
+                          {it.scope === 'injection' && (
+                            <label
+                              className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-300 rounded px-2.5 py-1.5 cursor-pointer"
+                              title="勾上后，这里填的是「单件成本」，系统自动乘以注塑数量得总额"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={it.perUnit === true}
+                                onChange={(e) => setItemField(i, 'perUnit', e.target.checked)}
+                                className="w-3.5 h-3.5 accent-emerald-600"
+                              />
+                              <span className="text-[12.5px] font-medium text-emerald-800">按件计价</span>
+                              <span className="text-[11.5px] text-emerald-600">填单件成本，自动 × 数量</span>
+                            </label>
+                          )}
                         </div>
 
                         {line?.error ? (
@@ -580,7 +601,15 @@ export default function ConfigCenter() {
                     {l.error ? (
                       <div className="text-[12.5px] text-red-600 mt-0.5">{l.error}</div>
                     ) : (
-                      <div className="text-[12px] text-blue-700 mt-0.5 font-mono">{l.readable}</div>
+                      <>
+                        <div className="text-[12px] text-blue-700 mt-0.5 font-mono">{l.readable}</div>
+                        {l.scope === 'injection' && l.unitPrice != null && (
+                          <div className="text-[12px] text-emerald-700 mt-0.5 font-mono">
+                            单件 {money2(l.unitPrice)}　×　
+                            {(l.qty ?? 0).toLocaleString('zh-CN')} 件
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 ))}
@@ -590,7 +619,17 @@ export default function ConfigCenter() {
               </div>
               <div className="bg-gray-50 border-t border-gray-200 px-3.5 py-3">
                 <div className="flex justify-between text-[13px] text-gray-600 py-0.5"><span>模具费用</span><span>{money(calcResult?.mold ?? 0)}</span></div>
-                <div className="flex justify-between text-[13px] text-gray-600 py-0.5"><span>注塑费用</span><span>{money(calcResult?.injection ?? 0)}</span></div>
+                <div className="flex justify-between text-[13px] text-gray-600 py-0.5 gap-2">
+                  <span className="min-w-0">
+                    注塑费用
+                    {calcResult?.unitCost != null && calcResult?.injectionQty != null && (
+                      <span className="text-[11.5px] text-emerald-700 ml-1 whitespace-nowrap">
+                        单件 {money2(calcResult.unitCost)} × {calcResult.injectionQty.toLocaleString('zh-CN')} 件
+                      </span>
+                    )}
+                  </span>
+                  <span className="tabular-nums">{money(calcResult?.injection ?? 0)}</span>
+                </div>
 
                 <div className="flex justify-between items-center text-[13px] text-gray-600 py-0.5 gap-2">
                   <span>利润率</span>

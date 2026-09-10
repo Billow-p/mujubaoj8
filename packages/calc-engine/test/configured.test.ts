@@ -123,5 +123,65 @@ t('单件材料费', r5.lines[0].value, 4.73);
 t('注塑合计', r5.injection, 4.73);
 t('模具合计为 0', r5.mold, 0);
 
+console.log('=== 8. 按件计价（注塑费的核心算法） ===');
+const P2: Record<string, number> = { ...P, 注塑数量: 5000 };
+const unitItem = (name: string, amount: number, sortOrder: number): QuoteItemDef => ({
+  name, category: '加工费', scope: 'injection', calcType: 'fixed',
+  enabled: true, perUnit: true, sortOrder, calcConfig: { amount },
+});
+const r6 = calculateConfigured([unitItem('注塑加工费', 0.3, 1)], P2, {});
+t('单件 0.3 元 × 5000 件 = 1500 元', r6.lines[0].value, 1500);
+t('单件成本 = 0.3', r6.lines[0].unitPrice, 0.3);
+t('数量回填 = 5000', r6.lines[0].qty, 5000);
+t('按件计价标记', r6.lines[0].perUnit, true);
+t('注塑合计 = 1500', r6.injection, 1500);
+t('单件成本合计 = 0.3', r6.unitCost, 0.3);
+t('注塑数量回传到结果', r6.injectionQty, 5000);
+
+console.log('=== 9. 多项注塑费：材料费按重量 + 加工费按件 ===');
+const P3: Record<string, number> = { ...P2, 原料单价: 12 };
+const items7: QuoteItemDef[] = [
+  { name: '产品材料费', category: '材料费', scope: 'injection', calcType: 'weight', enabled: true,
+    perUnit: true, sortOrder: 1, calcConfig: { wVar: '单件重量', priceVar: '原料单价', loss: 0.05 } },
+  unitItem('注塑加工费', 0.3, 2),
+  unitItem('包装费', 0.05, 3),
+];
+const r7 = calculateConfigured(items7, P3, {});
+t('材料费单件成本 0.18kg × 12 × 1.05 = 2.27', r7.lines[0].unitPrice, 2.27);
+t('材料费金额 2.268 × 5000', r7.lines[0].value, 11340);
+t('加工费金额 1500', r7.lines[1].value, 1500);
+t('包装费金额 250', r7.lines[2].value, 250);
+t('单件成本合计 2.27+0.30+0.05 = 2.62', r7.unitCost, 2.62);
+t('注塑费用合计 13090', r7.injection, 13090);
+t('模具合计为 0', r7.mold, 0);
+
+console.log('=== 10. 不带 perUnit 的注塑项按总额处理（向后兼容） ===');
+const r8 = calculateConfigured(
+  [{ name: '注塑加工费', category: '加工费', scope: 'injection', calcType: 'qty', enabled: true,
+     sortOrder: 1, calcConfig: { src: '注塑数量', price: 0.3 } }],
+  P2,
+  {},
+);
+t('数量×单价 = 1500（总额）', r8.injection, 1500);
+t('反推出单件成本 0.3', r8.lines[0].unitPrice, 0.3);
+
+console.log('=== 11. 缺少数量参数时给出人话报错 ===');
+const r9 = calculateConfigured([unitItem('注塑加工费', 0.3, 1)], { 腔数: 2 }, {});
+t('报错被捕获', !!r9.lines[0].error, true);
+t('注塑合计为 0', r9.injection, 0);
+console.log('        报错文案：' + r9.lines[0].error);
+
+console.log('=== 12. 按件计价的中文读法 ===');
+t(
+  '按件计价读法带「× 注塑数量」',
+  describeItem(unitItem('注塑加工费', 0.3, 1)),
+  '单件 ¥0.3　×　注塑数量',
+);
+t(
+  '模具项读法不带「× 注塑数量」',
+  describeItem({ name: '设计费', scope: 'mold', calcType: 'fixed', enabled: true, calcConfig: { amount: 6000 } }),
+  '固定金额 ¥6,000',
+);
+
 console.log(`\n${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);
