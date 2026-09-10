@@ -398,10 +398,10 @@ export default function ConfigCenter() {
                             type="number"
                             value={num(p.defaultValue)}
                             onChange={(e) => patch((c) => { c.parameters[i].defaultValue = e.target.value; })}
-                            className="w-[64px] border border-gray-300 rounded px-1.5 py-1 text-[12px] text-right"
+                            className="w-[84px] border border-gray-300 rounded px-1.5 py-1 text-[12px] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                           />
                         )}
-                        <span className="text-[11px] text-gray-400 w-[20px] truncate">{p.unit}</span>
+                        <span className="text-[11px] text-gray-400 w-[28px] truncate" title={p.unit || ''}>{p.unit}</span>
                         <button
                           onClick={() => patch((c) => { c.parameters.splice(i, 1); })}
                           className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 text-sm leading-none shrink-0"
@@ -465,15 +465,15 @@ export default function ConfigCenter() {
                       type="number"
                       value={num(m.currentPrice)}
                       onChange={(e) => patch((c) => { c.materials[i].currentPrice = e.target.value; })}
-                      className="w-[64px] border border-gray-300 rounded px-1.5 py-1 text-[12.5px] text-right"
+                      className="w-[84px] border border-gray-300 rounded px-1.5 py-1 text-[12.5px] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
-                    <span className="text-[11.5px] text-gray-400">{m.unit}</span>
+                    <span className="text-[11.5px] text-gray-400 w-[30px] truncate" title={m.unit || ''}>{m.unit}</span>
                     <input
                       type="number"
                       value={num(m.lossRate)}
                       onChange={(e) => patch((c) => { c.materials[i].lossRate = e.target.value; })}
-                      title="损耗率"
-                      className="w-[52px] border border-gray-300 rounded px-1.5 py-1 text-[12.5px] text-right"
+                      title="损耗率（0.05 = 5%）"
+                      className="w-[60px] border border-gray-300 rounded px-1.5 py-1 text-[12.5px] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                     <button
                       onClick={() => patch((c) => { c.materials.splice(i, 1); })}

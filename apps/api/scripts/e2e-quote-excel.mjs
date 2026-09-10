@@ -388,6 +388,62 @@ async function main() {
     const bad = await req('GET', '/api/share/this-token-does-not-exist');
     check('无效 token → 404', bad.status === 404, String(bad.status));
 
+    // ---------- O. 后台管理（仅 admin） ----------
+    console.log('\n[O] 后台管理');
+    const ov = await req('GET', '/api/admin/overview', undefined, token);
+    check('概览可访问（admin）', ov.status === 200, `HTTP ${ov.status}`);
+    check(
+      '概览含用户/客户/报价单数',
+      typeof ov.data.counts?.users === 'number' &&
+        typeof ov.data.counts?.customers === 'number' &&
+        typeof ov.data.counts?.quotes === 'number',
+      `users=${ov.data.counts?.users} customers=${ov.data.counts?.customers} quotes=${ov.data.counts?.quotes}`,
+    );
+    check('概览含累计金额', typeof ov.data.amount?.total === 'number', String(ov.data.amount?.total));
+    check(
+      '概览含报价单状态分布',
+      Array.isArray(ov.data.byStatus) && ov.data.byStatus.length > 0,
+      (ov.data.byStatus || []).map((x) => `${x.label}:${x.count}`).join(' '),
+    );
+    check('概览含近 30 天数据', typeof ov.data.recent30?.quotes === 'number' && typeof ov.data.recent30?.users === 'number');
+
+    const us = await req('GET', '/api/admin/users', undefined, token);
+    check('用户列表可访问', us.status === 200 && Array.isArray(us.data));
+    const me = (us.data || []).find((u) => u.email === 'q1@mqs.local');
+    check('列表含当前管理员', !!me && me.role === 'admin');
+    check(
+      '用户含报价统计',
+      typeof me?.stats?.quotes === 'number' && typeof me?.stats?.amount === 'number',
+      `quotes=${me?.stats?.quotes} amount=${me?.stats?.amount}`,
+    );
+    check(
+      '用户报价单数与总览一致',
+      me?.stats?.quotes === ov.data.counts.quotes,
+      `${me?.stats?.quotes} vs ${ov.data.counts.quotes}`,
+    );
+    check('可见邮箱验证状态与注册时间', typeof me?.emailVerified === 'boolean' && !!me?.createdAt);
+    check('敏感字段不外泄（无密码哈希）', !JSON.stringify(us.data).includes('passwordHash'));
+
+    // 非管理员应被拒
+    const prisma3 = new PrismaClient();
+    const comp3 = await prisma3.company.findFirst();
+    await prisma3.user.create({
+      data: {
+        companyId: comp3.id,
+        email: 'quoter2@mqs.local',
+        passwordHash: bcrypt.hashSync('password123', 10),
+        name: '李报价',
+        role: 'quoter',
+        emailVerified: true,
+      },
+    });
+    await prisma3.$disconnect();
+    const q2 = await req('POST', '/api/auth/login', { email: 'quoter2@mqs.local', password: 'password123' });
+    const forbidden = await req('GET', '/api/admin/users', undefined, q2.data.token);
+    check('普通报价员访问后台 → 403', forbidden.status === 403, `HTTP ${forbidden.status}`);
+    const anon = await req('GET', '/api/admin/overview');
+    check('未登录访问后台 → 401', anon.status === 401, `HTTP ${anon.status}`);
+
     // ---------- Excel 落盘供人工查看 ----------
     const out = path.join(apiDir, '..', '..', 'prototype', 'sample-quote.xlsx');
     fs.writeFileSync(out, buf);

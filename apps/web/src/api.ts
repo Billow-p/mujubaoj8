@@ -34,6 +34,12 @@ export const share = {
   confirm: (token: string) => api.post(`/share/${token}/confirm`, {}).then((r) => r.data),
 };
 
+// 后台管理（仅管理员，后端会再校验 role）
+export const admin = {
+  overview: () => api.get('/admin/overview').then((r) => r.data),
+  users: () => api.get('/admin/users').then((r) => r.data),
+};
+
 // 认证
 export const auth = {
   login: (email: string, password: string) => api.post('/auth/login', { email, password }).then((r) => r.data),

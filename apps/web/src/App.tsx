@@ -11,6 +11,7 @@ import Materials from './pages/Materials';
 import Parameters from './pages/Parameters';
 import ConfigCenter from './pages/ConfigCenter';
 import SharePage from './pages/SharePage';
+import Admin from './pages/Admin';
 import Layout from './components/Layout';
 import { auth } from './api';
 import { useAuth } from './store';
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="/settings/quote-items" element={<QuoteItems />} />
         <Route path="/settings/materials" element={<Materials />} />
         <Route path="/settings/parameters" element={<Parameters />} />
+        <Route path="/admin" element={<Admin />} />
       </Route>
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>

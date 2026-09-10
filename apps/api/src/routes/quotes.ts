@@ -10,6 +10,7 @@ import type { CalcQuoteRequest, QuoteItemDef } from '@mqs/shared';
 import { sendQuoteNotification } from '../services/email.js';
 import { buildQuoteExcel } from '../services/excel.js';
 import { toExcelModel } from '../services/quoteModel.js';
+import { calcTotal } from '../services/quoteTotal.js';
 import { calculateConfigured } from '@mqs/calc-engine';
 
 const CreateQuoteSchema = z.object({
@@ -48,13 +49,6 @@ function genShareToken(): string {
  */
 function publicWebUrl(): string {
   return (process.env.PUBLIC_WEB_URL || 'https://ycwl.chat').replace(/\/+$/, '');
-}
-
-/** 报价单含税总价 —— 兼容两代数据结构（配置驱动 lines / 老 11 项 summary） */
-function calcTotal(calc: any): number {
-  if (!calc) return 0;
-  if (Array.isArray(calc.lines)) return Number(calc.total) || 0;
-  return Number(calc.summary?.grandTotalIncVat) || 0;
 }
 
 /**

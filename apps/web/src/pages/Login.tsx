@@ -9,8 +9,8 @@ export default function Login() {
   const navigate = useNavigate();
   const setUser = useAuth((s) => s.setUser);
   const [mode, setMode] = useState<Mode>('login');
-  const [email, setEmail] = useState('quoter@mqs.local');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [code, setCode] = useState('');
@@ -244,11 +244,6 @@ export default function Login() {
                   : '重置密码'}
           </button>
         </form>
-
-        <div className="mt-6 text-xs text-gray-400 text-center space-y-1">
-          <div>测试账号：quoter@mqs.local / auditor@mqs.local / admin@mqs.local</div>
-          <div>密码：password123</div>
-        </div>
       </div>
     </div>
   );
