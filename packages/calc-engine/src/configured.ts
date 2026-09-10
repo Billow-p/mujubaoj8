@@ -85,10 +85,19 @@ export function describeItem(item: QuoteItemDef): string {
     case 'manual':
       return per ? '报价时手动填写单件成本' : '报价时手动填写金额';
     case 'formula':
-      return item.expression || '（未填写公式）';
+      return beautifyExpression(item.expression) || '（未填写公式）';
     default:
       return '';
   }
+}
+
+/** 公式里的符号换成可读形式，给用户看（不影响实际计算） */
+function beautifyExpression(expr?: string): string {
+  return (expr ?? '')
+    .replace(/\*/g, ' × ')
+    .replace(/\//g, ' ÷ ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** 把求值器的技术性报错转成人话 */

@@ -10,6 +10,17 @@ import { MOLD_PRESETS } from '../services/moldPresets.js';
 
 const CALC_TYPES = ['fixed', 'qty', 'size', 'hours', 'weight', 'percent', 'manual', 'formula'] as const;
 
+/** options 在库里是 String（JSON），对外统一给数组 */
+function parseOptions(raw: string | null | undefined): { label: string; value: number }[] | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 const ItemSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(1).max(50),
@@ -32,6 +43,12 @@ const ParamSchema = z.object({
   unit: z.string().max(10).nullable().optional(),
   defaultValue: z.union([z.string(), z.number()]).nullable().optional(),
   group: z.string().max(20).optional(),
+  type: z.string().max(20).optional(),
+  options: z
+    .array(z.object({ label: z.string().max(40), value: z.number() }))
+    .max(30)
+    .nullable()
+    .optional(),
   enabled: z.boolean().optional(),
 });
 
@@ -179,7 +196,13 @@ export async function configRoutes(app: FastifyInstance) {
       prisma.businessTerm.findMany({ where: { companyId, moldTypeId }, orderBy: { sortOrder: 'asc' } }),
       prisma.quoteItem.findMany({ where: { companyId, moldTypeId }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] }),
     ]);
-    return { moldType, parameters, materials, terms, items };
+    return {
+      moldType,
+      parameters: parameters.map((p) => ({ ...p, options: parseOptions(p.options) })),
+      materials,
+      terms,
+      items,
+    };
   });
 
   app.put('/api/config/:moldTypeId', { preHandler: [app.authenticate] }, async (req, reply) => {
@@ -202,6 +225,8 @@ export async function configRoutes(app: FastifyInstance) {
             unit: p.unit ?? null,
             defaultValue: p.defaultValue == null ? null : String(p.defaultValue),
             group: p.group ?? '通用',
+            type: p.type ?? 'decimal',
+            options: p.options && p.options.length ? JSON.stringify(p.options) : null,
             sortOrder: i,
             enabled: p.enabled !== false,
           };
@@ -341,6 +366,8 @@ async function createPresetMoldType(companyId: string, p: (typeof MOLD_PRESETS)[
       unit: x.unit,
       defaultValue: String(x.value),
       group: x.group,
+      type: x.type ?? 'decimal',
+      options: x.options ? JSON.stringify(x.options) : null,
       sortOrder: i,
     })),
   });
@@ -370,6 +397,7 @@ async function createPresetMoldType(companyId: string, p: (typeof MOLD_PRESETS)[
       scope: it.scope,
       calcType: it.calcType,
       calcConfig: it.calcConfig as any,
+      expression: it.expression ?? null,
       perUnit: it.perUnit === true,
       sortOrder: i,
     })),
@@ -389,7 +417,8 @@ async function copyConfig(companyId: string, fromId: string, toId: string) {
     await prisma.customParameter.createMany({
       data: params.map((x, i) => ({
         companyId, moldTypeId: toId, code: x.code, name: x.name, type: x.type,
-        unit: x.unit, defaultValue: x.defaultValue, group: x.group, sortOrder: i, enabled: x.enabled,
+        unit: x.unit, defaultValue: x.defaultValue, group: x.group, options: x.options,
+        sortOrder: i, enabled: x.enabled,
       })),
     });
   }

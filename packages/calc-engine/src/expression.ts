@@ -21,7 +21,7 @@ export interface EvalContext {
   variablesAllowed?: string[];
 }
 
-const FUNCS: Record<string, (...args: number[]) => number> = {
+const FUNC_IMPL: Record<string, (...args: number[]) => number> = {
   max: (...args) => Math.max(...args),
   min: (...args) => Math.min(...args),
   abs: (x) => Math.abs(x),
@@ -34,16 +34,38 @@ const FUNCS: Record<string, (...args: number[]) => number> = {
   if: (cond, a, b) => (cond !== 0 ? a : b),
 };
 
-const FUNCNAMES = new Set(Object.keys(FUNCS));
-const FUNCNAMES_ARG_COUNT: Record<string, number> = {
-  max: -1,    // 任意参数
+/** 中文别名 —— 用户自己写公式时不必记英文函数名 */
+const FUNC_ALIAS: Record<string, string> = {
+  最大值: 'max',
+  最小值: 'min',
+  绝对值: 'abs',
+  四舍五入: 'round',
+  取整: 'round',
+  向下取整: 'floor',
+  向上取整: 'ceil',
+  如果: 'if',
+};
+
+const FUNC_ARG_COUNT: Record<string, number> = {
+  max: -1, // 任意参数
   min: -1,
   abs: 1,
-  round: -1,  // 1 或 2 个
+  round: -1, // 1 或 2 个
   floor: 1,
   ceil: 1,
   if: 3,
 };
+
+const FUNCS: Record<string, (...args: number[]) => number> = { ...FUNC_IMPL };
+for (const [alias, target] of Object.entries(FUNC_ALIAS)) {
+  FUNCS[alias] = FUNC_IMPL[target];
+}
+
+const FUNCNAMES = new Set(Object.keys(FUNCS));
+const FUNCNAMES_ARG_COUNT: Record<string, number> = {};
+for (const name of Object.keys(FUNCS)) {
+  FUNCNAMES_ARG_COUNT[name] = FUNC_ARG_COUNT[FUNC_ALIAS[name] ?? name];
+}
 
 // ============================================================
 // Tokenizer

@@ -10,7 +10,10 @@ const money2 = (n: number) =>
   '¥ ' + (Number(n) || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const num = (n: any) => (n === '' || n == null ? '' : String(n));
 
-const emptyParam = () => ({ code: '', name: '', unit: '', defaultValue: '', group: '产品', enabled: true });
+const emptyParam = () => ({
+  code: '', name: '', unit: '', defaultValue: '', group: '产品',
+  type: 'decimal', options: null, enabled: true,
+});
 const emptyMat = () => ({ code: '', name: '', category: '塑料原料', unit: 'kg', currentPrice: 0, lossRate: 0.05 });
 const emptyTerm = () => ({ text: '', enabled: true });
 const emptyItem = (): any => ({
@@ -113,6 +116,44 @@ export default function ConfigCenter() {
       c.items[idx].calcConfig = { ...(c.items[idx].calcConfig ?? {}), [key]: value };
     });
 
+  /** 参数类型：数字 / 下拉。切成下拉时给两个占位选项 */
+  const setParamType = (idx: number, t: string) =>
+    patch((c) => {
+      const p = c.parameters[idx];
+      p.type = t;
+      if (t === 'select') {
+        if (!Array.isArray(p.options) || !p.options.length) {
+          p.options = [
+            { label: '选项一', value: 1 },
+            { label: '选项二', value: 2 },
+          ];
+        }
+        if (p.defaultValue === '' || p.defaultValue == null) p.defaultValue = String(p.options[0].value);
+      } else {
+        p.options = null;
+      }
+    });
+
+  const setParamOption = (idx: number, oi: number, key: 'label' | 'value', v: any) =>
+    patch((c) => {
+      const o = c.parameters[idx].options[oi];
+      if (key === 'value') o.value = Number(v) || 0;
+      else o.label = v;
+    });
+
+  const addParamOption = (idx: number) =>
+    patch((c) => {
+      const opts = c.parameters[idx].options ?? [];
+      const nextVal = opts.reduce((m: number, o: any) => Math.max(m, Number(o.value) || 0), 0) + 1;
+      opts.push({ label: `选项${opts.length + 1}`, value: nextVal });
+      c.parameters[idx].options = opts;
+    });
+
+  const removeParamOption = (idx: number, oi: number) =>
+    patch((c) => {
+      c.parameters[idx].options.splice(oi, 1);
+    });
+
   const setCalcType = (idx: number, t: MoldCalcType) =>
     patch((c) => {
       const params: any[] = c.parameters ?? [];
@@ -143,6 +184,8 @@ export default function ConfigCenter() {
         unit: p.unit || null,
         defaultValue: String(p.defaultValue ?? ''),
         group: p.group || '通用',
+        type: p.type || 'decimal',
+        options: p.type === 'select' && Array.isArray(p.options) ? p.options : null,
         enabled: p.enabled !== false,
       })),
       materials: cfg.materials.map((m: any) => ({
@@ -321,26 +364,85 @@ export default function ConfigCenter() {
             {/* 参数 */}
             {pane === 'param' && (
               <div className="space-y-0.5">
-                {params.map((p, i) => (
-                  <div key={p.id ?? i} className="flex items-center gap-1.5 px-2 py-1.5 rounded hover:bg-gray-50 group">
-                    <input
-                      value={p.name}
-                      onChange={(e) => patch((c) => { c.parameters[i].name = e.target.value; })}
-                      className="flex-1 min-w-0 text-[13.5px] bg-transparent border border-transparent hover:border-gray-200 focus:border-gray-400 rounded px-1 py-0.5"
-                    />
-                    <input
-                      type="number"
-                      value={num(p.defaultValue)}
-                      onChange={(e) => patch((c) => { c.parameters[i].defaultValue = e.target.value; })}
-                      className="w-[70px] border border-gray-300 rounded px-1.5 py-1 text-[12.5px] text-right"
-                    />
-                    <span className="text-[11.5px] text-gray-400 w-6">{p.unit}</span>
-                    <button
-                      onClick={() => patch((c) => { c.parameters.splice(i, 1); })}
-                      className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 text-sm leading-none"
-                    >×</button>
-                  </div>
-                ))}
+                {params.map((p, i) => {
+                  const isSel = p.type === 'select';
+                  const opts: any[] = Array.isArray(p.options) ? p.options : [];
+                  return (
+                    <div key={p.id ?? i} className="px-2 py-1.5 rounded hover:bg-gray-50 group">
+                      <div className="flex items-center gap-1">
+                        <input
+                          value={p.name}
+                          onChange={(e) => patch((c) => { c.parameters[i].name = e.target.value; })}
+                          className="flex-1 min-w-0 text-[13px] bg-transparent border border-transparent hover:border-gray-200 focus:border-gray-400 rounded px-1 py-0.5"
+                        />
+                        <select
+                          value={p.type ?? 'decimal'}
+                          onChange={(e) => setParamType(i, e.target.value)}
+                          className="w-[50px] border border-gray-300 rounded px-0.5 py-1 text-[11px] text-gray-500"
+                        >
+                          <option value="decimal">数字</option>
+                          <option value="select">下拉</option>
+                        </select>
+                        {isSel ? (
+                          <select
+                            value={num(p.defaultValue)}
+                            onChange={(e) => patch((c) => { c.parameters[i].defaultValue = e.target.value; })}
+                            className="w-[88px] border border-emerald-300 rounded px-1 py-1 text-[11.5px] bg-emerald-50 text-emerald-900"
+                          >
+                            {opts.map((o, oi) => (
+                              <option key={oi} value={o.value}>{o.label}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            type="number"
+                            value={num(p.defaultValue)}
+                            onChange={(e) => patch((c) => { c.parameters[i].defaultValue = e.target.value; })}
+                            className="w-[64px] border border-gray-300 rounded px-1.5 py-1 text-[12px] text-right"
+                          />
+                        )}
+                        <span className="text-[11px] text-gray-400 w-[20px] truncate">{p.unit}</span>
+                        <button
+                          onClick={() => patch((c) => { c.parameters.splice(i, 1); })}
+                          className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 text-sm leading-none shrink-0"
+                        >×</button>
+                      </div>
+
+                      {isSel && (
+                        <div className="mt-1.5 ml-0.5 pl-2 border-l-2 border-emerald-200 space-y-1">
+                          {opts.map((o, oi) => (
+                            <div key={oi} className="flex items-center gap-1">
+                              <input
+                                value={o.label}
+                                onChange={(e) => setParamOption(i, oi, 'label', e.target.value)}
+                                className="flex-1 min-w-0 border border-gray-200 rounded px-1 py-0.5 text-[11.5px]"
+                                placeholder="选项文字"
+                              />
+                              <input
+                                type="number"
+                                value={o.value}
+                                onChange={(e) => setParamOption(i, oi, 'value', e.target.value)}
+                                className="w-[44px] border border-gray-200 rounded px-1 py-0.5 text-[11.5px] text-right"
+                                title="公式里参与计算的数值"
+                              />
+                              <button
+                                onClick={() => removeParamOption(i, oi)}
+                                className="text-gray-300 hover:text-red-500 text-[12px] leading-none shrink-0"
+                              >×</button>
+                            </div>
+                          ))}
+                          <button
+                            onClick={() => addParamOption(i)}
+                            className="text-[11px] text-gray-400 hover:text-gray-900"
+                          >+ 加选项</button>
+                          <p className="text-[11px] text-gray-400 leading-snug">
+                            右边的数字参与公式计算，如「省外 = 1、省内 = 0」
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
                 <button
                   onClick={() => patch((c) => { c.parameters.push(emptyParam()); })}
                   className="w-full mt-2 py-1.5 border border-dashed border-gray-300 rounded text-[12.5px] text-gray-500 hover:border-gray-900 hover:text-gray-900"

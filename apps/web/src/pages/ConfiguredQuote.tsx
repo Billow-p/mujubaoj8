@@ -227,21 +227,37 @@ export default function ConfiguredQuote() {
               <span className="text-xs text-gray-400">改了价格立刻变</span>
             </div>
             <div className="p-3.5 grid grid-cols-3 gap-x-4 gap-y-3">
-              {params.map((p) => (
-                <label key={p.id ?? p.name} className="text-sm">
-                  <span className="text-gray-500">
-                    {p.name}
-                    {p.unit && <span className="text-gray-400 text-xs"> ({p.unit})</span>}
-                  </span>
-                  <input
-                    type="number"
-                    step="any"
-                    value={values[p.name] ?? ''}
-                    onChange={(e) => setValues({ ...values, [p.name]: e.target.value })}
-                    className="mt-1 w-full border border-gray-300 rounded px-2.5 py-2 text-sm text-right tabular-nums"
-                  />
-                </label>
-              ))}
+              {params.map((p) => {
+                const opts: any[] = Array.isArray(p.options) ? p.options : [];
+                const isSel = p.type === 'select' && opts.length > 0;
+                return (
+                  <label key={p.id ?? p.name} className="text-sm">
+                    <span className="text-gray-500">
+                      {p.name}
+                      {p.unit && <span className="text-gray-400 text-xs"> ({p.unit})</span>}
+                    </span>
+                    {isSel ? (
+                      <select
+                        value={values[p.name] ?? ''}
+                        onChange={(e) => setValues({ ...values, [p.name]: e.target.value })}
+                        className="mt-1 w-full border border-emerald-300 bg-emerald-50 text-emerald-900 rounded px-2.5 py-2 text-sm"
+                      >
+                        {opts.map((o, oi) => (
+                          <option key={oi} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="number"
+                        step="any"
+                        value={values[p.name] ?? ''}
+                        onChange={(e) => setValues({ ...values, [p.name]: e.target.value })}
+                        className="mt-1 w-full border border-gray-300 rounded px-2.5 py-2 text-sm text-right tabular-nums"
+                      />
+                    )}
+                  </label>
+                );
+              })}
             </div>
           </div>
 

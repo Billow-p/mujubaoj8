@@ -41,6 +41,17 @@ function genShareToken(): string {
   return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
 }
 
+/** 参数下拉选项存在 String 字段里（JSON），解析失败就当没有 */
+function parseParamOptions(raw: string | null | undefined): { label: string; value: number }[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // 加载企业已启用的报价项（PRD 5.9：报价项自动参与计算并随版本冻结）
 async function loadEnabledFormulas(companyId: string) {
   const items = await prisma.customFormula.findMany({
@@ -731,7 +742,13 @@ export async function quoteRoutes(app: FastifyInstance) {
               productName: body.productName ?? '',
               customerName: body.customerName,
               customerEmail: body.customerEmail ?? '',
-              parameters: parameters.map((p) => ({ name: p.name, unit: p.unit })),
+              // 带上 type/options，报价单与前端才能把下拉参数显示成选项文字而不是 0/1
+              parameters: parameters.map((p) => ({
+                name: p.name,
+                unit: p.unit,
+                type: p.type,
+                options: parseParamOptions(p.options),
+              })),
               values: params,
               manualAmounts: body.manualAmounts ?? {},
               items: defs,

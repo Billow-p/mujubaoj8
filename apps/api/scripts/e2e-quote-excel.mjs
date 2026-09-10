@@ -107,7 +107,7 @@ async function main() {
     const cfg = await req('GET', `/api/config/${inj.id}`, undefined, token);
     await req('PUT', `/api/config/${inj.id}`, {
       items: [
-        ...cfg.data.items.map((it) => ({ id: it.id, name: it.name, category: it.category, scope: it.scope, calcType: it.calcType, calcConfig: it.calcConfig, perUnit: it.perUnit, enabled: it.enabled })),
+        ...cfg.data.items.map((it) => ({ id: it.id, name: it.name, category: it.category, scope: it.scope, calcType: it.calcType, calcConfig: it.calcConfig, expression: it.expression, perUnit: it.perUnit, enabled: it.enabled })),
         { name: '差旅费', category: '自定义', scope: 'mold', calcType: 'manual', enabled: true },
       ],
     }, token);
@@ -141,10 +141,13 @@ async function main() {
     check('模芯钢材费 = 5887.5', lineOf('模芯钢材费')?.value === 5887.5, String(lineOf('模芯钢材费')?.value));
     check('CNC 加工费 = 38400', lineOf('CNC 加工费')?.value === 38400);
     check('试模费 = 5000', lineOf('试模费')?.value === 5000);
+    // 运输费 = max(实重 800, 体积重 120×100×80÷6000=160) × 单价 1.2 × 省外 1
+    check('运输费 = 960（省外）', lineOf('运输费')?.value === 960, String(lineOf('运输费')?.value));
     check('手填差旅费 = 3500', lineOf('差旅费')?.value === 3500, String(lineOf('差旅费')?.value));
-    const sub = 5887.5 + 38400 + 6000 + 5000 + 3500;
-    check('管理费 = 全部直接费用 × 15%', lineOf('管理费')?.value === Math.round(sub * 0.15), String(lineOf('管理费')?.value));
-    check('模具合计正确', calc.mold === sub + Math.round(sub * 0.15), String(calc.mold));
+    // 用户要求：管理费不再预置，内部也不参与计算
+    check('预置里没有管理费', !lineOf('管理费'));
+    const sub = 5887.5 + 38400 + 6000 + 5000 + 960 + 3500;
+    check('模具合计 = 各项直接费用之和', calc.mold === sub, `${calc.mold} vs ${sub}`);
     check('含税总价 > 0', calc.total > 0, String(calc.total));
     check('报价单已关联模具类型', detail.data.moldTypeId === inj.id);
     check('参数值已冻结到版本', ver.paramsJson?.values?.['腔数'] === 2);
@@ -206,6 +209,10 @@ async function main() {
     check('含费用分组-模具费用', has('（一）模具费用'));
     check('含费用明细项', has('模芯钢材费'));
     check('含手填费用项', has('差旅费'));
+    check('含运输费', has('运输费'));
+    check('运输费写明材积重算法', allText.some((t) => t.includes('最大值') && t.includes('6000')));
+    check('报价单里不出现管理费', !allText.some((t) => t.includes('管理费')));
+    check('项目信息含运输区域文字', has('广东省外'));
     check('含汇总-含税总价', has('含 税 总 价'));
     check('含大写金额', allText.some((t) => t.startsWith('大写金额：')));
     check('含商务条款', has('商务条款'));
@@ -278,12 +285,41 @@ async function main() {
     check('10100 → 壹万零壹佰元整', toChineseAmount(10100) === '壹万零壹佰元整', toChineseAmount(10100));
     check('100000 → 壹拾万元整', toChineseAmount(100000) === '壹拾万元整', toChineseAmount(100000));
     check('1000000 → 壹佰万元整', toChineseAmount(1000000) === '壹佰万元整', toChineseAmount(1000000));
-    check('本单金额大写正确', toChineseAmount(calc.total) === toChineseAmount(100305.5), toChineseAmount(calc.total));
+    check('本单金额大写正确（玖万零伍佰叁拾柒元伍角）', toChineseAmount(calc.total) === '玖万零伍佰叁拾柒元伍角', toChineseAmount(calc.total));
+
+    // ---------- 广东省内报价单（免运费），另出一份样张做对比 ----------
+    console.log('\n[4.1] 广东省内报价单（免运费）');
+    const gd = await req('POST', '/api/quotes/configured', {
+      moldTypeId: inj.id,
+      customerName: '广州本地客户',
+      productName: '洗衣机控制面板',
+      values: {
+        腔数: 2, 单件重量: 0.18, 模芯长: 500, 模芯宽: 400, 模芯高: 150,
+        钢材单价: 25, 原料单价: 12, 注塑数量: 5000, 首单数量: 300000,
+        模具重量: 800, 运输箱长: 120, 运输箱宽: 100, 运输箱高: 80,
+        运费单价: 1.2, 运输区域: 0,
+      },
+      manualAmounts: { 差旅费: 3500 },
+    }, token);
+    check('省内报价单创建成功', gd.status === 200 && !!gd.data.id, gd.data?.quoteNo);
+    const gdDetail = await req('GET', `/api/quotes/${gd.data.id}`, undefined, token);
+    const gdCalc = gdDetail.data?.versions?.[0]?.calcResultJson;
+    const gdFr = gdCalc?.lines.find((l) => l.name === '运输费');
+    check('省内运输费 = 0（免费）', gdFr?.value === 0, String(gdFr?.value));
+    check('省内总价低于省外', gdCalc.total < calc.total, `${gdCalc.total} < ${calc.total}`);
+
+    const gdResp = await fetch(`${BASE}/api/quotes/${gd.data.id}/export-excel`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const gdBuf = Buffer.from(await gdResp.arrayBuffer());
+    check('省内 Excel 导出成功', gdResp.status === 200 && gdBuf.length > 5000, `${gdBuf.length} 字节`);
+    fs.writeFileSync(path.join(apiDir, '..', '..', 'prototype', 'sample-quote-guangdong.xlsx'), gdBuf);
 
     // ---------- Excel 落盘供人工查看 ----------
     const out = path.join(apiDir, '..', '..', 'prototype', 'sample-quote.xlsx');
     fs.writeFileSync(out, buf);
     console.log(`\n  已导出样张：${out}`);
+    console.log(`  已导出台内样张：${path.join(apiDir, '..', '..', 'prototype', 'sample-quote-guangdong.xlsx')}`);
   } catch (e) {
     fail++;
     failures.push('执行异常: ' + e.message);

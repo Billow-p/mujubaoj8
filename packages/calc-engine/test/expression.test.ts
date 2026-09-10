@@ -18,6 +18,20 @@ const tests: { expr: string; scope: Record<string, number>; expected: number; al
   { expr: 'coreLengthMm * coreWidthMm * coreHeightMm / 1000', scope: { coreLengthMm: 500, coreWidthMm: 400, coreHeightMm: 150 }, expected: 30000, allowed: ['coreLengthMm', 'coreWidthMm', 'coreHeightMm'] },
   // 负数优先级
   { expr: '2 * -3', scope: {}, expected: -6, allowed: [] },
+  // 中文函数名（用户自己写公式时不必记英文）
+  { expr: '最大值(3, 7)', scope: {}, expected: 7, allowed: [] },
+  { expr: '最小值(3, 7)', scope: {}, expected: 3, allowed: [] },
+  { expr: '绝对值(-5)', scope: {}, expected: 5, allowed: [] },
+  { expr: '四舍五入(3.456, 2)', scope: {}, expected: 3.46, allowed: [] },
+  { expr: '如果(1, 10, 20)', scope: {}, expected: 10, allowed: [] },
+  { expr: '如果(0, 10, 20)', scope: {}, expected: 20, allowed: [] },
+  // 运输费公式：max(实重, 长×宽×高÷6000) × 单价
+  {
+    expr: '最大值(实重, 长 * 宽 * 高 / 6000) * 单价',
+    scope: { 实重: 800, 长: 120, 宽: 100, 高: 80, 单价: 1.2 },
+    expected: 960,
+    allowed: ['实重', '长', '宽', '高', '单价'],
+  },
   // 多层嵌套
   { expr: 'max(0, round(materialUnitPrice * singleWeightKg * 1.05, 2))', scope: { materialUnitPrice: 12, singleWeightKg: 0.18 }, expected: 2.27, allowed: ['materialUnitPrice', 'singleWeightKg'] },
   // AND / OR / NOT（PRD 4.2）

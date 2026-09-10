@@ -102,11 +102,19 @@ export function toExcelModel(quote: QuoteLike, version: VersionLike, moldTypeNam
     const project = orderedVals
       .map(([k, v]) => {
         const label = labelMap[k] ?? k;
-        const unit = paramDefs.find((p) => p.name === k)?.unit;
+        const def = paramDefs.find((p) => p.name === k) as any;
+
+        // 下拉型参数显示选项文字，而不是内部的 0 / 1
+        if (def?.type === 'select' && Array.isArray(def.options)) {
+          const hit = def.options.find((o: any) => Number(o.value) === Number(v));
+          if (hit) return { label, value: String(hit.label) };
+        }
+
+        const unit = def?.unit;
         return { label, value: unit ? `${v} ${unit}` : `${v}` };
       })
-      // 参数多的类型（注塑有 10 个）别把「注塑数量」这类关键参数截掉
-      .slice(0, 14);
+      // 参数多的类型（注塑有 10 多个）别把「注塑数量」这类关键参数截掉
+      .slice(0, 18);
 
     if (params.productName) project.unshift({ label: '产品名称', value: String(params.productName) });
 

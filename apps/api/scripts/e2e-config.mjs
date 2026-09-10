@@ -107,13 +107,13 @@ async function main() {
     console.log('        类型：' + types.data.map((t) => `${t.name}(${t.counts.items}项费用)`).join('、'));
     const injection = types.data.find((t) => t.code === 'injection');
     check('注塑含 8 项费用（5 模具 + 3 注塑）', injection?.counts.items === 8, `${injection?.counts.items}`);
-    check('注塑含 10 项参数', injection?.counts.parameters === 10, `${injection?.counts.parameters}`);
+    check('注塑含 16 项参数', injection?.counts.parameters === 16, `${injection?.counts.parameters}`);
 
     // ---------- 2 读配置 ----------
     console.log('\n[2] 读取整类配置');
     const cfg = await req('GET', `/api/config/${injection.id}`, undefined, token);
     check('配置可读', cfg.status === 200 && !!cfg.data.moldType);
-    check('含参数', cfg.data.parameters.length === 10, `${cfg.data.parameters.length} 项`);
+    check('含参数', cfg.data.parameters.length === 16, `${cfg.data.parameters.length} 项`);
     check('含材料', cfg.data.materials.length === 5, `${cfg.data.materials.length} 种`);
     check('含条款', cfg.data.terms.length === 3, `${cfg.data.terms.length} 条`);
     check('含费用项', cfg.data.items.length === 8, `${cfg.data.items.length} 项`);
@@ -121,6 +121,25 @@ async function main() {
     check('注塑费用项已预置 3 条', injItems.length === 3, injItems.map((x) => x.name).join('、'));
     check('注塑费用项默认按件计价', injItems.every((x) => x.perUnit === true));
     check('含「注塑数量」参数', cfg.data.parameters.some((p) => p.name === '注塑数量'));
+
+    // 用户要求：管理费 / 差旅费不预置，由用户自行决定加不加
+    check('预置里没有管理费', !cfg.data.items.some((x) => x.name.includes('管理费')));
+    check('预置里没有差旅费', !cfg.data.items.some((x) => x.name.includes('差旅费')));
+
+    // 运输费与下拉参数
+    check('含运输费用项', cfg.data.items.some((x) => x.name === '运输费'));
+    const frItem = cfg.data.items.find((x) => x.name === '运输费');
+    check('运输费用的是公式模式', frItem?.calcType === 'formula', String(frItem?.calcType));
+    check('运输费公式已随预置写入', !!frItem?.expression);
+    const zone = cfg.data.parameters.find((p) => p.name === '运输区域');
+    check('运输区域是下拉参数', zone?.type === 'select', String(zone?.type));
+    check('下拉选项已解析成数组', Array.isArray(zone?.options) && zone.options.length === 2, JSON.stringify(zone?.options));
+    check(
+      '含模具重量与运输箱尺寸参数',
+      ['模具重量', '运输箱长', '运输箱宽', '运输箱高', '运费单价'].every((n) =>
+        cfg.data.parameters.some((p) => p.name === n),
+      ),
+    );
 
     // ---------- 3 试算 ----------
     console.log('\n[3] 按配置试算');
@@ -131,9 +150,11 @@ async function main() {
     check('CNC 加工费 = 38400', line('CNC 加工费')?.value === 38400);
     check('设计费 = 6000', line('设计费')?.value === 6000);
     check('试模费 = 5000', line('试模费')?.value === 5000);
-    const sub = 5887.5 + 38400 + 6000 + 5000;
-    check('管理费 = 小计 × 15%', line('管理费')?.value === Math.round(sub * 0.15), String(line('管理费')?.value));
-    check('模具合计', calc.data.mold === sub + Math.round(sub * 0.15), String(calc.data.mold));
+    // 运输费 = max(实重 800, 体积重 120×100×80÷6000=160) × 单价 1.2 × 省外系数 1
+    check('运输费 = max(实重,体积重) × 单价 = 960', line('运输费')?.value === 960, String(line('运输费')?.value));
+    const sub = 5887.5 + 38400 + 6000 + 5000 + 960;
+    check('模具合计', calc.data.mold === sub, `${calc.data.mold} vs ${sub}`);
+    check('注塑合计 = 13090', calc.data.injection === 13090, String(calc.data.injection));
     check('含税总价 > 0', calc.data.total > 0, String(calc.data.total));
     check('中文读法可用', !!line('模芯钢材费')?.readable, line('模芯钢材费')?.readable);
 
@@ -142,29 +163,47 @@ async function main() {
     const calc2 = await req('POST', `/api/config/${injection.id}/calc`, { params: { 腔数: 4 } }, token);
     check('腔数改 4 后试模费翻倍', calc2.data.lines.find((l) => l.name === '试模费')?.value === 10000);
 
-    // ---------- 5 管理费改固定金额（用户可手动调整） ----------
-    console.log('\n[5] 管理费改成固定金额');
-    const items = cfg.data.items.map((it) =>
-      it.name === '管理费'
-        ? { id: it.id, name: it.name, category: it.category, scope: it.scope, calcType: 'fixed', calcConfig: { amount: 8000 }, enabled: true }
-        : { id: it.id, name: it.name, category: it.category, scope: it.scope, calcType: it.calcType, calcConfig: it.calcConfig, expression: it.expression, enabled: it.enabled },
-    );
+    // ---------- 4.1 运输区域切到广东省内 ----------
+    console.log('\n[4.1] 运输区域切到广东省内 → 免运费');
+    const calcIn = await req('POST', `/api/config/${injection.id}/calc`, { params: { 运输区域: 0 } }, token);
+    const frIn = calcIn.data.lines.find((l) => l.name === '运输费');
+    check('省内运输费 = 0', frIn?.value === 0, String(frIn?.value));
+    check('模具合计减少 960', calcIn.data.mold === sub - 960, `${calcIn.data.mold}`);
+
+    // ---------- 4.2 材积重取大者 ----------
+    console.log('\n[4.2] 体积重大于实重时按体积重计');
+    const calcVol = await req('POST', `/api/config/${injection.id}/calc`, { params: { 模具重量: 100 } }, token);
+    const frVol = calcVol.data.lines.find((l) => l.name === '运输费');
+    // 实重 100 < 体积重 160 → 计费重 160 × 1.2 = 192
+    check('实重 100 < 体积重 160 时按 160 计 = 192', frVol?.value === 192, String(frVol?.value));
+
+    // ---------- 5 用户自己加一个比例项（管理费这类由用户决定） ----------
+    console.log('\n[5] 用户自行新增比例项（管理费）');
+    const items = [
+      ...cfg.data.items.map((it) => ({
+        id: it.id, name: it.name, category: it.category, scope: it.scope,
+        calcType: it.calcType, calcConfig: it.calcConfig, expression: it.expression,
+        perUnit: it.perUnit, enabled: it.enabled,
+      })),
+      { name: '管理费', category: '管理费', scope: 'mold', calcType: 'percent', calcConfig: { base: '模具小计', rate: 0.15 }, enabled: true },
+    ];
     const save1 = await req('PUT', `/api/config/${injection.id}`, { items }, token);
     check('保存成功', save1.status === 200);
     const after1 = await req('POST', `/api/config/${injection.id}/calc`, {}, token);
-    check('管理费变为固定 8000', after1.data.lines.find((l) => l.name === '管理费')?.value === 8000);
-    check('模具合计随之变化', after1.data.mold === sub + 8000, String(after1.data.mold));
+    const mf = after1.data.lines.find((l) => l.name === '管理费');
+    check('用户加的管理费生效（模具小计 × 15%）', mf?.value === Math.round(sub * 0.15), String(mf?.value));
+    check('模具合计随之变化', after1.data.mold === sub + Math.round(sub * 0.15), String(after1.data.mold));
 
     // ---------- 6 新增参数 + 费用项 ----------
     console.log('\n[6] 新增参数并用它建费用项');
     const cfgNow = await req('GET', `/api/config/${injection.id}`, undefined, token);
     const save2 = await req('PUT', `/api/config/${injection.id}`, {
       parameters: [
-        ...cfgNow.data.parameters.map((p) => ({ id: p.id, code: p.code, name: p.name, unit: p.unit, defaultValue: p.defaultValue, group: p.group, enabled: true })),
+        ...cfgNow.data.parameters.map((p) => ({ id: p.id, code: p.code, name: p.name, unit: p.unit, defaultValue: p.defaultValue, group: p.group, type: p.type, options: p.options, enabled: true })),
         { code: 'hotRunnerPoints', name: '热流道点数', unit: '点', defaultValue: '8', group: '模具', enabled: true },
       ],
       items: [
-        ...cfgNow.data.items.map((it) => ({ id: it.id, name: it.name, category: it.category, scope: it.scope, calcType: it.calcType, calcConfig: it.calcConfig, enabled: it.enabled })),
+        ...cfgNow.data.items.map((it) => ({ id: it.id, name: it.name, category: it.category, scope: it.scope, calcType: it.calcType, calcConfig: it.calcConfig, expression: it.expression, perUnit: it.perUnit, enabled: it.enabled })),
         { name: '热流道费', category: '热流道', scope: 'mold', calcType: 'qty', calcConfig: { src: '热流道点数', price: 1500 }, enabled: true },
       ],
     }, token);
@@ -178,7 +217,7 @@ async function main() {
     const cfgNow2 = await req('GET', `/api/config/${injection.id}`, undefined, token);
     const keep = cfgNow2.data.items.filter((x) => x.name !== '设计费');
     const save3 = await req('PUT', `/api/config/${injection.id}`, {
-      items: keep.map((it) => ({ id: it.id, name: it.name, category: it.category, scope: it.scope, calcType: it.calcType, calcConfig: it.calcConfig, enabled: it.enabled })),
+      items: keep.map((it) => ({ id: it.id, name: it.name, category: it.category, scope: it.scope, calcType: it.calcType, calcConfig: it.calcConfig, expression: it.expression, perUnit: it.perUnit, enabled: it.enabled })),
     }, token);
     check('删除保存成功', save3.status === 200);
     const after3 = await req('GET', `/api/config/${injection.id}`, undefined, token);
@@ -188,18 +227,24 @@ async function main() {
     console.log('\n[8] 停用费用项');
     const cfgNow3 = await req('GET', `/api/config/${injection.id}`, undefined, token);
     await req('PUT', `/api/config/${injection.id}`, {
-      items: cfgNow3.data.items.map((it) => ({ id: it.id, name: it.name, category: it.category, scope: it.scope, calcType: it.calcType, calcConfig: it.calcConfig, enabled: it.name !== 'CNC 加工费' })),
+      items: cfgNow3.data.items.map((it) => ({ id: it.id, name: it.name, category: it.category, scope: it.scope, calcType: it.calcType, calcConfig: it.calcConfig, expression: it.expression, perUnit: it.perUnit, enabled: it.name !== 'CNC 加工费' })),
     }, token);
     const after4 = await req('POST', `/api/config/${injection.id}/calc`, {}, token);
     check('停用项标记为 skipped', after4.data.lines.find((l) => l.name === 'CNC 加工费')?.skipped === true);
-    check('停用项不计入合计', after4.data.mold === 5887.5 + 5000 + 12000 + 8000, String(after4.data.mold));
+    // 停用 CNC 后剩下的直接费用（设计费上一段已删）：模芯钢材费 + 试模费 + 运输费 + 热流道费
+    const direct8 = 5887.5 + 5000 + 960 + 12000;
+    check(
+      '停用项不计入合计（比例项随之重算）',
+      after4.data.mold === direct8 + Math.round(direct8 * 0.15),
+      `${after4.data.mold} vs ${direct8 + Math.round(direct8 * 0.15)}`,
+    );
 
     // ---------- 9 坏配置给中文提示 ----------
     console.log('\n[9] 配置错误的中文提示');
     const cfgNow4 = await req('GET', `/api/config/${injection.id}`, undefined, token);
     await req('PUT', `/api/config/${injection.id}`, {
       items: [
-        ...cfgNow4.data.items.map((it) => ({ id: it.id, name: it.name, category: it.category, scope: it.scope, calcType: it.calcType, calcConfig: it.calcConfig, enabled: it.enabled })),
+        ...cfgNow4.data.items.map((it) => ({ id: it.id, name: it.name, category: it.category, scope: it.scope, calcType: it.calcType, calcConfig: it.calcConfig, expression: it.expression, perUnit: it.perUnit, enabled: it.enabled })),
         { name: '坏项', category: '自定义', scope: 'mold', calcType: 'qty', calcConfig: { src: '不存在的参数', price: 5 }, enabled: true },
       ],
     }, token);

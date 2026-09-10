@@ -4,9 +4,13 @@
 export interface PresetParam {
   code: string;
   name: string;
-  value: number;
+  value: number | string;
   unit: string;
   group: string;
+  /** 参数控件类型：decimal（默认，数字输入）| select（下拉） */
+  type?: string;
+  /** type='select' 时的选项，value 必须是数字（公式里按数值参与计算） */
+  options?: { label: string; value: number }[];
 }
 
 export interface PresetItem {
@@ -14,9 +18,12 @@ export interface PresetItem {
   category: string;
   scope: 'mold' | 'injection';
   calcType: string;
-  calcConfig: Record<string, unknown>;
+  /** formula 模式不用它，所以可选 */
+  calcConfig?: Record<string, unknown>;
   /** 按件计价：算出来的是单件成本，总额 = 单件成本 × 注塑数量 */
   perUnit?: boolean;
+  /** calcType='formula' 时使用 */
+  expression?: string;
 }
 
 export interface PresetMaterial {
@@ -62,6 +69,19 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { code: 'materialUnitPrice', name: '原料单价', value: 12, unit: '元/kg', group: '材料' },
       { code: 'injectionQty', name: '注塑数量', value: 5000, unit: '件', group: '商务' },
       { code: 'firstOrderQty', name: '首单数量', value: 300000, unit: '件', group: '商务' },
+      // 运输费要用到的量
+      { code: 'moldWeightKg', name: '模具重量', value: 800, unit: 'kg', group: '运输' },
+      { code: 'packLengthCm', name: '运输箱长', value: 120, unit: 'cm', group: '运输' },
+      { code: 'packWidthCm', name: '运输箱宽', value: 100, unit: 'cm', group: '运输' },
+      { code: 'packHeightCm', name: '运输箱高', value: 80, unit: 'cm', group: '运输' },
+      { code: 'freightRate', name: '运费单价', value: 1.2, unit: '元/kg', group: '运输' },
+      {
+        code: 'freightZone', name: '运输区域', value: '1', unit: '', group: '运输', type: 'select',
+        options: [
+          { label: '广东省内（免运费）', value: 0 },
+          { label: '广东省外', value: 1 },
+        ],
+      },
     ],
     materials: [
       { code: 'ABS', name: 'ABS', category: '塑料原料', unit: 'kg', price: 12, lossRate: 0.05, density: 1.05 },
@@ -72,7 +92,7 @@ export const MOLD_PRESETS: PresetMoldType[] = [
     ],
     terms: [
       '以上总价含 13% 增值税，开具增值税专用发票。',
-      '广东省内运费免费，省外按实际运输方式另行计费。',
+      '运费：广东省内免运费；省外运费已按模具重量与包装体积核算，并包含在上述总价内。',
       '模具 40 天交货，首单注塑于收到定金后 45 天交付。',
     ],
     items: [
@@ -82,7 +102,10 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { name: 'CNC 加工费', category: 'CNC', scope: 'mold', calcType: 'hours', calcConfig: { hours: 96, rate: 400 } },
       { name: '设计费', category: '自定义', scope: 'mold', calcType: 'fixed', calcConfig: { amount: 6000 } },
       { name: '试模费', category: '试模', scope: 'mold', calcType: 'qty', calcConfig: { src: '腔数', price: 2500 } },
-      { name: '管理费', category: '管理费', scope: 'mold', calcType: 'percent', calcConfig: { base: '模具小计', rate: 0.15 } },
+      // 运输费：广东省内免运费（区域系数 0）；省外按「实际重量与体积重量取大者 × 单价」
+      // 体积重量 = 长 × 宽 × 高 ÷ 6000（物流行业通用材积系数，单位 kg）
+      { name: '运输费', category: '运输', scope: 'mold', calcType: 'formula',
+        expression: '最大值 ( 模具重量, 运输箱长 * 运输箱宽 * 运输箱高 / 6000 ) * 运费单价 * 运输区域' },
 
       // ------- 注塑费用（按件计价：单件成本 × 注塑数量） -------
       { name: '产品材料费', category: '注塑材料', scope: 'injection', calcType: 'weight', perUnit: true,
@@ -122,7 +145,6 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { name: '强冷却回路', category: '自定义', scope: 'mold', calcType: 'qty', calcConfig: { src: '投影面积', price: 45 } },
       { name: '真空阀与管路', category: '自定义', scope: 'mold', calcType: 'fixed', calcConfig: { amount: 18000 } },
       { name: '压铸机加工费', category: 'CNC', scope: 'mold', calcType: 'hours', calcConfig: { hours: 120, rate: 420 } },
-      { name: '管理费', category: '管理费', scope: 'mold', calcType: 'percent', calcConfig: { base: '模具小计', rate: 0.15 } },
     ],
   },
   {
@@ -152,7 +174,6 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { name: '第一套热流道', category: '热流道', scope: 'mold', calcType: 'qty', calcConfig: { src: '热流道点数', price: 8000 } },
       { name: '第二套热流道', category: '热流道', scope: 'mold', calcType: 'qty', calcConfig: { src: '热流道点数', price: 8000 } },
       { name: '双色合模调试', category: '试模', scope: 'mold', calcType: 'fixed', calcConfig: { amount: 12000 } },
-      { name: '管理费', category: '管理费', scope: 'mold', calcType: 'percent', calcConfig: { base: '模具小计', rate: 0.15 } },
     ],
   },
 ];
