@@ -1,0 +1,730 @@
+import { useEffect, useMemo, useState } from 'react';
+import { configApi } from '../api';
+import { calculateConfigured } from '@mqs/calc-engine';
+import { CALC_TYPE_META } from '@mqs/shared';
+import type { MoldCalcType, QuoteItemDef } from '@mqs/shared';
+
+const money = (n: number) => '¥ ' + Math.round(n || 0).toLocaleString('zh-CN');
+const num = (n: any) => (n === '' || n == null ? '' : String(n));
+
+const emptyParam = () => ({ code: '', name: '', unit: '', defaultValue: '', group: '产品', enabled: true });
+const emptyMat = () => ({ code: '', name: '', category: '塑料原料', unit: 'kg', currentPrice: 0, lossRate: 0.05 });
+const emptyTerm = () => ({ text: '', enabled: true });
+const emptyItem = (): any => ({
+  name: '新费用',
+  category: '自定义',
+  scope: 'mold',
+  calcType: 'fixed',
+  calcConfig: { amount: 0 },
+  enabled: true,
+});
+
+export default function ConfigCenter() {
+  const [types, setTypes] = useState<any[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [cfg, setCfg] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [openItem, setOpenItem] = useState<string | null>(null);
+  const [pane, setPane] = useState<'param' | 'mat' | 'term'>('param');
+  const [folded, setFolded] = useState(false);
+  const [advOpen, setAdvOpen] = useState<Record<string, boolean>>({});
+  const [picking, setPicking] = useState(false);
+
+  // ---------- 加载 ----------
+  const loadTypes = async (keepId?: string) => {
+    const list = await configApi.moldTypes();
+    setTypes(list);
+    const next = keepId ?? activeId ?? list[0]?.id ?? null;
+    setActiveId(next);
+    return next;
+  };
+
+  const loadConfig = async (id: string) => {
+    setLoading(true);
+    const data = await configApi.get(id);
+    setCfg(data);
+    setDirty(false);
+    setOpenItem(null);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    (async () => {
+      const id = await loadTypes();
+      if (id) await loadConfig(id);
+      else setLoading(false);
+    })();
+  }, []);
+
+  const switchType = async (id: string) => {
+    if (dirty && !confirm('当前配置有未保存的改动，切换会丢失。确定切换吗？')) return;
+    setActiveId(id);
+    await loadConfig(id);
+  };
+
+  // ---------- 算价（前端直接算，实时） ----------
+  const calcResult = useMemo(() => {
+    if (!cfg) return null;
+    const params: Record<string, number> = {};
+    for (const p of cfg.parameters ?? []) {
+      const n = Number(p.defaultValue);
+      if (Number.isFinite(n)) params[p.name] = n;
+    }
+    const defs: QuoteItemDef[] = (cfg.items ?? []).map((it: any, i: number) => ({
+      name: it.name,
+      category: it.category,
+      scope: it.scope,
+      calcType: it.calcType,
+      calcConfig: it.calcConfig ?? {},
+      expression: it.expression,
+      enabled: it.enabled !== false,
+      sortOrder: it.sortOrder ?? i,
+    }));
+    return calculateConfigured(defs, params, {
+      profitRate: cfg.moldType?.profitRate ?? 0.1,
+      taxRate: cfg.moldType?.taxRate ?? 0.13,
+    });
+  }, [cfg]);
+
+  const lineOf = (name: string) => calcResult?.lines.find((l) => l.name === name);
+
+  // ---------- 更新工具 ----------
+  const patch = (fn: (c: any) => void) => {
+    setCfg((prev: any) => {
+      const next = JSON.parse(JSON.stringify(prev));
+      fn(next);
+      return next;
+    });
+    setDirty(true);
+  };
+
+  const setItemField = (idx: number, key: string, value: any) =>
+    patch((c) => { c.items[idx][key] = value; });
+
+  const setCalcCfg = (idx: number, key: string, value: any) =>
+    patch((c) => {
+      c.items[idx].calcConfig = { ...(c.items[idx].calcConfig ?? {}), [key]: value };
+    });
+
+  const setCalcType = (idx: number, t: MoldCalcType) =>
+    patch((c) => {
+      const params: any[] = c.parameters ?? [];
+      const guess = (kw: string) => params.find((p) => String(p.name).includes(kw))?.name ?? '';
+      const base: Record<string, any> = {};
+      if (t === 'fixed') base.amount = 0;
+      if (t === 'qty') { base.src = guess('腔') || guess('数量'); base.price = 0; }
+      if (t === 'size') { base.l = guess('长'); base.w = guess('宽'); base.h = guess('高'); base.density = 7.85; base.priceVar = guess('单价'); }
+      if (t === 'hours') { base.hours = 0; base.rate = 0; }
+      if (t === 'weight') { base.wVar = guess('重量') || guess('单件'); base.priceVar = guess('单价'); base.loss = 0.05; }
+      if (t === 'percent') { base.base = '模具小计'; base.rate = 0.15; }
+      c.items[idx].calcType = t;
+      c.items[idx].calcConfig = base;
+    });
+
+  const setMoldTypeField = (key: string, value: any) =>
+    patch((c) => { c.moldType[key] = value; });
+
+  // ---------- 保存 ----------
+  const save = async () => {
+    if (!cfg || !activeId) return;
+    // 参数补编码（用户没填时按名称生成）
+    const payload = {
+      parameters: cfg.parameters.map((p: any, i: number) => ({
+        id: p.id,
+        code: p.code || `p${i + 1}`,
+        name: p.name,
+        unit: p.unit || null,
+        defaultValue: String(p.defaultValue ?? ''),
+        group: p.group || '通用',
+        enabled: p.enabled !== false,
+      })),
+      materials: cfg.materials.map((m: any) => ({
+        id: m.id, code: m.code, name: m.name, category: m.category, unit: m.unit,
+        currentPrice: Number(m.currentPrice) || 0, lossRate: Number(m.lossRate) || 0,
+        density: m.density == null ? null : Number(m.density),
+      })),
+      terms: cfg.terms.map((t: any) => ({ id: t.id, text: t.text, enabled: t.enabled !== false })),
+      items: cfg.items.map((it: any, i: number) => ({
+        id: it.id, name: it.name, category: it.category, scope: it.scope,
+        calcType: it.calcType, calcConfig: it.calcConfig ?? {}, expression: it.expression ?? null,
+        enabled: it.enabled !== false, sortOrder: i,
+      })),
+      profitRate: Number(cfg.moldType.profitRate) || 0,
+      taxRate: Number(cfg.moldType.taxRate) || 0,
+    };
+    setSaving(true);
+    try {
+      await configApi.save(activeId, payload);
+      await loadConfig(activeId);
+      await loadTypes(activeId);
+    } catch (e: any) {
+      alert('保存失败：' + (e.response?.data?.error || e.message));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ---------- 模具类型操作 ----------
+  const initPreset = async () => {
+    const r = await configApi.initPreset();
+    const id = await loadTypes();
+    if (id) await loadConfig(id);
+    alert(`已初始化 ${r.created} 套预置模具类型（已存在的跳过）`);
+  };
+
+  const addType = async () => {
+    if (picking) return;
+    setPicking(true);
+    try {
+      const name = prompt('新模具类型名称：', '橡胶模具');
+      if (!name) return;
+      const copyFrom = confirm('是否复制当前类型的配置作为起点？\n确定＝复制，取消＝从空白开始');
+      const created = await configApi.createMoldType(copyFrom ? { name, copyFromId: activeId! } : { name });
+      await loadTypes(created.id);
+      await loadConfig(created.id);
+    } finally {
+      setPicking(false);
+    }
+  };
+
+  const renameType = async () => {
+    if (!cfg) return;
+    const name = prompt('重命名为：', cfg.moldType.name);
+    if (!name) return;
+    await configApi.updateMoldType(activeId!, { name });
+    await loadTypes(activeId!);
+    await loadConfig(activeId!);
+  };
+
+  const delType = async () => {
+    if (!cfg) return;
+    if (!confirm(`删除「${cfg.moldType.name}」及其全部参数与费用项？`)) return;
+    try {
+      await configApi.removeMoldType(activeId!);
+      const id = await loadTypes();
+      if (id) await loadConfig(id);
+    } catch (e: any) {
+      alert(e.response?.data?.error || e.message);
+    }
+  };
+
+  // ---------- 渲染 ----------
+  if (loading && !cfg) return <div className="max-w-7xl mx-auto p-6 text-gray-400">加载中…</div>;
+
+  if (types.length === 0) {
+    return (
+      <div className="max-w-3xl mx-auto p-10 text-center">
+        <h1 className="text-lg font-semibold mb-2">还没有模具类型</h1>
+        <p className="text-sm text-gray-500 mb-6">
+          一键初始化注塑、压铸、双色三套预置配置，之后可随意增删改
+        </p>
+        <button onClick={initPreset} className="bg-gray-900 text-white px-5 py-2.5 rounded text-sm">
+          初始化预置模具类型
+        </button>
+      </div>
+    );
+  }
+
+  const params: any[] = cfg?.parameters ?? [];
+  const mats: any[] = cfg?.materials ?? [];
+  const terms: any[] = cfg?.terms ?? [];
+  const items: any[] = cfg?.items ?? [];
+  const gridCols = folded ? '250px minmax(0,1fr) 48px' : '250px minmax(0,1fr) 340px';
+
+  return (
+    <div className="max-w-[1600px] mx-auto p-5">
+      {/* 顶部 */}
+      <div className="bg-white border border-gray-200 rounded-lg px-4 py-3 mb-3 flex items-center gap-3 flex-wrap">
+        <div className="w-7 h-7 rounded bg-gray-900 text-white flex items-center justify-center text-xs font-bold shrink-0">M</div>
+        <span className="font-semibold text-sm shrink-0">报价配置中心</span>
+
+        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 ml-2 flex-wrap">
+          {types.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => switchType(t.id)}
+              className={`px-3 py-1 rounded text-[13px] whitespace-nowrap ${
+                t.id === activeId ? 'bg-white font-medium shadow-sm' : 'text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {t.name}
+            </button>
+          ))}
+          <button onClick={addType} className="px-2.5 py-1 rounded text-[12.5px] text-gray-500 border border-dashed border-gray-300 hover:border-gray-900 hover:text-gray-900">
+            + 新类型
+          </button>
+        </div>
+
+        <div className="flex-1" />
+
+        {activeId && (
+          <>
+            <button onClick={renameType} className="text-xs text-gray-500 hover:text-gray-900 px-2">重命名</button>
+            <button onClick={delType} className="text-xs text-gray-500 hover:text-red-600 px-2">删除类型</button>
+          </>
+        )}
+        <button onClick={() => setFolded(!folded)} className="border border-gray-300 px-3 py-1.5 rounded text-[12.5px] hover:bg-gray-50">
+          {folded ? '展开算价栏' : '折叠算价栏'}
+        </button>
+        <button
+          onClick={save}
+          disabled={saving || !dirty}
+          className={`px-4 py-1.5 rounded text-[13px] font-medium ${
+            dirty ? 'bg-gray-900 text-white hover:bg-gray-800' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+          }`}
+        >
+          {saving ? '保存中…' : dirty ? '保存' : '已保存'}
+        </button>
+      </div>
+
+      {/* 引导条 */}
+      <div className={`text-[12.5px] px-3.5 py-2 rounded-lg mb-3 border ${
+        dirty ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+      }`}>
+        {dirty
+          ? '有改动还没保存 · 点右上角「保存」后才会生效'
+          : '左边是报价时要填的数据；中间是要收哪些费用，选计算方式、填数字就行，不用写公式；右边立刻出价'}
+      </div>
+
+      {/* 三栏 */}
+      <div className="grid gap-3.5 items-start" style={{ gridTemplateColumns: gridCols }}>
+        {/* ① 可插拔内容 */}
+        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+          <div className="px-3.5 py-3 border-b border-gray-200 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-gray-900 text-white text-[11px] flex items-center justify-center">1</span>
+              <span className="font-semibold text-sm">报价时填写</span>
+            </div>
+            <span className="text-[12px] text-gray-400">{params.length} 项</span>
+          </div>
+          <div className="p-3.5">
+            <div className="flex gap-0.5 bg-gray-100 p-0.5 rounded-lg mb-2.5">
+              {([['param', '产品数据'], ['mat', '材料'], ['term', '条款']] as const).map(([k, l]) => (
+                <button
+                  key={k}
+                  onClick={() => setPane(k)}
+                  className={`flex-1 py-1 rounded text-[12.5px] ${pane === k ? 'bg-white font-medium shadow-sm' : 'text-gray-600'}`}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+
+            {/* 参数 */}
+            {pane === 'param' && (
+              <div className="space-y-0.5">
+                {params.map((p, i) => (
+                  <div key={p.id ?? i} className="flex items-center gap-1.5 px-2 py-1.5 rounded hover:bg-gray-50 group">
+                    <input
+                      value={p.name}
+                      onChange={(e) => patch((c) => { c.parameters[i].name = e.target.value; })}
+                      className="flex-1 min-w-0 text-[13.5px] bg-transparent border border-transparent hover:border-gray-200 focus:border-gray-400 rounded px-1 py-0.5"
+                    />
+                    <input
+                      type="number"
+                      value={num(p.defaultValue)}
+                      onChange={(e) => patch((c) => { c.parameters[i].defaultValue = e.target.value; })}
+                      className="w-[70px] border border-gray-300 rounded px-1.5 py-1 text-[12.5px] text-right"
+                    />
+                    <span className="text-[11.5px] text-gray-400 w-6">{p.unit}</span>
+                    <button
+                      onClick={() => patch((c) => { c.parameters.splice(i, 1); })}
+                      className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 text-sm leading-none"
+                    >×</button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => patch((c) => { c.parameters.push(emptyParam()); })}
+                  className="w-full mt-2 py-1.5 border border-dashed border-gray-300 rounded text-[12.5px] text-gray-500 hover:border-gray-900 hover:text-gray-900"
+                >+ 加一项数据</button>
+                <p className="text-[11.5px] text-gray-400 pt-2">这些是报价时填的数字，改这里右边立刻重算</p>
+              </div>
+            )}
+
+            {/* 材料 */}
+            {pane === 'mat' && (
+              <div className="space-y-0.5">
+                {mats.map((m, i) => (
+                  <div key={m.id ?? i} className="flex items-center gap-1.5 px-1 py-1.5 rounded hover:bg-gray-50 group">
+                    <input
+                      value={m.name}
+                      onChange={(e) => patch((c) => { c.materials[i].name = e.target.value; c.materials[i].code = e.target.value; })}
+                      className="w-[80px] border border-gray-300 rounded px-1.5 py-1 text-[12.5px]"
+                    />
+                    <input
+                      type="number"
+                      value={num(m.currentPrice)}
+                      onChange={(e) => patch((c) => { c.materials[i].currentPrice = e.target.value; })}
+                      className="w-[64px] border border-gray-300 rounded px-1.5 py-1 text-[12.5px] text-right"
+                    />
+                    <span className="text-[11.5px] text-gray-400">{m.unit}</span>
+                    <input
+                      type="number"
+                      value={num(m.lossRate)}
+                      onChange={(e) => patch((c) => { c.materials[i].lossRate = e.target.value; })}
+                      title="损耗率"
+                      className="w-[52px] border border-gray-300 rounded px-1.5 py-1 text-[12.5px] text-right"
+                    />
+                    <button
+                      onClick={() => patch((c) => { c.materials.splice(i, 1); })}
+                      className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 text-sm leading-none"
+                    >×</button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => patch((c) => { c.materials.push(emptyMat()); })}
+                  className="w-full mt-2 py-1.5 border border-dashed border-gray-300 rounded text-[12.5px] text-gray-500 hover:border-gray-900 hover:text-gray-900"
+                >+ 加一种材料</button>
+                <p className="text-[11.5px] text-gray-400 pt-2">名称 / 单价 / 损耗率</p>
+              </div>
+            )}
+
+            {/* 条款 */}
+            {pane === 'term' && (
+              <div className="space-y-1.5">
+                {terms.map((t, i) => (
+                  <div key={t.id ?? i} className="flex gap-1.5 items-start">
+                    <textarea
+                      value={t.text}
+                      onChange={(e) => patch((c) => { c.terms[i].text = e.target.value; })}
+                      rows={2}
+                      className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-[12.5px] resize-y"
+                    />
+                    <div className="flex flex-col gap-1">
+                      <button
+                        onClick={() => patch((c) => { c.terms[i].enabled = !c.terms[i].enabled; })}
+                        className={`px-2 py-0.5 rounded text-[11.5px] border ${
+                          t.enabled !== false ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-400'
+                        }`}
+                      >{t.enabled !== false ? '启用' : '停用'}</button>
+                      <button
+                        onClick={() => patch((c) => { c.terms.splice(i, 1); })}
+                        className="text-gray-300 hover:text-red-500 text-sm leading-none"
+                      >×</button>
+                    </div>
+                  </div>
+                ))}
+                <button
+                  onClick={() => patch((c) => { c.terms.push(emptyTerm()); })}
+                  className="w-full py-1.5 border border-dashed border-gray-300 rounded text-[12.5px] text-gray-500 hover:border-gray-900 hover:text-gray-900"
+                >+ 加一条</button>
+                <p className="text-[11.5px] text-gray-400">会印在给客户的报价单上</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ② 费用项 */}
+        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+          <div className="px-3.5 py-3 border-b border-gray-200 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-gray-900 text-white text-[11px] flex items-center justify-center">2</span>
+              <span className="font-semibold text-sm">要收哪些费用</span>
+              <span className="text-[12px] text-gray-400">{items.length} 项</span>
+            </div>
+            <button
+              onClick={() => patch((c) => { c.items.push(emptyItem()); })}
+              className="border border-gray-300 px-3 py-1 rounded text-[12.5px] hover:bg-gray-50"
+            >+ 加一项费用</button>
+          </div>
+          <div className="p-3.5">
+            {items.length === 0 && <p className="text-center text-gray-400 text-[13px] py-8">还没有费用项，点右上角「加一项费用」</p>}
+            <div className="space-y-2">
+              {items.map((it, i) => {
+                const line = lineOf(it.name);
+                const open = openItem === (it.id ?? String(i));
+                const key = it.id ?? String(i);
+                const meta = CALC_TYPE_META.find((m) => m.v === it.calcType);
+                const val = it.enabled === false ? '—' : line?.error ? '出错了' : line?.manual ? '报价时填' : money(line?.value ?? 0);
+                return (
+                  <div key={key}>
+                    <div
+                      onClick={() => setOpenItem(open ? null : key)}
+                      className={`flex items-center gap-2 px-2.5 py-2.5 rounded-lg border cursor-pointer ${
+                        open ? 'border-gray-900' : it.enabled === false ? 'border-gray-200 bg-gray-50 opacity-60' : 'border-gray-200 hover:border-gray-400'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={it.enabled !== false}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => setItemField(i, 'enabled', e.target.checked)}
+                        className="w-4 h-4 shrink-0"
+                      />
+                      <span className="flex-1 text-[13.5px] font-medium truncate">{it.name}</span>
+                      <span className="text-[11.5px] text-gray-500 bg-gray-100 px-2 py-0.5 rounded whitespace-nowrap">{meta?.n ?? it.calcType}</span>
+                      <span className="text-[13.5px] font-semibold tabular-nums whitespace-nowrap">{val}</span>
+                    </div>
+
+                    {open && (
+                      <div className="border border-gray-900 rounded-lg p-3.5 mt-1.5">
+                        <div className="flex items-center gap-2 flex-wrap mb-2.5">
+                          <span className="text-[12.5px] text-gray-500">计算方式</span>
+                          <select
+                            value={it.calcType}
+                            onChange={(e) => setCalcType(i, e.target.value as MoldCalcType)}
+                            className="border border-gray-300 rounded px-2 py-1.5 text-[13px]"
+                          >
+                            {CALC_TYPE_META.map((m) => <option key={m.v} value={m.v}>{m.n}</option>)}
+                          </select>
+                          <span className="text-[11.5px] text-gray-400">{meta?.d}</span>
+                        </div>
+
+                        <CalcFields
+                          item={it}
+                          params={params}
+                          onChange={(k, v) => {
+                            if (k === '__expr__') setItemField(i, 'expression', v);
+                            else setCalcCfg(i, k, v);
+                          }}
+                        />
+
+                        <div className="flex items-center gap-2 flex-wrap mt-2.5">
+                          <span className="text-[12.5px] text-gray-500">名称</span>
+                          <input
+                            value={it.name}
+                            onChange={(e) => setItemField(i, 'name', e.target.value)}
+                            className="border border-gray-300 rounded px-2 py-1.5 text-[13px] w-[160px]"
+                          />
+                          <span className="text-[12.5px] text-gray-500">计入</span>
+                          <select
+                            value={it.scope}
+                            onChange={(e) => setItemField(i, 'scope', e.target.value)}
+                            className="border border-gray-300 rounded px-2 py-1.5 text-[13px]"
+                          >
+                            <option value="mold">模具</option>
+                            <option value="injection">注塑</option>
+                          </select>
+                        </div>
+
+                        {line?.error ? (
+                          <div className="mt-2.5 text-[12.5px] bg-red-50 border border-red-200 text-red-700 rounded px-2.5 py-2">
+                            {line.error}
+                          </div>
+                        ) : line?.manual ? (
+                          <div className="mt-2.5 text-[12.5px] bg-gray-50 border border-gray-200 text-gray-600 rounded px-2.5 py-2">
+                            报价时手动填写金额
+                          </div>
+                        ) : (
+                          <div className="mt-2.5 text-[12.5px] bg-emerald-50 border border-emerald-200 text-emerald-800 rounded px-2.5 py-2 font-mono break-all">
+                            {line?.readable}　=　<b>{money(line?.value ?? 0)}</b>
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-3 mt-2.5">
+                          <button
+                            onClick={() => setAdvOpen({ ...advOpen, [key]: !advOpen[key] })}
+                            className="text-[12px] text-gray-500 underline hover:text-gray-900"
+                          >{advOpen[key] ? '收起高级选项' : '高级选项'}</button>
+                          <div className="flex-1" />
+                          <button
+                            onClick={() => patch((c) => { c.items.splice(i, 1); })}
+                            className="border border-gray-300 text-red-600 px-3 py-1 rounded text-[12.5px] hover:bg-red-50"
+                          >删除这一项</button>
+                        </div>
+
+                        {advOpen[key] && (
+                          <div className="mt-2 flex items-center gap-2 flex-wrap text-[12.5px] bg-blue-50 border border-blue-200 rounded px-2.5 py-2">
+                            <span className="text-gray-600">分类标签</span>
+                            <input
+                              value={it.category}
+                              onChange={(e) => setItemField(i, 'category', e.target.value)}
+                              className="border border-gray-300 rounded px-2 py-1 w-[110px]"
+                            />
+                            <span className="text-gray-600 ml-2">说明（给客户看）</span>
+                            <input
+                              value={it.note ?? ''}
+                              onChange={(e) => setItemField(i, 'note', e.target.value)}
+                              className="border border-gray-300 rounded px-2 py-1 flex-1 min-w-[140px]"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* ③ 算价 */}
+        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+          {folded ? (
+            <div onClick={() => setFolded(false)} className="py-4 flex flex-col items-center gap-3 cursor-pointer" title="点击展开">
+              <span className="text-[13px] text-gray-600" style={{ writingMode: 'vertical-rl', letterSpacing: 2 }}>算价结果</span>
+              <span className="text-[12px] text-gray-400" style={{ writingMode: 'vertical-rl' }}>{money(calcResult?.total ?? 0)}</span>
+            </div>
+          ) : (
+            <>
+              <div className="px-3.5 py-3 border-b border-gray-200 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-gray-900 text-white text-[11px] flex items-center justify-center">3</span>
+                  <span className="font-semibold text-sm">实时算价</span>
+                </div>
+                <button onClick={() => setFolded(true)} className="border border-gray-300 rounded px-2 py-0.5 text-[11.5px] text-gray-500">折叠</button>
+              </div>
+              <div className="p-3.5 max-h-[520px] overflow-y-auto">
+                {(calcResult?.lines ?? []).map((l, i) => (
+                  <div key={i} className="py-2 border-b border-gray-50 last:border-0">
+                    <div className="flex justify-between items-baseline gap-2">
+                      <span className={`text-[13.5px] ${l.skipped ? 'text-gray-400' : ''}`}>
+                        {l.name}{l.skipped ? '（已停用）' : ''}
+                      </span>
+                      <span className="text-[13.5px] font-semibold tabular-nums">
+                        {l.error ? '—' : l.manual ? '报价时填' : money(l.value)}
+                      </span>
+                    </div>
+                    {l.error ? (
+                      <div className="text-[12.5px] text-red-600 mt-0.5">{l.error}</div>
+                    ) : (
+                      <div className="text-[12px] text-blue-700 mt-0.5 font-mono">{l.readable}</div>
+                    )}
+                  </div>
+                ))}
+                {(!calcResult || calcResult.lines.length === 0) && (
+                  <p className="text-center text-gray-400 text-[13px] py-6">加费用项后这里显示每一项怎么算出来的</p>
+                )}
+              </div>
+              <div className="bg-gray-50 border-t border-gray-200 px-3.5 py-3">
+                <div className="flex justify-between text-[13px] text-gray-600 py-0.5"><span>模具费用</span><span>{money(calcResult?.mold ?? 0)}</span></div>
+                <div className="flex justify-between text-[13px] text-gray-600 py-0.5"><span>注塑费用</span><span>{money(calcResult?.injection ?? 0)}</span></div>
+
+                <div className="flex justify-between items-center text-[13px] text-gray-600 py-0.5 gap-2">
+                  <span>利润率</span>
+                  <span className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={num(cfg?.moldType?.profitRate)}
+                      onChange={(e) => setMoldTypeField('profitRate', Number(e.target.value))}
+                      className="w-[62px] border border-gray-300 rounded px-1.5 py-0.5 text-[12.5px] text-right"
+                    />
+                    <span className="w-[70px] text-right">{money(calcResult?.profit ?? 0)}</span>
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-[13px] text-gray-600 py-0.5 gap-2">
+                  <span>税率</span>
+                  <span className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={num(cfg?.moldType?.taxRate)}
+                      onChange={(e) => setMoldTypeField('taxRate', Number(e.target.value))}
+                      className="w-[62px] border border-gray-300 rounded px-1.5 py-0.5 text-[12.5px] text-right"
+                    />
+                    <span className="w-[70px] text-right">{money(calcResult?.tax ?? 0)}</span>
+                  </span>
+                </div>
+                <div className="flex justify-between items-baseline pt-2 mt-1.5 border-t border-gray-200">
+                  <span className="text-[13.5px] font-semibold">含税总价</span>
+                  <b className="text-[21px]">{money(calcResult?.total ?? 0)}</b>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 按计算方式渲染对应的填空 */
+function CalcFields({
+  item,
+  params,
+  onChange,
+}: {
+  item: any;
+  params: any[];
+  onChange: (key: string, value: any) => void;
+}) {
+  const c = item.calcConfig ?? {};
+  const inp = 'border border-gray-300 rounded px-2 py-1.5 text-[13px]';
+  const Var = ({ k, label }: { k: string; label: string }) => (
+    <>
+      <span className="text-[12.5px] text-gray-500">{label}</span>
+      <select value={c[k] ?? ''} onChange={(e) => onChange(k, e.target.value)} className={inp}>
+        <option value="">（选择）</option>
+        {params.map((p) => <option key={p.id ?? p.name} value={p.name}>{p.name}</option>)}
+      </select>
+    </>
+  );
+  const NumIn = ({ k, label, step, suffix }: any) => (
+    <>
+      <span className="text-[12.5px] text-gray-500">{label}</span>
+      <input
+        type="number"
+        step={step ?? 'any'}
+        value={num(c[k])}
+        onChange={(e) => onChange(k, Number(e.target.value))}
+        className={`${inp} w-[86px] text-right`}
+      />
+      {suffix && <span className="text-[11.5px] text-gray-400">{suffix}</span>}
+    </>
+  );
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {item.calcType === 'fixed' && <NumIn k="amount" label="金额" suffix="元" />}
+      {item.calcType === 'qty' && (
+        <>
+          <Var k="src" label="数量按" />
+          <NumIn k="price" label="单价" suffix="元" />
+        </>
+      )}
+      {item.calcType === 'size' && (
+        <>
+          <Var k="l" label="长" />
+          <Var k="w" label="宽" />
+          <Var k="h" label="高（可留空）" />
+          <NumIn k="density" label="材料密度" suffix="g/cm³" />
+          <Var k="priceVar" label="单价按" />
+        </>
+      )}
+      {item.calcType === 'hours' && (
+        <>
+          <NumIn k="hours" label="工时" suffix="小时" />
+          <NumIn k="rate" label="时薪" suffix="元/小时" />
+        </>
+      )}
+      {item.calcType === 'weight' && (
+        <>
+          <Var k="wVar" label="重量按" />
+          <Var k="priceVar" label="单价按" />
+          <NumIn k="loss" label="损耗率" step="0.01" />
+        </>
+      )}
+      {item.calcType === 'percent' && (
+        <>
+          <span className="text-[12.5px] text-gray-500">基数</span>
+          <select value={c.base ?? '模具小计'} onChange={(e) => onChange('base', e.target.value)} className={inp}>
+            <option value="模具小计">模具小计</option>
+            <option value="材料费合计">材料费合计</option>
+          </select>
+          <NumIn k="rate" label="比例" step="0.01" />
+        </>
+      )}
+      {item.calcType === 'manual' && (
+        <div className="text-[12.5px] bg-blue-50 border border-blue-200 text-blue-800 rounded px-2.5 py-1.5 w-full">
+          这一项不预设算法，报价时由你手动填金额。
+        </div>
+      )}
+      {item.calcType === 'formula' && (
+        <div className="w-full">
+          <input
+            value={item.expression ?? ''}
+            onChange={(e) => onChange('__expr__', e.target.value)}
+            placeholder="例：腔数 乘以 1500"
+            className={`${inp} w-full font-mono`}
+          />
+          <p className="text-[11.5px] text-gray-400 mt-1">
+            可以用中文写：加上、减去、乘以、除以、大于等于、且、或、如果…那么…否则
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}

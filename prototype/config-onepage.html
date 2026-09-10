@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="1KtUSDAseLsPgNhaZ4tfeK">
+<head data-page-node-id="ab8GIP1ksNefl5e1S0RvZm">
+<meta charset="UTF-8" data-page-node-id="q69VivIXFjVv8L2hj0F2pI">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="noeOQroAKDO4yqjmDir0Fy">
+<title>报价配置中心 · 选计算方式，不用写公式</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#f4f5f7;color:#111827;font-size:14px;line-height:1.6}
+button,input,select{font-family:inherit}
+.hdr{background:#fff;border-bottom:1px solid #e5e7eb}
+.hdr-in{max-width:1600px;margin:0 auto;padding:0 20px;min-height:54px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.logo{width:26px;height:26px;border-radius:6px;background:#111827;color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
+.brand{font-weight:600;font-size:14.5px}
+.tabs{display:flex;gap:4px;background:#f3f4f6;padding:3px;border-radius:8px;align-items:center}
+.tt{display:flex;align-items:center;gap:2px;padding:5px 8px 5px 12px;border-radius:6px;font-size:13px;cursor:pointer;color:#4b5563}
+.tt.on{background:#fff;color:#111827;font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.tt .x{font-size:12px;color:#9ca3af;padding:0 2px;border-radius:3px}
+.tt .x:hover{color:#b91c1c;background:#fee2e2}
+.tt .rn{font-size:11px;color:#9ca3af;padding:0 2px}
+.tt .rn:hover{color:#111827}
+.addt{border:1px dashed #cbd5e1;background:#fff;color:#64748b;padding:4px 10px;border-radius:6px;font-size:12.5px;cursor:pointer}
+.addt:hover{border-color:#111827;color:#111827}
+.spacer{flex:1}
+.btn{background:#111827;color:#fff;border:none;padding:7px 14px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:500}
+.btn:hover{background:#374151}
+.btn.gh{background:#fff;color:#374151;border:1px solid #d1d5db}
+.btn.gh:hover{background:#f9fafb}
+.btn.sm{padding:4px 10px;font-size:12.5px}
+.bar{background:#fffbeb;border-bottom:1px solid #fde68a;color:#92400e;font-size:12.5px;padding:6px 20px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.bar .dot{width:7px;height:7px;border-radius:50%;background:#f59e0b}
+.bar.saved{background:#ecfdf5;border-color:#a7f3d0;color:#065f46}
+.bar.saved .dot{background:#10b981}
+.wrap{max-width:1600px;margin:0 auto;padding:16px 20px}
+.board{display:grid;grid-template-columns:250px minmax(0,1fr) 340px;gap:14px;align-items:start;transition:grid-template-columns .2s}
+.col{background:#fff;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden}
+.chd{padding:12px 14px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.step{width:20px;height:20px;border-radius:50%;background:#111827;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.ctitle{font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px}
+.csub{font-size:12px;color:#9ca3af;font-weight:400}
+.body{padding:12px 14px}
+.foldbtn{border:1px solid #d1d5db;background:#fff;border-radius:5px;padding:2px 8px;font-size:11.5px;cursor:pointer;color:#6b7280}
+.ptabs{display:flex;gap:3px;background:#f3f4f6;padding:3px;border-radius:7px;margin-bottom:10px}
+.ptabs button{flex:1;border:none;background:transparent;padding:5px;border-radius:5px;font-size:12.5px;cursor:pointer;color:#4b5563}
+.ptabs button.on{background:#fff;font-weight:500;color:#111827;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.prow{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:7px;border:1px solid transparent}
+.prow:hover{background:#f9fafb;border-color:#e5e7eb}
+.pname{flex:1;font-size:13.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pval{width:72px;border:1px solid #d1d5db;border-radius:5px;padding:3px 6px;font-size:12.5px;text-align:right}
+.punit{font-size:11.5px;color:#9ca3af;width:26px}
+.iconbtn{border:none;background:transparent;color:#9ca3af;cursor:pointer;font-size:14px;padding:0 3px;line-height:1}
+.iconbtn:hover{color:#b91c1c}
+.addrow{border:1px dashed #d1d5db;border-radius:7px;padding:8px;margin-top:8px;background:#fafafa}
+.addrow input,.addrow select{width:100%;border:1px solid #d1d5db;border-radius:5px;padding:5px 7px;font-size:12.5px;margin-bottom:6px}
+.mini{display:flex;gap:6px}
+.mini button{flex:1;padding:5px;border-radius:5px;font-size:12px;cursor:pointer;border:1px solid #d1d5db;background:#fff}
+.mini button.p{background:#111827;color:#fff;border-color:#111827}
+
+.rowitem{display:flex;align-items:center;gap:8px;padding:9px 10px;border:1px solid #e5e7eb;border-radius:9px;margin-bottom:8px;cursor:pointer;background:#fff}
+.rowitem:hover{border-color:#9ca3af}
+.rowitem.on{border-color:#111827}
+.rowitem.off{background:#fafafa;opacity:.6}
+.cbx{width:16px;height:16px;flex-shrink:0;cursor:pointer}
+.rname{flex:1;font-size:13.5px;font-weight:500}
+.rmode{font-size:11.5px;color:#6b7280;background:#f3f4f6;padding:2px 7px;border-radius:4px;white-space:nowrap}
+.rval{font-size:13.5px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.cfg{padding:12px;border:1px solid #111827;border-radius:9px;margin:-4px 0 10px;background:#fff}
+.cfg .line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.cfg label{font-size:12.5px;color:#6b7280;white-space:nowrap}
+.cfg select,.cfg input{border:1px solid #d1d5db;border-radius:6px;padding:6px 8px;font-size:13px;background:#fff}
+.cfg select:focus,.cfg input:focus{outline:none;border-color:#111827}
+.num{width:84px;text-align:right}
+.hint{background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;font-size:12.5px;padding:7px 10px;border-radius:6px;margin-bottom:10px}
+.preview{background:#f0fdf4;border:1px solid #bbf7d0;color:#15803d;font-size:12.5px;padding:8px 10px;border-radius:6px;font-family:ui-monospace,monospace;word-break:break-all}
+.preview.err{background:#fef2f2;border-color:#fecaca;color:#b91c1c}
+.adv{margin-top:10px;font-size:12px;color:#6b7280;cursor:pointer;text-decoration:underline}
+.adv:hover{color:#111827}
+.acts{display:flex;gap:8px;margin-top:10px;align-items:center}
+
+.calc-item{padding:9px 0;border-bottom:1px solid #f3f4f6}
+.calc-item:last-child{border:none}
+.ci-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.ci-name{font-size:13.5px}
+.ci-val{font-size:13.5px;font-weight:600;font-variant-numeric:tabular-nums}
+.ci-sub{font-size:12px;color:#1d4ed8;margin-top:2px;font-family:ui-monospace,monospace;word-break:break-all}
+.ci-err{font-size:12.5px;color:#b91c1c;margin-top:2px}
+.total{background:#f9fafb;border-top:1px solid #e5e7eb;padding:12px 14px}
+.tr{display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#4b5563}
+.tr.big{font-size:14px;color:#111827;font-weight:600;padding-top:8px;margin-top:6px;border-top:1px solid #e5e7eb}
+.tr.big b{font-size:21px}
+.mini-col{display:none;flex-direction:column;align-items:center;padding:14px 0;gap:10px;cursor:pointer}
+.mini-col .vt{writing-mode:vertical-rl;font-size:13px;color:#4b5563;letter-spacing:2px}
+.mini-col .mt{font-size:12px;color:#9ca3af;writing-mode:vertical-rl}
+.board.folded .mini-col{display:flex}
+.board.folded #calcFull{display:none}
+.empty{text-align:center;color:#9ca3af;font-size:13px;padding:22px 0}
+.note{font-size:11.5px;color:#9ca3af;padding:8px 0 0}
+.term{display:flex;gap:6px;align-items:flex-start;padding:6px 8px;border-radius:7px}
+.term:hover{background:#f9fafb}
+.term textarea{flex:1;border:1px solid #d1d5db;border-radius:5px;padding:4px 7px;font-size:12.5px;font-family:inherit;min-height:32px;resize:vertical}
+.savehint{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;font-size:12.5px;padding:8px 12px;border-radius:8px;margin-bottom:12px}
+</style>
+</head>
+<body data-page-node-id="J8DVM6Ce3TNiIoWqxZd74h">
+
+<div class="hdr" data-page-node-id="Qe2GDLTwXTOjbkQYXVJjT6">
+  <div class="hdr-in" data-page-node-id="0W9ppQ12EGgc1lHvQKhJRo">
+    <div class="logo" data-page-node-id="kR9zNXTcEmmxb9lH089p0o">M</div>
+    <div class="brand" data-page-node-id="UPCB7uaZ3uCrPlt9Mwpazk">报价配置中心</div>
+    <div class="tabs" id="tabs" data-page-node-id="WIb9F3fhLgomFxRtLU5m0Y"></div>
+    <div class="spacer" data-page-node-id="K1md7IwiVWwhVnYyFR6Gm0"></div>
+    <button class="btn gh" onclick="toggleCalc()" id="foldBtn" data-page-node-id="gkBy0Wpb6zwGc9ItqtrYMw">折叠计算栏</button>
+    <button class="btn gh" onclick="exportJSON()" data-page-node-id="CGNTpaWTXSUgyIX6O8zVqC">导出配置</button>
+    <button class="btn gh" onclick="document.getElementById('imp').click()" data-page-node-id="Bep2eAKhNT0nudbs7cw1aI">导入配置</button>
+    <input type="file" id="imp" accept=".json" style="display:none" onchange="importJSON(this)" data-page-node-id="m8JFVBYoxzxfYuFLIli8JS">
+    <button class="btn" onclick="saveLocal()" data-page-node-id="3CmpXsBviO6bRRbBO3w0Xm">保存</button>
+  </div>
+  <div class="bar" id="bar" data-page-node-id="4TQ3mDji0OZfpyCkeRTgDa"><span class="dot" data-page-node-id="Fk8InHimEM2cgU7RdCGjWf"></span><span id="barTxt" data-page-node-id="2iJuXAEmBifOAiWB3izMSb"></span></div>
+</div>
+
+<div class="wrap" data-page-node-id="b6kHpxDLbT8hvWskYE3ZT7">
+
+  <div class="savehint" id="guide" data-page-node-id="72SDMJcCRewiMGiYRbkfdJ">
+    <b data-page-node-id="JA5EdBh88YoaUnGp2eoW08">怎么用：</b>左边是你报价时要填的数据；中间是要收哪些费用，每种费用<b data-page-node-id="7RMSCjKX3vKT7WCzpe9Ncd">选一个计算方式、填几个数字</b>就行，不用写公式；右边立刻出价钱。
+  </div>
+
+  <div class="board" id="board" data-page-node-id="xYTcqyWtq0xVVR9GAfxCEF">
+
+    <div class="col" data-page-node-id="Y8MiehjscR2HmfunNOuODg">
+      <div class="chd" data-page-node-id="j0tKqxqnzuZ4EbIslHm0mr">
+        <div class="ctitle" data-page-node-id="ntrgMCS42CXfqCqWGhgJUa"><span class="step" data-page-node-id="vnSxatEEMqAJOO5ivmcixR">1</span>报价时填写</div>
+        <span class="csub" id="pcount" data-page-node-id="XxHG0NjGExO81zsPu8tgHd"></span>
+      </div>
+      <div class="body" data-page-node-id="UnFaMpOObaDoVGytaLb7mB">
+        <div class="ptabs" data-page-node-id="ybjf0kA0BDfqfw4cqaQTuM">
+          <button class="on" onclick="pane('param',this)" data-page-node-id="s9LqQY5xwRcmQ4F7EBOdJL">产品数据</button>
+          <button onclick="pane('mat',this)" data-page-node-id="d7LjSrIS9ATciaEUoC0GYv">材料</button>
+          <button onclick="pane('term',this)" data-page-node-id="eghSG2hlKwpwETsuTsy1Gm">条款</button>
+        </div>
+        <div id="pane-param" data-page-node-id="AnXnhArmf1qOpes4rtEMK6"></div>
+        <div id="pane-mat" style="display:none" data-page-node-id="0WH5qu6FEx092bNHb757rn"></div>
+        <div id="pane-term" style="display:none" data-page-node-id="Ku1Xe7ZBBizSE3hXnBdof5"></div>
+      </div>
+    </div>
+
+    <div class="col" data-page-node-id="nvlWVjwVdsGx0WxitAcZMd">
+      <div class="chd" data-page-node-id="rUKGKputJj2gkk2KxoO35g">
+        <div class="ctitle" data-page-node-id="qvaHjpOik3nj9AM1eSSEdo"><span class="step" data-page-node-id="KthXKV933BVwBEqgmXIli2">2</span>要收哪些费用<span class="csub" id="icount" data-page-node-id="hZqqDLy1O0GSGUqk0VPz4x"></span></div>
+        <button class="btn gh sm" onclick="addItem()" data-page-node-id="Y8S0njGg7bkFXM3ZU7TPie">+ 加一项费用</button>
+      </div>
+      <div class="body" id="ilist" data-page-node-id="vURKPLewr63LauTNaxCwKX"></div>
+    </div>
+
+    <div class="col" data-page-node-id="xpt3FezCCxuOP07a027l1A">
+      <div class="chd" id="calcHd" data-page-node-id="2cSyvTacOybxDcM2T2XJnB">
+        <div class="ctitle" data-page-node-id="8FmeJ2pKh2Cw7NANC7XCYd"><span class="step" data-page-node-id="haTq6NrnKJMt5IxwDJKtDA">3</span>实时算价</div>
+        <button class="foldbtn" onclick="toggleCalc()" data-page-node-id="KIxIBUr7M1hAA1BEKDWiQR">折叠</button>
+      </div>
+      <div class="mini-col" onclick="toggleCalc()" title="点击展开" data-page-node-id="MI0uo08hpUkS4hPwx17ZfD">
+        <div class="vt" data-page-node-id="xbBvfgxt2o7YZxruNCSUKZ">算价结果</div><div class="mt" id="mt" data-page-node-id="Kqq9tOJJBXUSuNFJWchneB">¥ 0</div>
+      </div>
+      <div id="calcFull" data-page-node-id="5gsm7s5NIVyBF0z9Dxc6iG">
+        <div class="body" id="calc" style="max-height:520px;overflow-y:auto" data-page-node-id="hKEFemRZHekBkOL8Cu2LUB"></div>
+        <div class="total" id="total" data-page-node-id="3rpFZaIU86U3p7W6cCi974"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const LS='mqs_config_v3';
+const CALC_TYPES=[
+  {v:'fixed',  n:'固定金额',        d:'每次都收这么多，不会变'},
+  {v:'qty',    n:'数量 × 单价',      d:'按件数、穴数之类的数量乘单价'},
+  {v:'size',   n:'按模具尺寸算材料',  d:'长 × 宽 × 高 × 材料密度 × 单价，自动换算成重量'},
+  {v:'hours',  n:'工时 × 时薪',      d:'加工费常用'},
+  {v:'weight', n:'重量 × 单价',      d:'按产品重量和材料单价算'},
+  {v:'percent',n:'按比例算',         d:'按前面费用合计的百分比收，比如管理费 15%'},
+  {v:'manual', n:'报价时手填',       d:'每次报价临时定，不预设算法'},
+  {v:'formula',n:'高级：自己写公式',  d:'只有特殊算法才需要用到'}
+];
+const CALC_NAME={};CALC_TYPES.forEach(c=>CALC_NAME[c.v]=c.n);
+
+function defaults(){
+  const biz=[{n:'管理费率',v:0.15,u:''},{n:'利润率',v:0.10,u:''},{n:'税率',v:0.13,u:''}];
+  return {types:{
+    injection:{name:'注塑模具',params:[
+      {n:'腔数',v:2,u:'穴'},{n:'单件重量',v:0.18,u:'kg'},{n:'模芯长',v:500,u:'mm'},
+      {n:'模芯宽',v:400,u:'mm'},{n:'模芯高',v:150,u:'mm'},{n:'成型周期',v:45,u:'秒'},
+      {n:'首单数量',v:300000,u:'件'},{n:'机台费率',v:130,u:'元/时'},{n:'钢材单价',v:25,u:'元/kg'},
+      {n:'管理费率',v:0.15,u:''},{n:'利润率',v:0.10,u:''},{n:'税率',v:0.13,u:''}
+    ],materials:[
+      {n:'ABS',p:12,u:'kg',loss:0.05},{n:'PP',p:9.5,u:'kg',loss:0.05},{n:'PC',p:26,u:'kg',loss:0.05},
+      {n:'P20 钢',p:25,u:'kg',loss:0.10},{n:'718H 钢',p:32,u:'kg',loss:0.10}
+    ],terms:[
+      {t:'以上总价含 13% 增值税，开具增值税专用发票。',on:true},
+      {t:'广东省内运费免费，省外按实际运输方式另行计费。',on:true},
+      {t:'模具 40 天交货，首单注塑于收到定金后 45 天交付。',on:true}
+    ],items:[
+      {n:'模芯钢材费',c:'材料费',s:'模具',on:true,calc:{t:'size',v:{l:'模芯长',w:'模芯宽',h:'模芯高',density:7.85,priceVar:'钢材单价'}}},
+      {n:'CNC 加工费',c:'CNC',s:'模具',on:true,calc:{t:'hours',v:{hours:96,rate:400}}},
+      {n:'设计费',c:'自定义',s:'模具',on:true,calc:{t:'fixed',v:{amount:6000}}},
+      {n:'试模费',c:'试模',s:'模具',on:true,calc:{t:'qty',v:{src:'腔数',price:2500}}},
+      {n:'管理费',c:'管理费',s:'模具',on:true,calc:{t:'percent',v:{base:'模具小计',rate:0.15}}}
+    ]},
+    diecast:{name:'压铸模具',params:[
+      {n:'投影面积',v:320,u:'cm²'},{n:'平均壁厚',v:2.5,u:'mm'},{n:'压铸机吨位',v:800,u:'T'},
+      {n:'型腔数',v:1,u:'穴'},{n:'单件重量',v:0.86,u:'kg'},{n:'模具寿命',v:100000,u:'模次'},
+      {n:'首单数量',v:50000,u:'件'},{n:'合金单价',v:22,u:'元/kg'},
+      {n:'管理费率',v:0.15,u:''},{n:'利润率',v:0.10,u:''},{n:'税率',v:0.13,u:''}
+    ],materials:[
+      {n:'ADC12 铝',p:22,u:'kg',loss:0.08},{n:'锌合金 3#',p:19,u:'kg',loss:0.08},
+      {n:'H13 热作钢',p:45,u:'kg',loss:0.12}
+    ],terms:[
+      {t:'模具材质 H13 热作钢，含真空阀与强化冷却回路。',on:true},
+      {t:'试模 3 次以内不另计费，超出按每次 3000 元计。',on:true}
+    ],items:[
+      {n:'模芯热作钢费',c:'材料费',s:'模具',on:true,calc:{t:'size',v:{l:'投影面积',w:'平均壁厚',h:null,density:2.7,priceVar:'合金单价'}}},
+      {n:'强冷却回路',c:'自定义',s:'模具',on:true,calc:{t:'qty',v:{src:'投影面积',price:45}}},
+      {n:'真空阀与管路',c:'自定义',s:'模具',on:false,calc:{t:'fixed',v:{amount:18000}}},
+      {n:'压铸机加工费',c:'CNC',s:'模具',on:true,calc:{t:'hours',v:{hours:120,rate:420}}},
+      {n:'管理费',c:'管理费',s:'模具',on:true,calc:{t:'percent',v:{base:'模具小计',rate:0.15}}}
+    ]},
+    twocolor:{name:'双色模具',params:[
+      {n:'腔数',v:2,u:'穴'},{n:'模芯长',v:420,u:'mm'},{n:'模芯宽',v:320,u:'mm'},
+      {n:'模芯高',v:180,u:'mm'},{n:'热流道点数',v:4,u:'点'},{n:'首单数量',v:120000,u:'件'},
+      {n:'成型周期',v:52,u:'秒'},{n:'机台费率',v:180,u:'元/时'},
+      {n:'管理费率',v:0.15,u:''},{n:'利润率',v:0.10,u:''},{n:'税率',v:0.13,u:''}
+    ],materials:[
+      {n:'ABS 硬胶',p:12,u:'kg',loss:0.05},{n:'TPE 软胶',p:35,u:'kg',loss:0.06},
+      {n:'718H 钢',p:32,u:'kg',loss:0.10}
+    ],terms:[
+      {t:'含两套热流道，旋转机构质保 12 个月。',on:true},
+      {t:'双色试模 5 次，超出部分按每次 3000 元计费。',on:true}
+    ],items:[
+      {n:'旋转转盘机构',c:'自定义',s:'模具',on:true,calc:{t:'fixed',v:{amount:86000}}},
+      {n:'第一套热流道',c:'热流道',s:'模具',on:true,calc:{t:'qty',v:{src:'热流道点数',price:8000}}},
+      {n:'第二套热流道',c:'热流道',s:'模具',on:true,calc:{t:'qty',v:{src:'热流道点数',price:8000}}},
+      {n:'双色合模调试',c:'试模',s:'模具',on:false,calc:{t:'fixed',v:{amount:12000}}},
+      {n:'管理费',c:'管理费',s:'模具',on:true,calc:{t:'percent',v:{base:'模具小计',rate:0.15}}}
+    ]}
+  },active:'injection'};
+}
+
+let DB,key,openItem=0,paneNow='param',dirty=false,advOpen={};
+try{DB=JSON.parse(localStorage.getItem(LS))||defaults();}catch(e){DB=defaults();}
+key=DB.active&&DB.types[DB.active]?DB.active:Object.keys(DB.types)[0];
+
+const money=n=>'¥ '+Math.round(n).toLocaleString('zh-CN');
+const num=n=>String(Math.round(n*100)/100);
+const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const P=()=>DB.types[key].params, M=()=>DB.types[key].materials,
+      T=()=>DB.types[key].terms, I=()=>DB.types[key].items;
+function rate(n,d){const p=P().find(x=>x.n===n);return p?(Number(p.v)||0):d;}
+
+function markDirty(){dirty=true;renderBar();}
+function renderBar(){
+  document.getElementById('bar').className='bar'+(dirty?'':' saved');
+  document.getElementById('barTxt').textContent=dirty
+    ? '有改动还没保存 · 现在只存在这个页面，刷新会丢'
+    : '已保存到本机（'+(localStorage.getItem(LS+'_t')||'刚刚')+'）· 可导出带走';
+}
+function saveLocal(){
+  localStorage.setItem(LS,JSON.stringify(DB));
+  localStorage.setItem(LS+'_t',new Date().toLocaleString('zh-CN'));
+  dirty=false;renderBar();
+}
+function exportJSON(){
+  const blob=new Blob([JSON.stringify(DB,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download='报价配置_'+new Date().toISOString().slice(0,10)+'.json';a.click();
+}
+function importJSON(inp){
+  const f=inp.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=()=>{try{DB=JSON.parse(r.result);key=Object.keys(DB.types)[0];openItem=0;saveLocal();renderAll();alert('导入成功');}
+    catch(e){alert('文件格式不正确');}};
+  r.readAsText(f);inp.value='';
+}
+
+/* 由「计算方式」生成表达式 —— 用户永远不用看到这一步 */
+function buildExpr(it){
+  const c=it.calc||{t:'fixed',v:{}},v=c.v||{};
+  switch(c.t){
+    case 'fixed':  return String(Number(v.amount)||0);
+    case 'qty':    return (P().some(p=>p.n===v.src)?v.src:(Number(v.srcQty)||1))+' 乘以 '+(Number(v.price)||0);
+    case 'size':{
+      const dims=[v.l,v.w,v.h].filter(Boolean);
+      if(!dims.length)return '0';
+      return dims.join(' 乘以 ')+' 除以 1000 乘以 '+(Number(v.density)||1)+' 除以 1000 乘以 '+
+             (P().some(p=>p.n===v.priceVar)?v.priceVar:(Number(v.priceFixed)||0));
+    }
+    case 'hours':  return (Number(v.hours)||0)+' 乘以 '+(Number(v.rate)||0);
+    case 'weight': return (P().some(p=>p.n===v.wVar)?v.wVar:'0')+' 乘以 '+
+             (P().some(p=>p.n===v.priceVar)?v.priceVar:(Number(v.priceFixed)||0))+
+             ' 乘以 ( 1 加上 '+(Number(v.loss)||0)+' )';
+    case 'percent':return '0';
+    case 'manual': return '0';
+    case 'formula':return it.f||'0';
+  }
+  return '0';
+}
+/* 计算方式的中文读法 */
+function readable(it){
+  const c=it.calc||{t:'fixed',v:{}},v=c.v||{};
+  switch(c.t){
+    case 'fixed':  return '固定金额 '+money(Number(v.amount)||0);
+    case 'qty':    return (v.src||'数量')+' × '+(Number(v.price)||0)+' 元';
+    case 'size':   return [v.l,v.w,v.h].filter(Boolean).join(' × ')+' → 体积换重量 × '+(v.priceVar||'单价');
+    case 'hours':  return (Number(v.hours)||0)+' 小时 × '+(Number(v.rate)||0)+' 元/小时';
+    case 'weight': return (v.wVar||'重量')+' × '+(v.priceVar||'单价')+' × (1 + 损耗 '+(Number(v.loss)||0)+')';
+    case 'percent':return (v.base||'模具小计')+' × '+(Math.round((Number(v.rate)||0)*1000)/10)+'%';
+    case 'manual': return '报价时手动填写金额';
+    case 'formula':return it.f||'（未填写）';
+  }
+  return '';
+}
+
+/* 受限求值器 */
+const OPS=['+','-','*','/','%','>=','<=','==','!=','>','<','&&','||','(',')',','];
+const FNS=['如果','那么','否则','最大值','最小值','取整'];
+const CN_OP={'加上':'+','减去':'-','乘以':'*','除以':'/','取余':'%','大于等于':'>=','小于等于':'<=','等于':'==','不等于':'!=','大于':'>','小于':'<','且':'&&','或':'||','（':'(','）':')','，':','};
+const FN_EXPR={'如果':'if(','那么':',','否则':',','最大值':'max(','最小值':'min(','取整':'round('};
+function tokenize(s){
+  let t=s||'';
+  t=t.replace(/[×✕]/g,' 乘以 ').replace(/[÷]/g,' 除以 ').replace(/[＋]/g,' 加上 ').replace(/[－—–]/g,' 减去 ');
+  t=t.replace(/[（）]/g,m=>m==='（'?' ( ':' ) ').replace(/[，,]/g,' , ');
+  t=t.replace(/(>=|<=|==|!=)/g,' $1 ').replace(/([()+\-*/%<>,])/g,' $1 ');
+  Object.keys(CN_OP).forEach(k=>{t=t.split(k).join(' '+CN_OP[k]+' ');});
+  return t.split(/\s+/).filter(Boolean);
+}
+function parse(s){
+  return tokenize(s).map(t=>{
+    if(/^-?\d+(\.\d+)?$/.test(t))return{t:'n',v:Number(t)};
+    if(P().some(p=>p.n===t))return{t:'p',n:t};
+    if(OPS.includes(t))return{t:'o',o:t};
+    if(FNS.includes(t))return{t:'f',o:t};
+    return{t:'u',o:t};
+  });
+}
+function exprOf(bs){return bs.map(b=>b.t==='n'?String(b.v):b.t==='p'?'v'+P().findIndex(p=>p.n===b.n):b.t==='o'?b.o:b.t==='f'?FN_EXPR[b.o]:' ').join(' ');}
+function subOf(bs){return bs.map(b=>b.t==='n'?b.v:b.t==='p'?num((P().find(x=>x.n===b.n)||{}).v||0):b.t==='o'?b.o:b.t==='f'?b.o:'?').join(' ');}
+function ev(src,sc){
+  let i=0;const N=src.length;
+  const ws=()=>{while(i<N&&/\s/.test(src[i]))i++;};
+  function lit(){ws();let j=i;while(i<N&&/[0-9.]/.test(src[i]))i++;return parseFloat(src.slice(j,i));}
+  function prim(){ws();
+    if(i>=N)throw new Error('INCOMPLETE');
+    if(src[i]==='('){i++;const v=ex();ws();if(src[i]===')')i++;return v;}
+    if(/[0-9.]/.test(src[i]))return lit();
+    let j=i;while(i<N&&/[a-zA-Z0-9_]/.test(src[i]))i++;const nm=src.slice(j,i);ws();
+    if(src[i]==='('){i++;const a=[];ws();
+      if(src[i]!==')'){a.push(ex());while(src[i]===','){i++;a.push(ex());}}
+      ws();if(src[i]===')')i++;
+      if(nm==='if')return a[0]?a[1]:(a[2]||0);
+      if(nm==='max')return Math.max(...a);
+      if(nm==='min')return Math.min(...a);
+      if(nm==='round'){const m=a[1]!==undefined?Math.pow(10,a[1]):1;return Math.round(a[0]*m)/m;}
+      throw new Error('未知函数 '+nm);}
+    if(!(nm in sc))throw new Error('NOTFOUND');
+    return sc[nm];}
+  function un(){ws();if(src[i]==='-'){i++;return -un();}if(src[i]==='!'){i++;return un()?0:1;}return prim();}
+  function mul(){let l=un();for(;;){ws();const c=src[i];
+    if(c==='*'){i++;l*=un();}else if(c==='/'){i++;const r=un();if(r===0)throw new Error('DIV0');l/=r;}
+    else if(c==='%'){i++;l%=un();}else return l;}}
+  function add(){let l=mul();for(;;){ws();const c=src[i];
+    if(c==='+'){i++;l+=mul();}else if(c==='-'){i++;l-=mul();}else return l;}}
+  function cmp(){let l=add();for(;;){ws();
+    if(src.startsWith('>=',i)){i+=2;l=l>=add()?1:0;}else if(src.startsWith('<=',i)){i+=2;l=l<=add()?1:0;}
+    else if(src.startsWith('==',i)){i+=2;l=l===add()?1:0;}else if(src.startsWith('!=',i)){i+=2;l=l!==add()?1:0;}
+    else if(src[i]==='>'){i++;l=l>add()?1:0;}else if(src[i]==='<'){i++;l=l<add()?1:0;}else return l;}}
+  function land(){let l=cmp();for(;;){ws();if(src.startsWith('&&',i)){i+=2;const r=cmp();l=l&&r?1:0;}else return l;}}
+  function lor(){let l=land();for(;;){ws();if(src.startsWith('||',i)){i+=2;const r=land();l=l||r?1:0;}else return l;}}
+  function ex(){return lor();}
+  const v=ex();ws();if(i<src.length)throw new Error('INCOMPLETE');
+  return v;
+}
+function friendly(m){
+  if(m==='DIV0')return '算到「除以 0」了，检查一下填的数字';
+  if(m==='INCOMPLETE')return '缺少运算符号，请检查计算方式里的填空';
+  if(m==='NOTFOUND')return '用到的数据项不存在了，可能左边被删掉了，请重新选';
+  return m;
+}
+function sc(){const s={};P().forEach((p,i)=>{s['v'+i]=Number(p.v)||0;});return s;}
+
+/* 汇总计算 */
+function calcAll(){
+  const running={mold:0,inj:0,mat:0,list:[]};
+  I().forEach(it=>{
+    if(!it.on){running.list.push({it,v:0,off:true});return;}
+    const c=it.calc||{t:'fixed',v:{}};
+    if(c.t==='percent'){
+      const base=c.v.base==='材料费合计'?running.mat:running.mold;
+      const v=Math.round(base*(Number(c.v.rate)||0));
+      if(it.s==='注塑')running.inj+=v;else running.mold+=v;
+      running.list.push({it,v,base});
+      return;
+    }
+    if(c.t==='manual'){running.list.push({it,v:0,manual:true});return;}
+    try{
+      const bs=parse(buildExpr(it));
+      const bad=bs.find(b=>b.t==='u');
+      if(bad)throw new Error('NOTFOUND');
+      const v=ev(exprOf(bs),sc());
+      if(it.s==='注塑')running.inj+=v;else running.mold+=v;
+      if(it.c==='材料费')running.mat+=v;
+      running.list.push({it,v});
+    }catch(e){running.list.push({it,v:0,err:friendly(e.message)});}
+  });
+  return running;
+}
+
+function renderTabs(){
+  document.getElementById('tabs').innerHTML=Object.keys(DB.types).map(k=>
+    '<div class="tt '+(k===key?'on':'')+'" onclick="switchType(\''+k+'\')">'+esc(DB.types[k].name)+
+    (k===key?'<span class="rn" onclick="event.stopPropagation();renameType(\''+k+'\')" title="重命名">改</span>':'')+
+    (Object.keys(DB.types).length>1?'<span class="x" onclick="event.stopPropagation();delType(\''+k+'\')" title="删除">×</span>':'')+
+    '</div>').join('')+'<button class="addt" onclick="addType()">+ 新类型</button>';
+}
+function switchType(k){key=k;DB.active=k;openItem=0;markDirty();renderAll();}
+function addType(){
+  const n=prompt('新模具类型名称：','橡胶模具');if(!n)return;
+  const k='t'+Date.now();
+  DB.types[k]={name:n,params:[{n:'腔数',v:1,u:'穴'},{n:'首单数量',v:10000,u:'件'},
+    {n:'管理费率',v:0.15,u:''},{n:'利润率',v:0.10,u:''},{n:'税率',v:0.13,u:''}],materials:[],terms:[],items:[]};
+  key=k;DB.active=k;openItem=0;markDirty();renderAll();
+}
+function delType(k){
+  if(!confirm('删除「'+DB.types[k].name+'」及其全部费用项？'))return;
+  delete DB.types[k];key=Object.keys(DB.types)[0];DB.active=key;openItem=0;markDirty();renderAll();
+}
+function renameType(k){const n=prompt('重命名为：',DB.types[k].name);if(!n)return;DB.types[k].name=n;markDirty();renderAll();}
+
+function pane(p,btn){
+  paneNow=p;
+  ['param','mat','term'].forEach(x=>document.getElementById('pane-'+x).style.display=x===p?'block':'none');
+  document.querySelectorAll('.ptabs button').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');renderPane();
+}
+function renderPane(){
+  if(paneNow==='param'){
+    document.getElementById('pcount').textContent=P().length+' 项';
+    document.getElementById('pane-param').innerHTML=
+      P().map((p,i)=>'<div class="prow"><span class="pname">'+esc(p.n)+'</span>'+
+      '<input class="pval" type="number" step="any" value="'+p.v+'" oninput="setVal('+i+',this.value)">'+
+      '<span class="punit">'+esc(p.u)+'</span>'+
+      '<button class="iconbtn" onclick="delParam('+i+')">×</button></div>').join('')+
+      '<div class="addrow" id="padd" style="display:none">'+
+      '<input id="pn" placeholder="名称，如：热流道点数"><input id="pv" placeholder="默认值" type="number" step="any">'+
+      '<select id="pu"><option>无</option><option>穴</option><option>mm</option><option>kg</option><option>元</option><option>点</option></select>'+
+      '<div class="mini"><button class="p" onclick="addParam()">添加</button>'+
+      '<button onclick="document.getElementById(\'padd\').style.display=\'none\'">取消</button></div></div>'+
+      '<button class="btn gh sm" style="width:100%;margin-top:8px" onclick="document.getElementById(\'padd\').style.display=\'block\'">+ 加一项数据</button>'+
+      '<div class="note">这些是报价时你要填的数字，改这里右边立刻重算</div>';
+  }
+  if(paneNow==='mat'){
+    document.getElementById('pane-mat').innerHTML=
+      M().map((m,i)=>'<div class="prow">'+
+      '<input class="pname" style="width:80px;flex:none;border:1px solid #d1d5db;border-radius:5px;padding:3px 6px;font-size:12.5px" value="'+esc(m.n)+'" oninput="editMat('+i+',\'n\',this.value)">'+
+      '<input class="pval" type="number" step="any" value="'+m.p+'" oninput="editMat('+i+',\'p\',this.value)">'+
+      '<span class="punit">'+esc(m.u)+'</span>'+
+      '<input class="pval" style="width:50px" type="number" step="any" value="'+m.loss+'" oninput="editMat('+i+',\'loss\',this.value)" title="损耗率">'+
+      '<button class="iconbtn" onclick="delMat('+i+')">×</button></div>').join('')+
+      '<button class="btn gh sm" style="width:100%;margin-top:8px" onclick="addMat()">+ 加一种材料</button>'+
+      '<div class="note">单价 / 损耗率</div>';
+  }
+  if(paneNow==='term'){
+    document.getElementById('pane-term').innerHTML=
+      T().map((t,i)=>'<div class="term"><textarea oninput="editTerm('+i+',this.value)">'+esc(t.t)+'</textarea>'+
+      '<button class="btn gh sm" onclick="toggleTerm('+i+')">'+(t.on?'启用':'停用')+'</button>'+
+      '<button class="iconbtn" onclick="delTerm('+i+')">×</button></div>').join('')+
+      '<button class="btn gh sm" style="width:100%;margin-top:8px" onclick="addTerm()">+ 加一条</button>'+
+      '<div class="note">会印在给客户的报价单上</div>';
+  }
+}
+function setVal(i,v){P()[i].v=Number(v)||0;renderItems();markDirty();}
+function delParam(i){P().splice(i,1);renderAll();markDirty();}
+function addParam(){
+  const n=document.getElementById('pn').value.trim();if(!n)return alert('请填写名称');
+  P().push({n,v:Number(document.getElementById('pv').value)||0,u:document.getElementById('pu').value});
+  document.getElementById('pn').value='';document.getElementById('pv').value='';
+  document.getElementById('padd').style.display='none';renderAll();markDirty();
+}
+function editMat(i,f,v){M()[i][f]=f==='n'?v:Number(v)||0;markDirty();}
+function delMat(i){M().splice(i,1);renderPane();markDirty();}
+function addMat(){M().push({n:'新材料',p:0,u:'kg',loss:0.05});renderPane();markDirty();}
+function editTerm(i,v){T()[i].t=v;markDirty();}
+function toggleTerm(i){T()[i].on=!T()[i].on;renderPane();markDirty();}
+function delTerm(i){T().splice(i,1);renderPane();markDirty();}
+function addTerm(){T().push({t:'新条款内容',on:true});renderPane();markDirty();}
+
+/* 变量下拉 */
+function varSel(id,cur,onch){
+  return '<select id="'+id+'" onchange="'+onch+'"><option value="">（选择）</option>'+
+    P().map(p=>'<option value="'+esc(p.n)+'"'+(p.n===cur?' selected':'')+'>'+esc(p.n)+'</option>').join('')+'</select>';
+}
+function numIn(id,val,onch,step){
+  return '<input class="num" id="'+id+'" type="number" step="'+(step||'any')+'" value="'+(val==null?'':val)+'" onchange="'+onch+'">';
+}
+
+function cfgHtml(i){
+  const it=I()[i],c=it.calc||{t:'fixed',v:{}},v=c.v||{};
+  const opts=CALC_TYPES.map(x=>'<option value="'+x.v+'"'+(x.v===c.t?' selected':'')+'>'+x.n+'</option>').join('');
+  const tip=(CALC_TYPES.find(x=>x.v===c.t)||{}).d||'';
+  let fields='';
+  if(c.t==='fixed'){
+    fields='<div class="line"><label>金额</label>'+numIn('a',v.amount,'cfgNum('+i+',\'amount\',this.value)')+'<label>元</label></div>';
+  }else if(c.t==='qty'){
+    fields='<div class="line"><label>数量按</label>'+varSel('s',v.src,'cfgSel('+i+',\'src\',this.value)')+
+      '<label>单价</label>'+numIn('b',v.price,'cfgNum('+i+',\'price\',this.value)')+'<label>元</label></div>';
+  }else if(c.t==='size'){
+    fields='<div class="line"><label>长</label>'+varSel('l',v.l,'cfgSel('+i+',\'l\',this.value)')+
+      '<label>宽</label>'+varSel('w',v.w,'cfgSel('+i+',\'w\',this.value)')+
+      '<label>高（可留空）</label>'+varSel('h',v.h,'cfgSel('+i+',\'h\',this.value)')+'</div>'+
+      '<div class="line"><label>材料密度</label>'+numIn('d',v.density==null?7.85:v.density,'cfgNum('+i+',\'density\',this.value)')+'<label>g/cm³</label>'+
+      '<label>单价按</label>'+varSel('pv',v.priceVar,'cfgSel('+i+',\'priceVar\',this.value)')+'</div>';
+  }else if(c.t==='hours'){
+    fields='<div class="line"><label>工时</label>'+numIn('h',v.hours,'cfgNum('+i+',\'hours\',this.value)')+'<label>小时</label>'+
+      '<label>时薪</label>'+numIn('r',v.rate,'cfgNum('+i+',\'rate\',this.value)')+'<label>元/小时</label></div>';
+  }else if(c.t==='weight'){
+    fields='<div class="line"><label>重量按</label>'+varSel('wv',v.wVar,'cfgSel('+i+',\'wVar\',this.value)')+
+      '<label>单价按</label>'+varSel('pv',v.priceVar,'cfgSel('+i+',\'priceVar\',this.value)')+
+      '<label>损耗率</label>'+numIn('ls',v.loss==null?0.05:v.loss,'cfgNum('+i+',\'loss\',this.value)')+'</div>';
+  }else if(c.t==='percent'){
+    fields='<div class="line"><label>基数</label><select onchange="cfgSel('+i+',\'base\',this.value)">'+
+      ['模具小计','材料费合计'].map(b=>'<option'+(b===v.base?' selected':'')+'>'+b+'</option>').join('')+
+      '</select><label>比例</label>'+numIn('rt',v.rate==null?0.15:v.rate,'cfgNum('+i+',\'rate\',this.value)')+'</div>';
+  }else if(c.t==='manual'){
+    fields='<div class="hint" style="margin:0">这一项不会预设算法，报价时由你手动填金额。</div>';
+  }else if(c.t==='formula'){
+    fields='<div class="line"><textarea style="width:100%;min-height:52px;border:1px solid #d1d5db;border-radius:6px;padding:8px;font-size:13px" onchange="cfgExpr('+i+',this.value)" placeholder="例：腔数 乘以 1500">'+esc(it.f||'')+'</textarea></div>'+
+      '<div class="hint" style="margin:0">可以用中文写：加上、减去、乘以、除以、大于等于、且、或、如果…那么…否则</div>';
+  }
+  const r=calcAll().list.find(x=>x.it===it)||{};
+  let prev;
+  if(r.err)prev='<div class="preview err">✗ '+esc(r.err)+'</div>';
+  else if(r.manual)prev='<div class="preview">报价时手动填写</div>';
+  else prev='<div class="preview">'+esc(readable(it))+'　=　<b>'+money(r.v||0)+'</b></div>';
+  return '<div class="cfg">'+
+    '<div class="line"><label>计算方式</label><select onchange="setCalcType('+i+',this.value)">'+opts+'</select>'+
+      '<span class="note" style="padding:0">'+esc(tip)+'</span></div>'+
+    fields+
+    '<div class="line"><label>名称</label><input value="'+esc(it.n)+'" onchange="edit('+i+',\'n\',this.value)" style="width:150px">'+
+      '<label>计入</label><select onchange="edit('+i+',\'s\',this.value)">'+
+      '<option'+(it.s==='模具'?' selected':'')+'>模具</option><option'+(it.s==='注塑'?' selected':'')+'>注塑</option></select></div>'+
+    prev+
+    '<div class="acts"><span class="adv" onclick="toggleAdv('+i+')">'+(advOpen[i]?'收起高级选项':'高级选项')+'</span>'+
+      '<span style="flex:1"></span>'+
+      '<button class="btn gh sm" style="color:#b91c1c" onclick="delItem('+i+')">删除这一项</button></div>'+
+    (advOpen[i]?'<div class="hint" style="margin-top:8px">分类标签：<input value="'+esc(it.c)+'" onchange="edit('+i+',\'c\',this.value)" style="width:120px;margin-left:6px">'+
+      '　说明（给客户看的）：<input value="'+esc(it.d||'')+'" onchange="edit('+i+',\'d\',this.value)" style="width:180px;margin-left:6px"></div>':'')+
+    '</div>';
+}
+
+function renderItems(){
+  const run=calcAll();
+  document.getElementById('icount').textContent=I().length+' 项';
+  document.getElementById('ilist').innerHTML=I().map((it,i)=>{
+    const r=run.list.find(x=>x.it===it)||{};
+    let val=r.err?'出错了':r.manual?'报价时填':(it.on?money(r.v||0):'—');
+    let cls='rowitem'+(openItem===i?' on':'')+(it.on?'':' off');
+    return '<div class="'+cls+'" onclick="openCfg('+i+')">'+
+      '<input class="cbx" type="checkbox" '+(it.on?'checked':'')+' onclick="event.stopPropagation();toggleOn('+i+')">'+
+      '<span class="rname">'+esc(it.n)+'</span>'+
+      '<span class="rmode">'+esc(CALC_NAME[(it.calc||{}).t]||'—')+'</span>'+
+      '<span class="rval">'+val+'</span></div>'+
+      (openItem===i?cfgHtml(i):'');
+  }).join('')||'<div class="empty">还没有费用项，点右上角「加一项费用」</div>';
+}
+function openCfg(i){openItem=openItem===i?null:i;renderItems();}
+function toggleAdv(i){advOpen[i]=!advOpen[i];renderItems();}
+function toggleOn(i){
+  I()[i].on=!I()[i].on;renderItems();markDirty();
+}
+/* 按名字智能猜参数，切计算方式时尽量不用用户再选 */
+function guess(kw){
+  const hit=P().filter(p=>p.n.indexOf(kw)>=0);
+  return hit.length?hit[0].n:'';
+}
+function setCalcType(i,t){
+  const it=I()[i];
+  it.calc={t:t,v:{}};
+  if(t==='fixed')it.calc.v={amount:0};
+  if(t==='qty')it.calc.v={src:guess('腔')||guess('数量')||guess('件'),price:0};
+  if(t==='size')it.calc.v={l:guess('长'),w:guess('宽'),h:guess('高'),density:7.85,priceVar:guess('单价')};
+  if(t==='hours')it.calc.v={hours:0,rate:0};
+  if(t==='weight')it.calc.v={wVar:guess('重量')||guess('单件'),priceVar:guess('单价'),loss:0.05};
+  if(t==='percent')it.calc.v={base:'模具小计',rate:0.15};
+  if(t==='formula')it.f=it.f||'';
+  renderItems();markDirty();
+}
+function cfgNum(i,f,v){I()[i].calc.v[f]=Number(v)||0;renderItems();markDirty();}
+function cfgSel(i,f,v){I()[i].calc.v[f]=v;renderItems();markDirty();}
+function cfgExpr(i,v){I()[i].f=v;renderItems();markDirty();}
+function edit(i,f,v){I()[i][f]=v;renderItems();markDirty();}
+function addItem(){
+  I().push({n:'新费用',c:'自定义',s:'模具',on:true,calc:{t:'fixed',v:{amount:0}}});
+  openItem=I().length-1;renderAll();markDirty();
+}
+function delItem(i){
+  if(!confirm('删除「'+I()[i].n+'」？'))return;
+  I().splice(i,1);openItem=null;renderAll();markDirty();
+}
+
+function renderCalc(){
+  const run=calcAll();
+  document.getElementById('calc').innerHTML=run.list.map(x=>{
+    const it=x.it;
+    if(x.off)return '<div class="calc-item"><div class="ci-top"><span class="ci-name" style="color:#9ca3af">'+esc(it.n)+'（已停用）</span><span class="ci-val" style="color:#9ca3af">—</span></div></div>';
+    if(x.manual)return '<div class="calc-item"><div class="ci-top"><span class="ci-name">'+esc(it.n)+'</span><span class="ci-val">报价时填</span></div><div class="ci-sub">'+esc(readable(it))+'</div></div>';
+    if(x.err)return '<div class="calc-item"><div class="ci-top"><span class="ci-name">'+esc(it.n)+'</span><span class="ci-val">—</span></div><div class="ci-err">✗ '+esc(x.err)+'</div></div>';
+    return '<div class="calc-item"><div class="ci-top"><span class="ci-name">'+esc(it.n)+'</span><span class="ci-val">'+money(x.v)+'</span></div>'+
+      '<div class="ci-sub">'+esc(readable(it))+'</div></div>';
+  }).join('')||'<div class="empty">加费用项后这里显示每一项怎么算出来的</div>';
+
+  const mold=run.mold,inj=run.inj;
+  const mr=rate('管理费率',0.15),pr=rate('利润率',0.10),tr=rate('税率',0.13);
+  const profit=Math.round((mold+inj)*pr);
+  const beforeTax=mold+inj+profit;
+  const tax=Math.round(beforeTax*tr);
+  const tot=beforeTax+tax;
+  const pc=v=>Math.round(v*1000)/10;
+  document.getElementById('total').innerHTML=
+    '<div class="tr"><span>模具费用</span><span>'+money(mold)+'</span></div>'+
+    '<div class="tr"><span>注塑费用</span><span>'+money(inj)+'</span></div>'+
+    '<div class="tr"><span>利润 '+pc(pr)+'%</span><span>'+money(profit)+'</span></div>'+
+    '<div class="tr"><span>税额 '+pc(tr)+'%</span><span>'+money(tax)+'</span></div>'+
+    '<div class="tr big"><span>含税总价</span><b>'+money(tot)+'</b></div>';
+  document.getElementById('mt').textContent=money(tot);
+}
+let folded=false;
+function toggleCalc(){
+  folded=!folded;const b=document.getElementById('board');
+  b.classList.toggle('folded',folded);
+  b.style.gridTemplateColumns=folded?'250px minmax(0,1fr) 46px':'250px minmax(0,1fr) 340px';
+  document.getElementById('calcHd').style.display=folded?'none':'flex';
+  document.getElementById('foldBtn').textContent=folded?'展开算价栏':'折叠算价栏';
+}
+function renderAll(){renderTabs();renderPane();renderItems();renderCalc();}
+renderBar();renderAll();
+</script>
+</body>
+</html>

@@ -8,6 +8,7 @@ import Customers from './pages/Customers';
 import QuoteItems from './pages/QuoteItems';
 import Materials from './pages/Materials';
 import Parameters from './pages/Parameters';
+import ConfigCenter from './pages/ConfigCenter';
 import Layout from './components/Layout';
 import { auth } from './api';
 import { useAuth } from './store';
@@ -30,6 +31,7 @@ export default function App() {
         <Route path="/quotes/new" element={<NewQuote />} />
         <Route path="/quotes/:id" element={<QuoteDetail />} />
         <Route path="/customers" element={<Customers />} />
+        <Route path="/settings/config" element={<ConfigCenter />} />
         <Route path="/settings/quote-items" element={<QuoteItems />} />
         <Route path="/settings/materials" element={<Materials />} />
         <Route path="/settings/parameters" element={<Parameters />} />

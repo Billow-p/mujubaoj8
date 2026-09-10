@@ -19,6 +19,15 @@ import { evaluateExpression } from './expression.js';
 // 表达式求值器对外暴露（供后端公式测试接口复用）
 export { evaluateExpression, normalizeExpression } from './expression.js';
 export type { Scope } from './expression.js';
+
+// 配置驱动的算价（计算方式 → 表达式，用户不写公式）
+export {
+  buildItemExpression,
+  describeItem,
+  friendlyCalcError,
+  calculateConfigured,
+} from './configured.js';
+export type { ConfiguredOptions } from './configured.js';
 import {
   COMPLEXITY_COEFF,
   STEEL_COEFF,

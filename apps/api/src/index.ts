@@ -12,6 +12,7 @@ import { formulaRoutes } from './routes/formulas.js';
 import { materialRoutes } from './routes/materials.js';
 import { parameterRoutes } from './routes/parameters.js';
 import { templateRoutes } from './routes/templates.js';
+import { configRoutes } from './routes/config.js';
 import { verifySmtpConnection } from './services/email.js';
 
 declare module 'fastify' {
@@ -72,6 +73,7 @@ async function bootstrap() {
   await app.register(materialRoutes);
   await app.register(parameterRoutes);
   await app.register(templateRoutes);
+  await app.register(configRoutes);
 
   const port = parseInt(process.env.PORT || '3000');
   await app.listen({ port, host: '0.0.0.0' });

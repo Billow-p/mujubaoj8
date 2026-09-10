@@ -27,6 +27,9 @@ model Company {
   materials           Material[]
   customParameters    CustomParameter[]
   quoteTemplates      QuoteTemplate[]
+  moldTypes           MoldType[]
+  quoteItems          QuoteItem[]
+  businessTerms       BusinessTerm[]
 }
 
 // 2. 用户
@@ -296,13 +299,15 @@ model Material {
   remark       String?
   isPreset     Boolean  @default(false)     // 系统预置材料
   enabled      Boolean  @default(true)
+  moldTypeId   String?                      // 归属模具类型（空=全公司通用）
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  company Company        @relation(fields: [companyId], references: [id])
-  prices  MaterialPrice[]
+  company  Company   @relation(fields: [companyId], references: [id])
+  moldType MoldType? @relation(fields: [moldTypeId], references: [id], onDelete: Cascade)
+  prices   MaterialPrice[]
 
-  @@unique([companyId, code])
+  @@unique([companyId, moldTypeId, code])
   @@index([companyId, category])
 }
 
@@ -339,12 +344,14 @@ model CustomParameter {
   sortOrder    Int      @default(0)
   enabled      Boolean  @default(true)
   remark       String?
+  moldTypeId   String?  // 归属模具类型（空=全公司通用）
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id])
+  company  Company   @relation(fields: [companyId], references: [id])
+  moldType MoldType? @relation(fields: [moldTypeId], references: [id], onDelete: Cascade)
 
-  @@unique([companyId, code])
+  @@unique([companyId, moldTypeId, code])
   @@index([companyId, group, sortOrder])
 }
 
@@ -380,4 +387,68 @@ model QuoteAdjustment {
   quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
   @@index([quoteId, versionNo])
+}
+
+// 14. 模具类型（注塑 / 压铸 / 双色 / 冲压 / 自定义…）
+model MoldType {
+  id        String   @id @default(cuid())
+  companyId String
+  code      String   // injection / diecast / twocolor / 自定义
+  name      String
+  sortOrder Int      @default(0)
+  enabled   Boolean  @default(true)
+  isPreset  Boolean  @default(false)
+  profitRate Float   @default(0.10)  // 利润率
+  taxRate    Float   @default(0.13)  // 税率
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company    Company            @relation(fields: [companyId], references: [id])
+  items      QuoteItem[]
+  parameters CustomParameter[]
+  materials  Material[]
+  terms      BusinessTerm[]
+
+  @@unique([companyId, code])
+  @@index([companyId, sortOrder])
+}
+
+// 15. 费用项 — 由「计算方式 + 填的数字」驱动，公式由系统生成
+model QuoteItem {
+  id         String   @id @default(cuid())
+  companyId  String
+  moldTypeId String
+  name       String
+  category   String   @default("自定义")
+  scope      String   @default("mold")   // mold | injection
+  calcType   String   @default("fixed")  // fixed|qty|size|hours|weight|percent|manual|formula
+  calcConfig Json?                       // 各计算方式的填空
+  expression String?                     // 仅 formula 模式使用
+  unit       String?
+  enabled    Boolean  @default(true)
+  sortOrder  Int      @default(0)
+  note       String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company  Company  @relation(fields: [companyId], references: [id])
+  moldType MoldType @relation(fields: [moldTypeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, moldTypeId, sortOrder])
+}
+
+// 16. 商务条款（按模具类型隔离）
+model BusinessTerm {
+  id         String   @id @default(cuid())
+  companyId  String
+  moldTypeId String
+  text       String
+  enabled    Boolean  @default(true)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  company  Company  @relation(fields: [companyId], references: [id])
+  moldType MoldType @relation(fields: [moldTypeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, moldTypeId, sortOrder])
 }

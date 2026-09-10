@@ -201,3 +201,85 @@ export const DEFAULT_BUSINESS_TERMS: BusinessTermItem[] = [
   { index: 7, enabled: true, text: '验收：按 GB/T 交货，需方 7 日内提出异议。' },
   { index: 8, enabled: true, text: '争议：协商不成提交合同签订地人民法院诉讼解决。' },
 ];
+
+// ============================================================
+// 配置中心（计算方式驱动）— 用户选计算方式、填数字，不写公式
+// ============================================================
+
+export type MoldCalcType =
+  | 'fixed'    // 固定金额
+  | 'qty'      // 数量 × 单价
+  | 'size'     // 长 × 宽 × 高 → 体积换重量 → × 单价
+  | 'hours'    // 工时 × 时薪
+  | 'weight'   // 重量 × 单价 × (1 + 损耗)
+  | 'percent'  // 基数 × 百分比
+  | 'manual'   // 报价时手填
+  | 'formula'; // 高级：手写公式
+
+export interface QuoteItemCalcConfig {
+  amount?: number;
+  src?: string;
+  srcQty?: number;
+  price?: number;
+  l?: string;
+  w?: string;
+  h?: string;
+  density?: number;
+  priceVar?: string;
+  priceFixed?: number;
+  hours?: number;
+  rate?: number;
+  wVar?: string;
+  loss?: number;
+  base?: string;
+}
+
+export interface QuoteItemDef {
+  id?: string;
+  name: string;
+  category?: string;
+  scope: 'mold' | 'injection';
+  calcType: MoldCalcType;
+  calcConfig?: QuoteItemCalcConfig;
+  expression?: string;
+  enabled: boolean;
+  sortOrder?: number;
+  note?: string;
+  unit?: string;
+}
+
+export interface ConfigCalcLine {
+  name: string;
+  category: string;
+  scope: 'mold' | 'injection';
+  calcType: MoldCalcType;
+  value: number;
+  expression: string;
+  readable: string;
+  skipped?: boolean;
+  manual?: boolean;
+  error?: string;
+}
+
+export interface ConfigCalcResult {
+  lines: ConfigCalcLine[];
+  mold: number;
+  injection: number;
+  profitRate: number;
+  profit: number;
+  taxRate: number;
+  tax: number;
+  total: number;
+}
+
+// 计算方式的中文说明（前后端共用）
+export const CALC_TYPE_META: { v: MoldCalcType; n: string; d: string }[] = [
+  { v: 'fixed', n: '固定金额', d: '每次都收这么多，不会变' },
+  { v: 'qty', n: '数量 × 单价', d: '按件数、穴数之类的数量乘单价' },
+  { v: 'size', n: '按模具尺寸算材料', d: '长 × 宽 × 高 × 材料密度 × 单价，自动换算成重量' },
+  { v: 'hours', n: '工时 × 时薪', d: '加工费常用' },
+  { v: 'weight', n: '重量 × 单价', d: '按产品重量和材料单价算' },
+  { v: 'percent', n: '按比例算', d: '按前面费用合计的百分比收，比如管理费 15%' },
+  { v: 'manual', n: '报价时手填', d: '每次报价临时定，不预设算法' },
+  { v: 'formula', n: '高级：自己写公式', d: '只有特殊算法才需要用到' },
+];

@@ -5,8 +5,9 @@ const NAV = [
   { to: '/', label: '工作台', exact: true },
   { to: '/quotes/new', label: '新建报价单' },
   { to: '/customers', label: '客户库' },
-  { to: '/settings/quote-items', label: '报价项中心' },
+  { to: '/settings/config', label: '配置中心' },
   { to: '/settings/materials', label: '材料中心' },
+  { to: '/settings/quote-items', label: '报价项中心' },
   { to: '/settings/parameters', label: '参数中心' },
 ];
 

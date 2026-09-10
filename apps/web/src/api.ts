@@ -170,3 +170,17 @@ export const templates = {
   update: (id: string, body: any) => api.patch(`/templates/${id}`, body).then((r) => r.data),
   remove: (id: string) => api.delete(`/templates/${id}`).then((r) => r.data),
 };
+
+// 配置中心（模具类型 + 整体配置读写）
+export const configApi = {
+  moldTypes: () => api.get('/mold-types').then((r) => r.data),
+  initPreset: () => api.post('/mold-types/init-preset').then((r) => r.data),
+  createMoldType: (body: { name: string; code?: string; copyFromId?: string }) =>
+    api.post('/mold-types', body).then((r) => r.data),
+  updateMoldType: (id: string, body: any) => api.patch(`/mold-types/${id}`, body).then((r) => r.data),
+  removeMoldType: (id: string) => api.delete(`/mold-types/${id}`).then((r) => r.data),
+  get: (moldTypeId: string) => api.get(`/config/${moldTypeId}`).then((r) => r.data),
+  save: (moldTypeId: string, body: any) => api.put(`/config/${moldTypeId}`, body).then((r) => r.data),
+  calc: (moldTypeId: string, params?: Record<string, number>) =>
+    api.post(`/config/${moldTypeId}/calc`, { params }).then((r) => r.data),
+};

@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="tKxr50Bvxym5Z4T6FecmDO">
+<head data-page-node-id="UCswTu6MpOvaP0i1kSko9f">
+<meta charset="UTF-8" data-page-node-id="rVpTo36D4Vq7DVHWwY804j">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="JkcdiZMIX1ur5W7ezb1XkD">
+<title>模具注塑报价系统 · 主页原型（多模具类型）</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#f9fafb;color:#111827;font-size:14px;line-height:1.6}
+a{text-decoration:none;color:inherit}
+.header{background:#fff;border-bottom:1px solid #e5e7eb;position:sticky;top:0;z-index:10}
+.header-in{max-width:1200px;margin:0 auto;padding:0 24px;height:56px;display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px}
+.logo{width:28px;height:28px;border-radius:6px;background:#111827;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700}
+.nav{display:flex;gap:4px}
+.nav button{border:none;background:transparent;padding:6px 12px;border-radius:6px;font-size:14px;cursor:pointer;color:#374151;white-space:nowrap}
+.nav button:hover{background:#f3f4f6}
+.nav button.on{background:#111827;color:#fff}
+.user{display:flex;align-items:center;gap:10px;font-size:13px;color:#6b7280}
+.badge{background:#f3f4f6;padding:2px 8px;border-radius:4px;font-size:12px}
+.wrap{max-width:1200px;margin:0 auto;padding:24px}
+h1{font-size:20px;font-weight:600}
+h2{font-size:15px;font-weight:600;margin-bottom:12px}
+.sub{color:#6b7280;font-size:13px;margin-top:4px}
+.row{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:20px}
+.btn{background:#111827;color:#fff;border:none;padding:9px 16px;border-radius:6px;font-size:14px;cursor:pointer;font-weight:500}
+.btn:hover{background:#374151}
+.btn.ghost{background:#fff;color:#374151;border:1px solid #d1d5db}
+.btn.ghost:hover{background:#f9fafb}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;cursor:pointer;transition:all .15s;position:relative}
+.card:hover{border-color:#9ca3af;transform:translateY(-1px)}
+.card.sel{border-color:#111827;border-width:2px;padding:15px}
+.card.main::after{content:"常用";position:absolute;top:12px;right:12px;background:#eff6ff;color:#1d4ed8;font-size:11px;padding:2px 7px;border-radius:4px}
+.ctitle{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.cico{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;flex-shrink:0}
+.cname{font-weight:600;font-size:15px}
+.cdesc{color:#6b7280;font-size:12.5px;min-height:40px}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.tag{background:#f3f4f6;color:#4b5563;font-size:11.5px;padding:3px 8px;border-radius:4px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:24px 0}
+.stat{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px}
+.slabel{color:#6b7280;font-size:12.5px}
+.sval{font-size:24px;font-weight:600;margin-top:6px}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden}
+th{background:#f9fafb;text-align:left;font-size:12.5px;color:#6b7280;font-weight:500;padding:10px 16px}
+td{padding:12px 16px;border-top:1px solid #f3f4f6;font-size:13.5px}
+.pill{display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px}
+.p-gray{background:#f3f4f6;color:#4b5563}
+.p-blue{background:#eff6ff;color:#1d4ed8}
+.p-green{background:#ecfdf5;color:#047857}
+.p-amber{background:#fffbeb;color:#b45309}
+.form{display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start}
+.panel{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:20px;margin-bottom:16px}
+.fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+label{display:block;font-size:12.5px;color:#6b7280;margin-bottom:5px}
+input,select{width:100%;border:1px solid #d1d5db;border-radius:6px;padding:8px 10px;font-size:14px;font-family:inherit;background:#fff}
+input:focus,select:focus{outline:none;border-color:#111827}
+.side{position:sticky;top:80px}
+.srow{display:flex;justify-content:space-between;padding:8px 0;font-size:13.5px;border-bottom:1px solid #f3f4f6}
+.srow:last-child{border:none}
+.stotal{display:flex;justify-content:space-between;align-items:baseline;margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb}
+.stotal span:first-child{font-size:13px;color:#6b7280}
+.stotal b{font-size:22px}
+.hint{background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:16px}
+.back{background:none;border:none;color:#6b7280;font-size:13px;cursor:pointer;padding:0;margin-bottom:12px}
+.back:hover{color:#111827}
+.sect{margin-bottom:24px}
+</style>
+</head>
+<body data-page-node-id="ZqhIWGsP0fFXK7DpbB53d4">
+
+<div class="header" data-page-node-id="gA7A47dtptWHZNaID9A10V">
+  <div class="header-in" data-page-node-id="rcOn0Cs3qduJitYK3uClxZ">
+    <div class="brand" data-page-node-id="jGIJNE4TNYm3YrgByJIoHF"><div class="logo" data-page-node-id="XfZ0BKAOt06d1Nxx6Rl4b7">M</div><span data-page-node-id="FJ5FMNb3WwHaOOx1hNwajA">模具注塑报价系统</span></div>
+    <nav class="nav" id="nav" data-page-node-id="69bJuhKsmk0uSvGOQXEmBS">
+      <button class="on" data-v="home" data-page-node-id="mK8POC1n5QSVWhrAFKpw7c">工作台</button>
+      <button data-v="quote" data-page-node-id="zGrpzwAosIFaH74bGR89vc">新建报价单</button>
+      <button data-v="ph" data-page-node-id="fZuqHfMYxYKaW3D5ZXTvku">客户库</button>
+      <button data-v="ph" data-page-node-id="IDRNzEN7iW2Ia7b5Kd5bEH">报价项中心</button>
+      <button data-v="ph" data-page-node-id="KWYKFs6gTTBDQUvG75mXRy">材料中心</button>
+      <button data-v="ph" data-page-node-id="ZlaVsd8UjQHsQkybxjUMFR">参数中心</button>
+    </nav>
+    <div class="user" data-page-node-id="dN38tQFxj0rsabk5JEkUy0"><span data-page-node-id="yTqX0qREntyHFOeJYYmi9X">张报价</span><span class="badge" data-page-node-id="QwYcJjQioZhk5bMtdGjsJr">报价员</span><button class="btn ghost" style="padding:5px 10px;font-size:12px" data-page-node-id="aegVMIMkbg6Vfz1N4z2Yhq">登出</button></div>
+  </div>
+</div>
+
+<div class="wrap" data-page-node-id="MbRuPTQcZVTluV8XcO7thz">
+
+  <!-- ============ 工作台 ============ -->
+  <div id="v-home" data-page-node-id="1npdRaUpSyUYGYyUb8zZ4X">
+    <div class="row" data-page-node-id="wA9RmHetNryI3G995nWbNQ">
+      <div data-page-node-id="YAxqVCpqICHkkzczXCUHwv">
+        <h1 data-page-node-id="1zo7sJS4rE0Xx0XhIq1lgM">早上好，张报价</h1>
+        <div class="sub" data-page-node-id="49DJTGWnjiQ2m59AwJg4qp">选择模具类型开始报价，系统会自动加载对应的参数集与报价项</div>
+      </div>
+      <button class="btn" onclick="go('quote')" data-page-node-id="6t3U2N4UmoIhZIrOeINIzn">+ 新建报价单</button>
+    </div>
+
+    <div class="sect" data-page-node-id="forX9x4x4df0tMPQX9z0AE">
+      <h2 data-page-node-id="uSer68uZUUxaDG6ETcxgxC">选择模具类型</h2>
+      <div class="grid" id="types" data-page-node-id="EVxLkKa1sj83NjYt9cyttH"></div>
+    </div>
+
+    <div class="stats" data-page-node-id="vN8CSw4XjBTdb1NcEUDt7q">
+      <div class="stat" data-page-node-id="jiWZbW6M7MclXRyAmtOdr8"><div class="slabel" data-page-node-id="bSvBRmql8rIoebBzojOWJO">报价总数</div><div class="sval" data-page-node-id="G3B58loxOexCaazQHwT6Gn">128</div></div>
+      <div class="stat" data-page-node-id="7xdJfPgV2dk9OWGcpm1aRo"><div class="slabel" data-page-node-id="7UCDUbJYI3a9fqwDdbUwpS">本月新增</div><div class="sval" data-page-node-id="lBvCrJaNRQAYlf8tv8Sp38">23</div></div>
+      <div class="stat" data-page-node-id="9ejbFWCfJ0T2hkxwquQQAD"><div class="slabel" data-page-node-id="RGguV3aP91Ht1e95tRIWF0">成交率</div><div class="sval" data-page-node-id="Iag3nrSszzGwZuXm0RYpiU">37%</div></div>
+      <div class="stat" data-page-node-id="p1begLb0IDGdDYaYuQcEvQ"><div class="slabel" data-page-node-id="waX4UMCxP5mPBp3VmsZj0P">报价总额</div><div class="sval" data-page-node-id="39Vj0W1M0EpvYAVj673WrB">¥ 1,842 万</div></div>
+    </div>
+
+    <h2 data-page-node-id="mJOwIhvniD8uz38689YExr">最近报价</h2>
+    <table data-page-node-id="8rD0qsmFKZ2M2Ev3RsFZyL">
+      <thead data-page-node-id="V0B8HMZtd1dU9tP9ZoW3WO"><tr data-page-node-id="kFtDmaEBikcR1EKZVdJ19P"><th data-page-node-id="bgPQhWzUSraGcqJhk7Ss5U">报价编号</th><th data-page-node-id="XqGODa0lwbmQylX0bu5WRY">客户</th><th data-page-node-id="PGsZQiehM7FAvhWHdopYJa">模具类型</th><th data-page-node-id="iR4py3lMbRDdHjSAmKH8Y6">产品</th><th style="text-align:right" data-page-node-id="3ER0960UkhtAgn5KXHoM4G">含税总价</th><th data-page-node-id="5n0rbz6dM6CaO8scO1KiDc">状态</th><th style="text-align:right" data-page-node-id="ay2X1wG4inf5TlvH59kpZj">日期</th></tr></thead>
+      <tbody data-page-node-id="BAY3RHTKADqR04b2YsbMZB">
+        <tr data-page-node-id="xciZQxf2DJBTkvOzmPbmrx"><td style="font-family:monospace;font-size:12.5px" data-page-node-id="WDE2nUsANgLouaFkcoYDQC">BJ-20260910-4821</td><td data-page-node-id="0LFIgnUb6jxg4EvssVBOn7">顺德电器</td><td data-page-node-id="gAZTZeqWUfCbdY4CWqrhaO"><span class="pill p-blue" data-page-node-id="2kXISqYDM58EZ0pDqSp8eV">注塑模具</span></td><td data-page-node-id="ElV3J7EZOx90tKhDX8QfsG">洗衣机控制面板</td><td style="text-align:right" data-page-node-id="WV2sEEveXozv7lwqUEBsyx">¥ 486,200</td><td data-page-node-id="4XX8XYCtmY0cF1gjUlTGgA"><span class="pill p-green" data-page-node-id="TIrfE4gUOcSZdlS71WL4Ie">已成交</span></td><td style="text-align:right;color:#6b7280" data-page-node-id="quwH3lDxekHSKjB1F91fuF">09-10</td></tr>
+        <tr data-page-node-id="XefQvzVg6ifNyqdOcY9RX5"><td style="font-family:monospace;font-size:12.5px" data-page-node-id="4gxyZH2XEBHJGYlT75D0z5">BJ-20260909-3390</td><td data-page-node-id="9bL7b6vqpmMZFYFGh77NeK">中山压铸</td><td data-page-node-id="dHEulbOA7QlbFwHAjXjghv"><span class="pill p-amber" data-page-node-id="hU1GyoyOvrseH8tebS5eUp">压铸模具</span></td><td data-page-node-id="fRG6MW4Wq63RA1KUpeGjKq">LED 灯壳 ADC12</td><td style="text-align:right" data-page-node-id="i77P64rdasi3UNfvjYyDDb">¥ 1,284,000</td><td data-page-node-id="kyDqUqYkrfxZfGS66gIm7B"><span class="pill p-blue" data-page-node-id="mMeO40aF5GbbrHiAvkPBFa">已发送</span></td><td style="text-align:right;color:#6b7280" data-page-node-id="czhBr9V76STRQplKGusA8h">09-09</td></tr>
+        <tr data-page-node-id="sUao4tWVsVRZQ39URFAKze"><td style="font-family:monospace;font-size:12.5px" data-page-node-id="fbGKyT4EyxaPGh6pDEsw1p">BJ-20260908-1102</td><td data-page-node-id="paVNzgbrKdFkpiV4YFSZXF">东莞双色</td><td data-page-node-id="FG07PxBbKdh82EcdBVnbIx"><span class="pill" style="background:#f5f3ff;color:#6d28d9" data-page-node-id="NvgByEWBIuzNEcNrCGrAZz">双色模具</span></td><td data-page-node-id="UX955aMxCJGqCLAjR7ccTJ">牙刷手柄（硬胶+TPE）</td><td style="text-align:right" data-page-node-id="OS2oAcKwMnikXqLvSuyRMb">¥ 862,500</td><td data-page-node-id="lS35G1TCNizJM350tMit3F"><span class="pill p-gray" data-page-node-id="RyfHOEFcEKfP5A0Wkz34gy">草稿</span></td><td style="text-align:right;color:#6b7280" data-page-node-id="8sMbbKgV6zTC5Pdc3reLCk">09-08</td></tr>
+        <tr data-page-node-id="8Vp2DWMIqIMnXqdSr5eCBV"><td style="font-family:monospace;font-size:12.5px" data-page-node-id="F6jEOazk8JYkRHF8M4yzZG">BJ-20260905-7745</td><td data-page-node-id="GpuSkO9Xe6DrXFytu7eQDL">佛山五金</td><td data-page-node-id="vMXXQW70ID6M8wGjnyJLjl"><span class="pill p-gray" data-page-node-id="7665V3PivKbU7Ohkq7J8Ga">冲压模具</span></td><td data-page-node-id="TfacJPGT710McjcHaTZrf0">支架连续模</td><td style="text-align:right" data-page-node-id="9FAEI9d9D7qk8Vr1dxAFDy">¥ 328,000</td><td data-page-node-id="oxULGgtnvetRIESTxRdZZL"><span class="pill p-green" data-page-node-id="gpMI72HqPqTNPqzY8QU188">已成交</span></td><td style="text-align:right;color:#6b7280" data-page-node-id="ZK32G5kNd6VuUs62sIHiCw">09-05</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ============ 新建报价 ============ -->
+  <div id="v-quote" style="display:none" data-page-node-id="6Uvl9086QZQajhlrQ2aBsl">
+    <button class="back" onclick="go('home')" data-page-node-id="uAoBDkPqCb4n0r9gAEkpB9">← 返回工作台</button>
+    <div class="row" data-page-node-id="D1IKobjKZ8KvE04nYRTFJm">
+      <div data-page-node-id="vYZXToFKBsKNWRYJ6r9IB8"><h1 id="q-title" data-page-node-id="5ZQGCCZuI9jLdefBlTIsQJ">新建报价单</h1><div class="sub" id="q-sub" data-page-node-id="1I8VHW750Aj87R4cPG4H6x"></div></div>
+      <div style="display:flex;gap:8px" data-page-node-id="X3lefY9YaG3d7CtmfpS0qu">
+        <button class="btn ghost" data-page-node-id="b7N3wA2BgWrxu1x2nkS2lz">保存草稿</button>
+        <button class="btn" data-page-node-id="FNfGhQMNILZBS7EnhG49CC">生成报价单</button>
+      </div>
+    </div>
+    <div class="hint" id="q-hint" data-page-node-id="8dRHizT6QBIPQFnHpBTfTL"></div>
+
+    <div class="form" data-page-node-id="rAxavO8i1nsvCCP6ECa2V2">
+      <div data-page-node-id="I5FlXA3KoSALjkTbDtXe1I">
+        <div class="panel" data-page-node-id="utUVP4bCQNrgVrEWTb4zTB">
+          <h2 data-page-node-id="EbJiaIUVgAgBFtDZEQUiD6">客户与产品</h2>
+          <div class="fgrid" data-page-node-id="d4SIh0iPAg9IEdGVOC9qZA">
+            <div data-page-node-id="G2dSEHzCsGLZ3oHzYzBmjf"><label data-page-node-id="9N2ee9H90jXnpy42ZBHMRs">客户名称</label><input value="顺德电器" data-page-node-id="tqAjTeCCWwzyDLeUz62o40"></div>
+            <div data-page-node-id="yH1Me00hPow02T7HBCBPVq"><label data-page-node-id="wDpFnY0oVAJm9Wf9kGDJo8">客户邮箱（可直接发送报价单）</label><input value="buyer@example.com" data-page-node-id="e5aJSG5zoVi9iCEKLg0hyM"></div>
+            <div data-page-node-id="YikRa1WLNawwnPhjKVkQM1"><label data-page-node-id="PzPi80zGaeO4NJLt6dTcPf">项目名称</label><input value="洗衣机控制面板" data-page-node-id="P11hfWRO0PHgkY5inPQa5v"></div>
+          </div>
+        </div>
+
+        <div class="panel" data-page-node-id="3rZyvU77L2wZGjWMvbfDDT">
+          <h2 id="p-title" data-page-node-id="2DBLG4Dkwc7ORYycdYSywI">成型参数</h2>
+          <div class="fgrid" id="params" data-page-node-id="4w2QGeGV1Gcbsu9Sxu2jVE"></div>
+        </div>
+
+        <div class="panel" data-page-node-id="ljy2WTuYgknPJluhaq1ZBD">
+          <h2 data-page-node-id="xljVrZ7XKhm8xaV7eqfUn3">商务参数</h2>
+          <div class="fgrid" data-page-node-id="9aflFwJDDjWtxfOMd46CZo">
+            <div data-page-node-id="AIGayb78F9xjs3vapXBDeA"><label data-page-node-id="92pKK7FTBKEkYmUkBnm7Dx">首单数量（件）</label><input type="number" value="300000" id="qty" data-page-node-id="BuoujigPVQLg4xMtAjGW1k"></div>
+            <div data-page-node-id="DyAnB0wpVYU5834QNaCuHk"><label data-page-node-id="jtjwjSetArvf5Judga9s6K">税率</label><input type="number" value="0.13" data-page-node-id="m07fgvLVdGL4ZHClLMMDQY"></div>
+            <div data-page-node-id="FHqubIdOj1u70y6MfUGd1R"><label data-page-node-id="9YMoSSRbO9J7C7iirTY0gw">管理费与利润率</label><input type="number" value="0.15" data-page-node-id="EfxTwyfiYv9pHJbO6CvO3z"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="side" data-page-node-id="sUrGD5EmHeTIB3sjkCAEoR">
+        <div class="panel" data-page-node-id="evp0HQKchD0DhzBRW5SXY2">
+          <h2 data-page-node-id="NQtZANvXhl1BAeHESltsjY">实时计算结果</h2>
+          <div id="fees" data-page-node-id="qKx44E4xnv00TLXQtTP7DG"></div>
+          <div class="stotal" data-page-node-id="csdCrfSdtGKjs4ngLZzDVi"><span data-page-node-id="IUArR6FRx8qkinJ2Su4247">含税总价</span><b id="total" data-page-node-id="DLEbwexLqiFcWpBRFaKns9">¥ 0</b></div>
+        </div>
+        <div class="panel" style="font-size:12.5px;color:#6b7280" data-page-node-id="OqRF8UrhCSLc7rdgurI4hX">
+          计算引擎：确定性规则计算，每个分项均可展开查看公式与代入过程。AI 仅用于参数识别建议，不参与定价。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 占位 ============ -->
+  <div id="v-ph" style="display:none" data-page-node-id="kcplIGoCQAn5fDcUHo0Xcz">
+    <h1 data-page-node-id="b5MREOekVAcVPIORUehGeb">该模块已在系统中实现</h1>
+    <div class="sub" data-page-node-id="A48p4ljo7RIHY2f7YGHEEW">原型仅演示工作台与新建报价的多模具类型流程</div>
+  </div>
+
+</div>
+
+<script>
+const TYPES = [
+  {
+    key:'injection', name:'注塑模具', abbr:'注', color:'#eff6ff', fg:'#1d4ed8', main:true,
+    desc:'塑料件批量成型，按模芯尺寸、腔数与加工工时核算',
+    tags:['ABS / PP / PC','冷·热流道','1–64 腔'],
+    hint:'已加载注塑参数集：模芯尺寸、腔数、成型周期、机台吨位，以及 11 项默认模具费用项。',
+    ptitle:'注塑参数',
+    params:[
+      {l:'产品材质',t:'select',v:['ABS','PP','PC','PA','POM','PMMA']},
+      {l:'模具钢材',t:'select',v:['P20','718H','S136','NAK80','H13']},
+      {l:'模芯长 (mm)',t:'num',v:500},
+      {l:'模芯宽 (mm)',t:'num',v:400},
+      {l:'模芯高 (mm)',t:'num',v:150},
+      {l:'腔数',t:'num',v:2},
+      {l:'单件重量 (kg)',t:'num',v:0.18},
+      {l:'成型周期 (秒)',t:'num',v:45},
+      {l:'机台吨位 (T)',t:'num',v:160},
+    ],
+    fees:[['模芯钢材费','5,888'],['设计费','6,000'],['模架费','42,000'],['标准件费','16,000'],['CNC 加工费','38,400'],['EDM 放电费','19,800'],['线切割费','6,000'],['抛光费','6,000'],['试模费','5,000'],['表面处理费','10,000'],['包装运输费','3,000']]
+  },
+  {
+    key:'diecast', name:'压铸模具', abbr:'压', color:'#fffbeb', fg:'#b45309', main:true,
+    desc:'铝 / 锌 / 镁合金高压成型，热作钢模芯配强化冷却与真空系统',
+    tags:['ADC12 / 锌 / 镁','H13 热作钢','真空阀'],
+    hint:'已加载压铸参数集：合金牌号、投影面积、壁厚、压铸机吨位、真空与冷却配置，模具费默认含真空阀、模温机与强冷却回路。',
+    ptitle:'压铸参数',
+    params:[
+      {l:'合金牌号',t:'select',v:['ADC12 铝','A380 铝','锌合金 3#','镁合金 AZ91D']},
+      {l:'模具钢材',t:'select',v:['H13','8407','DAC55']},
+      {l:'投影面积 (cm²)',t:'num',v:320},
+      {l:'平均壁厚 (mm)',t:'num',v:2.5},
+      {l:'压铸机吨位 (T)',t:'num',v:800},
+      {l:'型腔数',t:'num',v:1},
+      {l:'单件重量 (kg)',t:'num',v:0.86},
+      {l:'真空系统',t:'select',v:['需要','不需要']},
+      {l:'模具寿命要求 (模次)',t:'num',v:100000},
+    ],
+    fees:[['模芯热作钢费','28,600'],['模架费','68,000'],['设计费','12,000'],['CNC 加工费','52,000'],['EDM 放电费','31,000'],['真空阀与管路','18,000'],['强冷却回路','14,500'],['模温机接口','6,800'],['滑块抽芯机构','22,000'],['试模费（含 3 次）','9,000'],['表面氮化处理','11,200']]
+  },
+  {
+    key:'twocolor', name:'双色模具', abbr:'双', color:'#f5f3ff', fg:'#6d28d9', main:true,
+    desc:'两种材料或颜色一次成型，含转盘 / 旋转机构与两套热流道',
+    tags:['硬胶 + 软胶','转盘·旋转','双套热流道'],
+    hint:'已加载双色参数集：两种材料、双色工艺（转盘 / 旋转 / 包覆）、两套热流道点数，机构费用按旋转方式自动计价。',
+    ptitle:'双色参数',
+    params:[
+      {l:'第一次材料（硬胶）',t:'select',v:['ABS','PP','PC','PA']},
+      {l:'第二次材料（软胶）',t:'select',v:['TPE','TPU','硅胶','PP']},
+      {l:'双色工艺',t:'select',v:['转盘式','旋转式','包覆式（二次合模）','双射嘴']},
+      {l:'模具钢材',t:'select',v:['718H','S136','NAK80','H13']},
+      {l:'模芯长 (mm)',t:'num',v:420},
+      {l:'模芯宽 (mm)',t:'num',v:320},
+      {l:'模芯高 (mm)',t:'num',v:180},
+      {l:'腔数（每色）',t:'num',v:2},
+      {l:'热流道点数（每套）',t:'num',v:4},
+    ],
+    fees:[['模芯钢材费（双）','14,200'],['旋转 / 转盘机构','86,000'],['设计费（双色）','16,000'],['模架费','58,000'],['第一套热流道','32,000'],['第二套热流道','32,000'],['CNC 加工费','61,000'],['EDM 放电费','34,500'],['双色合模精度调试','12,000'],['试模费（双色 5 次）','15,000'],['包装运输费','4,200']]
+  },
+  {key:'stamping', name:'冲压模具', abbr:'冲', color:'#f3f4f6', fg:'#4b5563',
+    desc:'金属板材冲裁成型，支持连续模、工程模与单工序模', tags:['连续模','工程模','吨位选型']},
+  {key:'blow', name:'吹塑模具', abbr:'吹', color:'#f3f4f6', fg:'#4b5563',
+    desc:'中空制品吹塑成型，含挤出吹塑与注射吹塑', tags:['挤出吹塑','注射吹塑','型坯控制']},
+  {key:'rubber', name:'橡胶模具', abbr:'橡', color:'#f3f4f6', fg:'#4b5563',
+    desc:'橡胶与硅胶模压、注压成型，含排气与加热板配置', tags:['模压','注压','加热板']},
+  {key:'extrusion', name:'挤出模具', abbr:'挤', color:'#f3f4f6', fg:'#4b5563',
+    desc:'型材连续挤出成型，口模与定型模配套计价', tags:['型材口模','定型模','共挤']},
+  {key:'custom', name:'自定义模具', abbr:'＋', color:'#ecfdf5', fg:'#047857',
+    desc:'自建参数与公式，适配特殊工艺或非标模具类型', tags:['自由配置','自定义公式']},
+];
+
+let current = TYPES[0];
+
+function renderTypes(){
+  document.getElementById('types').innerHTML = TYPES.map(t=>`
+    <div class="card ${t.main?'main':''} ${t.key===current.key?'sel':''}" onclick="pick('${t.key}')">
+      <div class="ctitle">
+        <div class="cico" style="background:${t.color};color:${t.fg}">${t.abbr}</div>
+        <div class="cname">${t.name}</div>
+      </div>
+      <div class="cdesc">${t.desc}</div>
+      <div class="tags">${t.tags.map(x=>`<span class="tag">${x}</span>`).join('')}</div>
+    </div>`).join('');
+}
+
+function pick(key){
+  current = TYPES.find(t=>t.key===key);
+  if(!current.params){
+    alert(current.name + '：参数集与默认报价项按同一机制接入，可在报价项中心自行配置。原型中仅展示注塑 / 压铸 / 双色三类的完整参数。');
+    return;
+  }
+  go('quote');
+}
+
+function go(v){
+  ['home','quote','ph'].forEach(x=>document.getElementById('v-'+x).style.display = x===v?'block':'none');
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on', b.dataset.v===v));
+  if(v==='quote') renderQuote();
+  window.scrollTo(0,0);
+}
+
+function renderQuote(){
+  const t = current;
+  document.getElementById('q-title').textContent = '新建报价单 · ' + t.name;
+  document.getElementById('q-sub').textContent = t.desc;
+  document.getElementById('q-hint').textContent = t.hint;
+  document.getElementById('p-title').textContent = t.ptitle;
+
+  document.getElementById('params').innerHTML = t.params.map(p=>{
+    if(p.t==='select'){
+      return `<div><label>${p.l}</label><select>${p.v.map(o=>`<option>${o}</option>`).join('')}</select></div>`;
+    }
+    return `<div><label>${p.l}</label><input type="number" value="${p.v}"></div>`;
+  }).join('');
+
+  document.getElementById('fees').innerHTML = t.fees.map(f=>
+    `<div class="srow"><span style="color:#6b7280">${f[0]}</span><span>¥ ${f[1]}</span></div>`).join('');
+
+  recalc();
+}
+
+function recalc(){
+  const t = current;
+  const mold = t.fees.reduce((s,f)=>s + Number(String(f[1]).replace(/,/g,'')), 0);
+  const qty = Number(document.getElementById('qty').value) || 0;
+  const mgmt = Math.round(mold * 0.15);
+  const unit = t.key==='diecast' ? 6.8 : t.key==='twocolor' ? 3.4 : 4.15;
+  const inj = Math.round(unit * qty);
+  const total = Math.round((mold + mgmt + inj) * 1.13);
+  document.getElementById('fees').insertAdjacentHTML('beforeend', '');
+  document.getElementById('total').textContent = '¥ ' + total.toLocaleString('zh-CN');
+  const extra = document.getElementById('extra-rows');
+  if(extra) extra.remove();
+  document.getElementById('fees').insertAdjacentHTML('beforeend',
+    `<div id="extra-rows">
+      <div class="srow" style="border-top:1px solid #e5e7eb;margin-top:8px;padding-top:12px"><span style="color:#6b7280">模具小计</span><span>¥ ${mold.toLocaleString('zh-CN')}</span></div>
+      <div class="srow"><span style="color:#6b7280">管理费与利润 15%</span><span>¥ ${mgmt.toLocaleString('zh-CN')}</span></div>
+      <div class="srow"><span style="color:#6b7280">单件成本</span><span>¥ ${unit}</span></div>
+      <div class="srow"><span style="color:#6b7280">注塑合计（${qty.toLocaleString('zh-CN')} 件）</span><span>¥ ${inj.toLocaleString('zh-CN')}</span></div>
+    </div>`);
+}
+
+document.getElementById('qty').addEventListener('input', recalc);
+document.querySelectorAll('#nav button').forEach(b=>b.addEventListener('click',()=>go(b.dataset.v)));
+renderTypes();
+</script>
+</body>
+</html>

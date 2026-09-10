@@ -95,10 +95,13 @@ async function seedDatabase() {
   await prisma.emailVerification.deleteMany({});
   await prisma.quote.deleteMany({});
   await prisma.customer.deleteMany({});
-  await prisma.customFormula.deleteMany({});
-  await prisma.customParameter.deleteMany({});
+  await prisma.quoteItem.deleteMany({});
+  await prisma.businessTerm.deleteMany({});
   await prisma.materialPrice.deleteMany({});
   await prisma.material.deleteMany({});
+  await prisma.customParameter.deleteMany({});
+  await prisma.moldType.deleteMany({});
+  await prisma.customFormula.deleteMany({});
   await prisma.quoteTemplate.deleteMany({});
   await prisma.user.deleteMany({});
   await prisma.company.deleteMany({});
