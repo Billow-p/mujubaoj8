@@ -10,7 +10,7 @@ const NAV: NavItem[] = [
   { to: '/settings/config', label: '配置中心' },
   { to: '/settings/materials', label: '材料中心' },
   { to: '/settings/quote-items', label: '报价项中心' },
-  { to: '/settings/parameters', label: '参数中心' },
+  // 参数中心已下线：参数在「配置中心 → 产品数据」里就地增删改，功能零损失
   { to: '/admin', label: '后台管理', adminOnly: true },
 ];
 

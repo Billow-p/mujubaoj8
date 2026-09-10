@@ -8,7 +8,6 @@ import QuoteDetail from './pages/QuoteDetail';
 import Customers from './pages/Customers';
 import QuoteItems from './pages/QuoteItems';
 import Materials from './pages/Materials';
-import Parameters from './pages/Parameters';
 import ConfigCenter from './pages/ConfigCenter';
 import SharePage from './pages/SharePage';
 import Admin from './pages/Admin';
@@ -40,7 +39,6 @@ export default function App() {
         <Route path="/settings/config" element={<ConfigCenter />} />
         <Route path="/settings/quote-items" element={<QuoteItems />} />
         <Route path="/settings/materials" element={<Materials />} />
-        <Route path="/settings/parameters" element={<Parameters />} />
         <Route path="/admin" element={<Admin />} />
       </Route>
       <Route path="*" element={<Navigate to="/" />} />
