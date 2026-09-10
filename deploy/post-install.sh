@@ -7,6 +7,7 @@ set -e
 
 APP_DIR="/opt/mold-quote-system"
 DOMAIN="ycwl.chat"
+DOMAIN_ALT="www.ycwl.chat"
 CERT_DIR="/etc/letsencrypt/live/${DOMAIN}"
 ACME_WEBROOT="/var/www/certbot"
 CERTBOT_BIN="/opt/certbot/bin/certbot"
@@ -51,12 +52,15 @@ if [ ! -f "${CERT_DIR}/fullchain.pem" ]; then
         ln -sf "${CERTBOT_BIN}" /usr/local/bin/certbot
     fi
 
-    echo "==> 签发证书（${DOMAIN}）"
-    echo "    前提：域名 A 记录已指向本机公网 IP，且 80 端口可从公网访问"
+    echo "==> 签发证书（${DOMAIN} + ${DOMAIN_ALT}）"
+    echo "    前提：两个域名的 A 记录都已指向本机公网 IP，且 80 端口可从公网访问"
     if "${CERTBOT_BIN}" certonly --webroot -w "${ACME_WEBROOT}" \
-            -d "${DOMAIN}" --email "${ACME_EMAIL}" \
-            --agree-tos --non-interactive; then
-        echo "    签发成功"
+            -d "${DOMAIN}" -d "${DOMAIN_ALT}" --expand \
+            --email "${ACME_EMAIL}" --agree-tos --non-interactive; then
+        echo "    签发成功（含 www）"
+    elif "${CERTBOT_BIN}" certonly --webroot -w "${ACME_WEBROOT}" \
+            -d "${DOMAIN}" --email "${ACME_EMAIL}" --agree-tos --non-interactive; then
+        echo "    仅主域名签发成功 —— ${DOMAIN_ALT} 可能尚未解析，解析生效后重跑本脚本补签"
     else
         echo "    ⚠️  签发失败（通常是 DNS 未解析或 80 端口不通）"
         echo "       服务将继续以 HTTP 运行；解析生效后重跑本脚本即可补签"
