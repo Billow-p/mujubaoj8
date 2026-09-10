@@ -444,6 +444,70 @@ async function main() {
     const anon = await req('GET', '/api/admin/overview');
     check('未登录访问后台 → 401', anon.status === 401, `HTTP ${anon.status}`);
 
+    // ---------- P. 材料两级分类 ----------
+    console.log('\n[P] 材料两级分类');
+    const seedMat = await req('POST', '/api/materials/seed-preset', {}, token);
+    check('初始化预置材料', seedMat.status === 200, `新增 ${seedMat.data?.created} / 共 ${seedMat.data?.total}`);
+    check('预置材料数量达到 35 种', seedMat.data?.total >= 35, String(seedMat.data?.total));
+
+    const allMats = await req('GET', '/api/materials', undefined, token);
+    const matList = allMats.data || [];
+    const groups = [...new Set(matList.map((m) => m.category))];
+    check(
+      '一级分类覆盖四类用途',
+      ['模具钢材', '塑料原料', '压铸合金', '辅助材料'].every((g) => groups.includes(g)),
+      groups.join('、'),
+    );
+
+    const byCode = (c) => matList.find((m) => m.code === c);
+    check('P20 → 预硬塑胶模具钢', byCode('P20')?.subCategory === '预硬塑胶模具钢', byCode('P20')?.subCategory);
+    check('H13 → 热作模具钢', byCode('H13')?.subCategory === '热作模具钢', byCode('H13')?.subCategory);
+    check('S136 → 镜面耐腐蚀钢', byCode('S136')?.subCategory === '镜面耐腐蚀钢', byCode('S136')?.subCategory);
+    check('ADC12 → 铝合金', byCode('ADC12')?.subCategory === '铝合金', byCode('ADC12')?.subCategory);
+    check('ABS → 通用塑料', byCode('ABS')?.subCategory === '通用塑料', byCode('ABS')?.subCategory);
+    check('PA → 工程塑料', byCode('PA')?.subCategory === '工程塑料', byCode('PA')?.subCategory);
+    check('PEEK → 特种工程塑料', byCode('PEEK')?.subCategory === '特种工程塑料', byCode('PEEK')?.subCategory);
+    check('TPU → 弹性体软胶', byCode('TPU')?.subCategory === '弹性体软胶', byCode('TPU')?.subCategory);
+    check('木箱 → 包装材料', byCode('WOODBOX')?.subCategory === '包装材料', byCode('WOODBOX')?.subCategory);
+
+    // 同一分类的材料必须在列表里连续，否则前端分组会出现重复标题
+    const seen = new Set();
+    let lastCat = null;
+    let contiguous = true;
+    for (const m of matList) {
+      if (m.category !== lastCat) {
+        if (seen.has(m.category)) { contiguous = false; break; }
+        seen.add(m.category);
+        lastCat = m.category;
+      }
+    }
+    check('列表按一级分类聚集（分组标题不会重复）', contiguous);
+
+    // 老数据（升级前建的、没有二级分类）应能被初始化补全分类，且不动价格
+    const prisma4 = new PrismaClient();
+    const absRow = byCode('ABS');
+    await prisma4.material.update({ where: { id: absRow.id }, data: { subCategory: null, currentPrice: 99 } });
+    await prisma4.$disconnect();
+    const seedAgain = await req('POST', '/api/materials/seed-preset', {}, token);
+    check('初始化可为老材料补全二级分类', seedAgain.data.classified >= 1, `补全 ${seedAgain.data.classified} 个`);
+    const absAfter = (await req('GET', '/api/materials', undefined, token)).data.find((m) => m.code === 'ABS');
+    check('补分类时不动用户改过的价格', Number(absAfter.currentPrice) === 99, String(absAfter.currentPrice));
+    check('补分类后二级分类正确', absAfter.subCategory === '通用塑料', absAfter.subCategory);
+
+    const newMat = await req(
+      'POST',
+      '/api/materials',
+      { code: 'TEST-X', name: '测试冷作钢', category: '模具钢材', subCategory: '冷作模具钢', unit: 'kg', currentPrice: 10, lossRate: 0.05 },
+      token,
+    );
+    check('新建材料可带两级分类', newMat.status === 200 && newMat.data.subCategory === '冷作模具钢', newMat.data?.subCategory);
+    await req('DELETE', `/api/materials/${newMat.data.id}`, undefined, token);
+
+    // 配置中心里该模具类型的材料也要带二级分类
+    const cfgMats = await req('GET', `/api/config/${inj.id}`, undefined, token);
+    const cfgAbs = (cfgMats.data?.materials || []).find((m) => m.code === 'ABS');
+    check('配置中心材料带二级分类', cfgAbs?.subCategory === '通用塑料', cfgAbs?.subCategory);
+
     // ---------- Excel 落盘供人工查看 ----------
     const out = path.join(apiDir, '..', '..', 'prototype', 'sample-quote.xlsx');
     fs.writeFileSync(out, buf);

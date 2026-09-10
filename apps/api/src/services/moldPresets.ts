@@ -29,7 +29,8 @@ export interface PresetItem {
 export interface PresetMaterial {
   code: string;
   name: string;
-  category: string;
+  category: string; // 一级分类：用途场景
+  subCategory?: string; // 二级分类：材质体系
   unit: string;
   price: number;
   lossRate: number;
@@ -84,11 +85,11 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       },
     ],
     materials: [
-      { code: 'ABS', name: 'ABS', category: '塑料原料', unit: 'kg', price: 12, lossRate: 0.05, density: 1.05 },
-      { code: 'PP', name: 'PP', category: '塑料原料', unit: 'kg', price: 9.5, lossRate: 0.05, density: 0.9 },
-      { code: 'PC', name: 'PC', category: '塑料原料', unit: 'kg', price: 26, lossRate: 0.05, density: 1.2 },
-      { code: 'P20', name: 'P20 预硬钢', category: '模具钢材', unit: 'kg', price: 25, lossRate: 0.1, density: 7.85 },
-      { code: '718H', name: '718H 预硬钢', category: '模具钢材', unit: 'kg', price: 32, lossRate: 0.1, density: 7.85 },
+      { code: 'ABS', name: 'ABS', category: '塑料原料', subCategory: '通用塑料', unit: 'kg', price: 12, lossRate: 0.05, density: 1.05 },
+      { code: 'PP', name: 'PP', category: '塑料原料', subCategory: '通用塑料', unit: 'kg', price: 9.5, lossRate: 0.05, density: 0.9 },
+      { code: 'PC', name: 'PC', category: '塑料原料', subCategory: '工程塑料', unit: 'kg', price: 26, lossRate: 0.05, density: 1.2 },
+      { code: 'P20', name: 'P20 预硬钢', category: '模具钢材', subCategory: '预硬塑胶模具钢', unit: 'kg', price: 25, lossRate: 0.1, density: 7.85 },
+      { code: '718H', name: '718H 预硬钢', category: '模具钢材', subCategory: '预硬塑胶模具钢', unit: 'kg', price: 32, lossRate: 0.1, density: 7.85 },
     ],
     terms: [
       '以上总价含 13% 增值税，开具增值税专用发票。',
@@ -131,9 +132,9 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { code: 'firstOrderQty', name: '首单数量', value: 50000, unit: '件', group: '商务' },
     ],
     materials: [
-      { code: 'ADC12', name: 'ADC12 铝合金', category: '压铸合金', unit: 'kg', price: 22, lossRate: 0.08, density: 2.7 },
-      { code: 'ZAMAK3', name: '锌合金 3#', category: '压铸合金', unit: 'kg', price: 19, lossRate: 0.08, density: 6.6 },
-      { code: 'H13', name: 'H13 热作钢', category: '模具钢材', unit: 'kg', price: 45, lossRate: 0.12, density: 7.85 },
+      { code: 'ADC12', name: 'ADC12 铝合金', category: '压铸合金', subCategory: '铝合金', unit: 'kg', price: 22, lossRate: 0.08, density: 2.7 },
+      { code: 'ZAMAK3', name: '锌合金 3#', category: '压铸合金', subCategory: '锌合金', unit: 'kg', price: 19, lossRate: 0.08, density: 6.6 },
+      { code: 'H13', name: 'H13 热作钢', category: '模具钢材', subCategory: '热作模具钢', unit: 'kg', price: 45, lossRate: 0.12, density: 7.85 },
     ],
     terms: [
       '模具材质 H13 热作钢，含真空阀与强化冷却回路。',
@@ -161,8 +162,8 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { code: 'firstOrderQty', name: '首单数量', value: 120000, unit: '件', group: '商务' },
     ],
     materials: [
-      { code: 'ABS-H', name: 'ABS 硬胶', category: '塑料原料', unit: 'kg', price: 12, lossRate: 0.05, density: 1.05 },
-      { code: 'TPE-S', name: 'TPE 软胶', category: '塑料原料', unit: 'kg', price: 35, lossRate: 0.06, density: 1.2 },
+      { code: 'ABS-H', name: 'ABS 硬胶', category: '塑料原料', subCategory: '通用塑料', unit: 'kg', price: 12, lossRate: 0.05, density: 1.05 },
+      { code: 'TPE-S', name: 'TPE 软胶', category: '塑料原料', subCategory: '弹性体软胶', unit: 'kg', price: 35, lossRate: 0.06, density: 1.2 },
       { code: '718H', name: '718H 预硬钢', category: '模具钢材', unit: 'kg', price: 32, lossRate: 0.1, density: 7.85 },
     ],
     terms: [

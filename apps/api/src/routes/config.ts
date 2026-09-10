@@ -57,6 +57,7 @@ const MatSchema = z.object({
   code: z.string().min(1).max(30),
   name: z.string().min(1).max(50),
   category: z.string().max(30).optional(),
+  subCategory: z.string().max(30).nullable().optional(),
   unit: z.string().max(10).optional(),
   density: z.number().nullable().optional(),
   lossRate: z.number().min(0).max(1).optional(),
@@ -192,7 +193,7 @@ export async function configRoutes(app: FastifyInstance) {
 
     const [parameters, materials, terms, items] = await Promise.all([
       prisma.customParameter.findMany({ where: { companyId, moldTypeId }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] }),
-      prisma.material.findMany({ where: { companyId, moldTypeId }, orderBy: [{ category: 'asc' }, { code: 'asc' }] }),
+      prisma.material.findMany({ where: { companyId, moldTypeId }, orderBy: [{ category: 'asc' }, { subCategory: 'asc' }, { code: 'asc' }] }),
       prisma.businessTerm.findMany({ where: { companyId, moldTypeId }, orderBy: { sortOrder: 'asc' } }),
       prisma.quoteItem.findMany({ where: { companyId, moldTypeId }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] }),
     ]);
@@ -243,6 +244,7 @@ export async function configRoutes(app: FastifyInstance) {
             code: m.code,
             name: m.name,
             category: m.category ?? '塑料原料',
+            subCategory: m.subCategory ?? null,
             unit: m.unit ?? 'kg',
             density: m.density ?? null,
             lossRate: m.lossRate ?? 0.05,
@@ -378,6 +380,7 @@ async function createPresetMoldType(companyId: string, p: (typeof MOLD_PRESETS)[
       code: m.code,
       name: m.name,
       category: m.category,
+      subCategory: m.subCategory ?? null,
       unit: m.unit,
       density: m.density ?? null,
       lossRate: m.lossRate,
@@ -426,6 +429,7 @@ async function copyConfig(companyId: string, fromId: string, toId: string) {
     await prisma.material.createMany({
       data: mats.map((m) => ({
         companyId, moldTypeId: toId, code: m.code, name: m.name, category: m.category,
+        subCategory: m.subCategory ?? null,
         unit: m.unit, density: m.density, lossRate: m.lossRate, currentPrice: m.currentPrice,
       })),
     });

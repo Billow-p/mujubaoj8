@@ -289,7 +289,8 @@ model Material {
   companyId    String
   code         String   // 材料编码
   name         String   // ABS / PP / PC ...
-  category     String   @default("塑料原料") // 塑料原料 / 模具钢材 / 辅料
+  category     String   @default("塑料原料") // 一级分类：模具钢材 / 塑料原料 / 压铸合金 / 辅助材料
+  subCategory  String?                      // 二级分类：热作模具钢 / 工程塑料 / 铝合金 …
   unit         String   @default("kg")      // g / kg / t / 件
   density      Float?   // g/cm3
   lossRate     Float    @default(0.05)      // 损耗率

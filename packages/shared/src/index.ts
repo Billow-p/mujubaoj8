@@ -191,6 +191,26 @@ export interface CustomFormulaResults {
 }
 
 // 默认商务条款模板
+// ============================================================
+// 材料分类（两级）—— 按模具 / 注塑行业主流分类法
+//
+// 一级按「用途场景」划分，二级按「材质体系」划分。
+// 这两个常量只是预置建议值，用户可以自由增删材料时自行输入别的分类。
+// ============================================================
+
+/** 一级分类：按用途场景 */
+export const MATERIAL_GROUPS = ['模具钢材', '塑料原料', '压铸合金', '辅助材料'] as const;
+
+export type MaterialGroup = (typeof MATERIAL_GROUPS)[number];
+
+/** 二级分类：按材质体系 */
+export const MATERIAL_SUB_CATEGORIES: Record<string, string[]> = {
+  模具钢材: ['预硬塑胶模具钢', '镜面耐腐蚀钢', '热作模具钢', '冷作模具钢'],
+  塑料原料: ['通用塑料', '工程塑料', '特种工程塑料', '弹性体软胶'],
+  压铸合金: ['铝合金', '锌合金', '镁合金'],
+  辅助材料: ['表面处理', '包装材料', '模具辅料'],
+};
+
 export const DEFAULT_BUSINESS_TERMS: BusinessTermItem[] = [
   { index: 1, enabled: true, text: '税费：以上总价为含 13% 增值税价格，开票含税。' },
   { index: 2, enabled: true, text: '运费：广东省内运费免费；省外按实际运输方式/体积重量另行计费。' },
