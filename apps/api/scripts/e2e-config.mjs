@@ -107,13 +107,14 @@ async function main() {
     console.log('        类型：' + types.data.map((t) => `${t.name}(${t.counts.items}项费用)`).join('、'));
     const injection = types.data.find((t) => t.code === 'injection');
     check('注塑含 8 项费用（5 模具 + 3 注塑）', injection?.counts.items === 8, `${injection?.counts.items}`);
-    check('注塑含 16 项参数', injection?.counts.parameters === 16, `${injection?.counts.parameters}`);
+    check('注塑含 15 项参数（已合并重复的数量参数）', injection?.counts.parameters === 15, `${injection?.counts.parameters}`);
 
     // ---------- 2 读配置 ----------
     console.log('\n[2] 读取整类配置');
     const cfg = await req('GET', `/api/config/${injection.id}`, undefined, token);
     check('配置可读', cfg.status === 200 && !!cfg.data.moldType);
-    check('含参数', cfg.data.parameters.length === 16, `${cfg.data.parameters.length} 项`);
+    check('含参数', cfg.data.parameters.length === 15, `${cfg.data.parameters.length} 项`);
+    check('数量参数只有一个「注塑数量」', cfg.data.parameters.filter((p) => /数量/.test(p.name)).length === 1, cfg.data.parameters.filter((p) => /数量/.test(p.name)).map((p) => p.name).join('、'));
     check('含材料', cfg.data.materials.length === 5, `${cfg.data.materials.length} 种`);
     check('含条款', cfg.data.terms.length === 3, `${cfg.data.terms.length} 条`);
     check('含费用项', cfg.data.items.length === 8, `${cfg.data.items.length} 项`);
@@ -265,7 +266,11 @@ async function main() {
 
     const blank = await req('POST', '/api/mold-types', { name: '空白类型' }, token);
     const blankCfg = await req('GET', `/api/config/${blank.data.id}`, undefined, token);
-    check('空白类型有最小可用配置', blankCfg.data.parameters.length === 2 && blankCfg.data.items.length === 1);
+    check(
+      '空白类型有最小可用配置（2 参数、无预置费用项）',
+      blankCfg.data.parameters.length === 2 && blankCfg.data.items.length === 0,
+      `${blankCfg.data.parameters.length} 参数 / ${blankCfg.data.items.length} 费用项`,
+    );
 
     // ---------- 11 删除类型 ----------
     console.log('\n[11] 删除模具类型');

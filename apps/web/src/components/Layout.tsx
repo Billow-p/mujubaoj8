@@ -1,17 +1,32 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../store';
 
-type NavItem = { to: string; label: string; exact?: boolean; adminOnly?: boolean };
+type NavItem = {
+  to: string;
+  label: string;
+  exact?: boolean;
+  adminOnly?: boolean;
+  /** 用前缀匹配高亮（「设置」要覆盖所有 /settings/*） */
+  matchPrefix?: string;
+};
 
+/**
+ * 主导航：只放「用户要做什么」，按使用频率从高到低。
+ *
+ * 「新建报价单」刻意不在这里 —— 它是一个动作，放在了报价单列表页右上角。
+ * 配置类（报价配置 / 材料库 / 条款 / 团队）全部收进「设置」，进去后是二级导航。
+ */
 const NAV: NavItem[] = [
-  { to: '/', label: '工作台', exact: true },
-  { to: '/quotes/new', label: '新建报价单' },
-  { to: '/customers', label: '客户库' },
-  { to: '/settings/config', label: '配置中心' },
-  { to: '/settings/materials', label: '材料中心' },
-  { to: '/settings/quote-items', label: '报价项中心' },
-  // 参数中心已下线：参数在「配置中心 → 产品数据」里就地增删改，功能零损失
-  { to: '/admin', label: '后台管理', adminOnly: true },
+  { to: '/', label: '报价单', exact: true },
+  { to: '/customers', label: '客户' },
+  { to: '/settings/config', label: '设置', matchPrefix: '/settings' },
+];
+
+/** 设置区的二级导航：低频的配置与管理都收在这里 */
+const SETTINGS_TABS: NavItem[] = [
+  { to: '/settings/config', label: '报价配置' },
+  { to: '/settings/materials', label: '材料库' },
+  { to: '/settings/team', label: '团队与数据', adminOnly: true },
 ];
 
 const ROLE_LABEL: Record<string, string> = {
@@ -25,14 +40,21 @@ export default function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
 
+  const isAdmin = user?.role === 'admin';
+  const inSettings = location.pathname.startsWith('/settings');
+
   const logout = () => {
     localStorage.removeItem('mqs_token');
     setUser(null);
     navigate('/login');
   };
 
-  const active = (item: (typeof NAV)[number]) =>
-    item.exact ? location.pathname === item.to : location.pathname.startsWith(item.to);
+  const active = (item: NavItem) => {
+    if (item.matchPrefix) return location.pathname.startsWith(item.matchPrefix);
+    return item.exact ? location.pathname === item.to : location.pathname.startsWith(item.to);
+  };
+
+  const visible = (list: NavItem[]) => list.filter((i) => !i.adminOnly || isAdmin);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -44,7 +66,7 @@ export default function Layout() {
               <span className="font-semibold text-sm">模具注塑报价系统</span>
             </Link>
             <nav className="flex items-center gap-1 text-sm">
-              {NAV.filter((item) => !item.adminOnly || user?.role === 'admin').map((item) => (
+              {visible(NAV).map((item) => (
                 <Link
                   key={item.to}
                   to={item.to}
@@ -68,6 +90,29 @@ export default function Layout() {
           </div>
         </div>
       </header>
+
+      {/* 设置区的二级导航 */}
+      {inSettings && (
+        <div className="bg-white border-b border-gray-200">
+          <div className="max-w-7xl mx-auto px-6 h-11 flex items-center gap-1 text-[13px]">
+            <span className="text-gray-400 mr-2">设置</span>
+            {visible(SETTINGS_TABS).map((item) => (
+              <Link
+                key={item.to}
+                to={item.to}
+                className={`px-3 py-1 rounded whitespace-nowrap ${
+                  location.pathname === item.to
+                    ? 'bg-gray-100 font-medium text-gray-900'
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       <main>
         <Outlet />
       </main>

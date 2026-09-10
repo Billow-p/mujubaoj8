@@ -7,6 +7,7 @@ import type {
   QuoteItemDef,
   QuoteItemCalcConfig,
 } from '@mqs/shared';
+import { QTY_VAR_CANDIDATES } from '@mqs/shared';
 import { evaluateExpression, type Scope } from './expression.js';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -122,9 +123,6 @@ export interface ConfiguredOptions {
   /** 「注塑数量」的参数名。不指定时按常用名自动查找 */
   injectionQtyVar?: string;
 }
-
-/** 按件计价用的数量参数，按优先级自动查找 */
-const QTY_VAR_CANDIDATES = ['注塑数量', '本次数量', '生产数量', '订单数量', '首单数量'];
 
 export function resolveInjectionQty(
   params: Record<string, number>,

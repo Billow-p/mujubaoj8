@@ -4,6 +4,16 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { calcTotal } from '../services/quoteTotal.js';
+import { QTY_VAR_CANDIDATES } from '@mqs/shared';
+
+/** 从报价单参数里取「数量」—— 各模具类型叫法不同，与计算引擎共用同一份候选列表 */
+function pickQty(vals: any, params: any): number {
+  for (const n of QTY_VAR_CANDIDATES) {
+    const v = vals?.[n];
+    if (v !== undefined && v !== null && v !== '') return Number(v) || 0;
+  }
+  return Number(params?.firstOrderQty) || 0;
+}
 
 const CreateCustomerSchema = z.object({
   code: z.string().max(30).optional(),
@@ -125,8 +135,8 @@ export async function customerRoutes(app: FastifyInstance) {
         versionNo: v?.versionNo ?? 1,
         productName: params.productName ?? '',
         material: params.material ?? '',
-        // 配置驱动下「首单数量」是用户自定义参数，按名字取
-        firstOrderQty: Number(vals['首单数量'] ?? params.firstOrderQty ?? 0) || 0,
+        // 数量参数各类型叫法不同（注塑数量 / 压铸数量 / 成型数量 / 订单数量），按候选名取
+        firstOrderQty: pickQty(vals, params),
         grandTotalIncVat: calcTotal(v?.calcResultJson),
       };
     });

@@ -140,16 +140,14 @@ export async function configRoutes(app: FastifyInstance) {
     if (body.copyFromId) {
       await copyConfig(companyId, body.copyFromId, moldType.id);
     } else {
-      // 默认给一套最小可用配置，避免空白页
+      // 默认给一套最小可用配置，避免空白页。
+      // 注意：这里不放「管理费」—— 业务方明确要求它不进预置，需要时由用户自己加。
       await prisma.customParameter.createMany({
         data: [
           { companyId, moldTypeId: moldType.id, code: 'cavityCount', name: '腔数', unit: '穴', defaultValue: '1', group: '产品', sortOrder: 0 },
-          { companyId, moldTypeId: moldType.id, code: 'firstOrderQty', name: '首单数量', unit: '件', defaultValue: '10000', group: '商务', sortOrder: 1 },
-        ],
-      });
-      await prisma.quoteItem.createMany({
-        data: [
-          { companyId, moldTypeId: moldType.id, name: '管理费', category: '管理费', scope: 'mold', calcType: 'percent', calcConfig: { base: '模具小计', rate: 0.15 }, sortOrder: 0 },
+          // 通用数量参数，按件计价要用；引擎会按
+          // 注塑数量 / 压铸数量 / 成型数量 / 订单数量 自动查找
+          { companyId, moldTypeId: moldType.id, code: 'orderQty', name: '订单数量', unit: '件', defaultValue: '5000', group: '商务', sortOrder: 1 },
         ],
       });
     }

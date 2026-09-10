@@ -48,9 +48,10 @@ export interface PresetMoldType {
   items: PresetItem[];
 }
 
+// 数量参数由各模具类型自己带（注塑数量 / 压铸数量 / 成型数量）。
+// 原 BASE 里的「首单数量」与「注塑数量」语义重复，已移除。
 const BASE: PresetParam[] = [
   { code: 'cavityCount', name: '腔数', value: 2, unit: '穴', group: '产品' },
-  { code: 'firstOrderQty', name: '首单数量', value: 300000, unit: '件', group: '商务' },
 ];
 
 export const MOLD_PRESETS: PresetMoldType[] = [
@@ -69,7 +70,6 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { code: 'steelDensity', name: '钢材密度', value: 7.85, unit: 'g/cm³', group: '材料' },
       { code: 'materialUnitPrice', name: '原料单价', value: 12, unit: '元/kg', group: '材料' },
       { code: 'injectionQty', name: '注塑数量', value: 5000, unit: '件', group: '商务' },
-      { code: 'firstOrderQty', name: '首单数量', value: 300000, unit: '件', group: '商务' },
       // 运输费要用到的量
       { code: 'moldWeightKg', name: '模具重量', value: 800, unit: 'kg', group: '运输' },
       { code: 'packLengthCm', name: '运输箱长', value: 120, unit: 'cm', group: '运输' },
@@ -129,7 +129,7 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { code: 'singleWeightKg', name: '单件重量', value: 0.86, unit: 'kg', group: '产品' },
       { code: 'dieLife', name: '模具寿命', value: 100000, unit: '模次', group: '模具' },
       { code: 'alloyPrice', name: '合金单价', value: 22, unit: '元/kg', group: '材料' },
-      { code: 'firstOrderQty', name: '首单数量', value: 50000, unit: '件', group: '商务' },
+      { code: 'castingQty', name: '压铸数量', value: 50000, unit: '件', group: '商务' },
     ],
     materials: [
       { code: 'ADC12', name: 'ADC12 铝合金', category: '压铸合金', subCategory: '铝合金', unit: 'kg', price: 22, lossRate: 0.08, density: 2.7 },
@@ -159,7 +159,7 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { code: 'coreWidthMm', name: '模芯宽', value: 320, unit: 'mm', group: '模具' },
       { code: 'coreHeightMm', name: '模芯高', value: 180, unit: 'mm', group: '模具' },
       { code: 'hotRunnerPoints', name: '热流道点数', value: 4, unit: '点', group: '模具' },
-      { code: 'firstOrderQty', name: '首单数量', value: 120000, unit: '件', group: '商务' },
+      { code: 'moldingQty', name: '成型数量', value: 120000, unit: '件', group: '商务' },
     ],
     materials: [
       { code: 'ABS-H', name: 'ABS 硬胶', category: '塑料原料', subCategory: '通用塑料', unit: 'kg', price: 12, lossRate: 0.05, density: 1.05 },

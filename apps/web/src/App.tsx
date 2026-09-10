@@ -6,7 +6,6 @@ import NewQuote from './pages/NewQuote';
 import ConfiguredQuote from './pages/ConfiguredQuote';
 import QuoteDetail from './pages/QuoteDetail';
 import Customers from './pages/Customers';
-import QuoteItems from './pages/QuoteItems';
 import Materials from './pages/Materials';
 import ConfigCenter from './pages/ConfigCenter';
 import SharePage from './pages/SharePage';
@@ -31,15 +30,23 @@ export default function App() {
       {/* 客户查看报价单：免登录，独立于后台布局 */}
       <Route path="/share/:token" element={<SharePage />} />
       <Route element={<Layout />}>
+        {/* 业务 */}
         <Route path="/" element={<Dashboard />} />
         <Route path="/quotes/new" element={<ConfiguredQuote />} />
         <Route path="/quotes/new/advanced" element={<NewQuote />} />
         <Route path="/quotes/:id" element={<QuoteDetail />} />
         <Route path="/customers" element={<Customers />} />
+
+        {/* 设置 */}
+        <Route path="/settings" element={<Navigate to="/settings/config" replace />} />
         <Route path="/settings/config" element={<ConfigCenter />} />
-        <Route path="/settings/quote-items" element={<QuoteItems />} />
         <Route path="/settings/materials" element={<Materials />} />
-        <Route path="/admin" element={<Admin />} />
+        <Route path="/settings/team" element={<Admin />} />
+
+        {/* 旧地址兼容，避免老书签失效 */}
+        <Route path="/admin" element={<Navigate to="/settings/team" replace />} />
+        <Route path="/settings/quote-items" element={<Navigate to="/settings/config" replace />} />
+        <Route path="/settings/parameters" element={<Navigate to="/settings/config" replace />} />
       </Route>
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>

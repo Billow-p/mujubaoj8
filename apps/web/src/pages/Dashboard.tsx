@@ -52,8 +52,8 @@ export default function Dashboard() {
     <div className="max-w-7xl mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">早上好，{user?.name}</h1>
-          <p className="text-sm text-gray-500 mt-1">欢迎使用模具注塑报价系统</p>
+          <h1 className="text-xl font-semibold">报价单</h1>
+          <p className="text-sm text-gray-500 mt-1">{user?.name}，这里汇总所有报价单；新建请点右侧按钮</p>
         </div>
         <Link
           to="/quotes/new"
@@ -85,8 +85,20 @@ export default function Dashboard() {
         {loading ? (
           <div className="p-10 text-center text-sm text-gray-500">加载中...</div>
         ) : list.length === 0 ? (
-          <div className="p-10 text-center text-sm text-gray-500">
-            暂无报价单。<Link to="/quotes/new" className="text-gray-900 underline">新建一个</Link>
+          <div className="p-10 text-center">
+            <p className="text-sm text-gray-500 mb-4">还没有报价单</p>
+            <div className="inline-flex flex-col gap-2 text-left text-[13px] text-gray-600">
+              <span>
+                ① 如果还没配置过模具类型，先到{' '}
+                <Link to="/settings/config" className="text-gray-900 underline">设置 → 报价配置</Link>{' '}
+                定义参数与费用项
+              </span>
+              <span>
+                ② 然后点右上角{' '}
+                <Link to="/quotes/new" className="text-gray-900 underline">+ 新建报价单</Link>
+                ，选模具类型、填数据就能出价
+              </span>
+            </div>
           </div>
         ) : (
           <table className="w-full text-sm">

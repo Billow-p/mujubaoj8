@@ -211,6 +211,23 @@ export const MATERIAL_SUB_CATEGORIES: Record<string, string[]> = {
   辅助材料: ['表面处理', '包装材料', '模具辅料'],
 };
 
+/**
+ * 「数量」参数的候选名，按优先级排列。
+ *
+ * 各模具类型对同一个概念的叫法不同：注塑数量 / 压铸数量 / 成型数量…
+ * 计算引擎按这个顺序自动查找，找不到才报错。
+ * 后端展示（客户库、邮件）也用它，避免两边各写一份列表走偏。
+ */
+export const QTY_VAR_CANDIDATES = [
+  '注塑数量',
+  '压铸数量',
+  '成型数量',
+  '订单数量',
+  '本次数量',
+  '生产数量',
+  '首单数量',
+];
+
 export const DEFAULT_BUSINESS_TERMS: BusinessTermItem[] = [
   { index: 1, enabled: true, text: '税费：以上总价为含 13% 增值税价格，开票含税。' },
   { index: 2, enabled: true, text: '运费：广东省内运费免费；省外按实际运输方式/体积重量另行计费。' },
