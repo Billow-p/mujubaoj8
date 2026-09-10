@@ -44,6 +44,10 @@ const INJ_LABEL: Record<string, string> = {
 
 const money = (n: number) => '¥' + Number(n || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
 
+/** 版本快照里的含税总价 —— 兼容两代数据结构 */
+const verTotal = (c: any) =>
+  Array.isArray(c?.lines) ? Number(c.total) || 0 : Number(c?.summary?.grandTotalIncVat) || 0;
+
 export default function QuoteDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -72,10 +76,42 @@ export default function QuoteDetail() {
   const v = q.versions?.[0];
   const input = (v?.paramsJson ?? {}) as any;
   const calc = (v?.calcResultJson ?? {}) as any;
+
+  // 两代数据结构：
+  //   老版 —— 固定 11 项模具模型，结果在 calc.summary / moldFeeItems
+  //   新版 —— 配置驱动，结果是 calc.lines 数组（模具项 + 注塑项）
+  const isCfg = Array.isArray(calc.lines);
   const summary = calc.summary ?? {};
   const moldItems = calc.moldFeeItems ?? {};
   const injItems = calc.injectionItems ?? {};
   const custom = calc.customFormulas ?? { mold: [], injection: [], summary: [] };
+
+  const cfgLines: any[] = isCfg ? calc.lines : [];
+  const cfgMoldLines = cfgLines.filter((l) => l.scope === 'mold' && !l.skipped);
+  const cfgInjLines = cfgLines.filter((l) => l.scope === 'injection' && !l.skipped);
+
+  /** 统一的展示口径（新版金额不含税，老版 summary 里是含税值） */
+  const view = {
+    mold: isCfg ? Number(calc.mold) || 0 : Number(summary.moldIncVat) || 0,
+    injection: isCfg ? Number(calc.injection) || 0 : Number(summary.injectionIncVat) || 0,
+    unitCost: isCfg ? Number(calc.unitCost) || 0 : Number(summary.unitCostExVat) || 0,
+    total: isCfg ? Number(calc.total) || 0 : Number(summary.grandTotalIncVat) || 0,
+    injectionQty: isCfg ? Number(calc.injectionQty) || 0 : Number(input.firstOrderQty) || 0,
+    profit: isCfg ? Number(calc.profit) || 0 : Number(summary.moldManagementFee) || 0,
+    profitRate: isCfg ? Number(calc.profitRate) || 0 : Number(input.managementRate) || 0,
+    tax: isCfg ? Number(calc.tax) || 0 : Number(summary.grandTotalVat) || 0,
+    taxRate: isCfg ? Number(calc.taxRate) || 0 : Number(input.vatRate) || 0,
+  };
+
+  /** 参数值 → 显示文本（下拉参数显示选项文字） */
+  const paramText = (p: any): string => {
+    const raw = input.values?.[p.name];
+    if (raw === undefined || raw === null || raw === '') return '';
+    const opts = Array.isArray(p.options) ? p.options : null;
+    const hit = opts?.find((o: any) => Number(o.value) === Number(raw));
+    if (hit) return String(hit.label);
+    return p.unit ? `${raw} ${p.unit}` : String(raw);
+  };
 
   const doExport = async () => {
     try {
@@ -154,20 +190,25 @@ export default function QuoteDetail() {
 
       <div className="grid grid-cols-4 gap-4">
         <div className="bg-white border border-gray-200 rounded p-4">
-          <div className="text-xs text-gray-500">模具合计（含税）</div>
-          <div className="text-lg font-semibold mt-1">{money(summary.moldIncVat)}</div>
+          <div className="text-xs text-gray-500">{isCfg ? '模具费用（不含税）' : '模具合计（含税）'}</div>
+          <div className="text-lg font-semibold mt-1">{money(view.mold)}</div>
         </div>
         <div className="bg-white border border-gray-200 rounded p-4">
-          <div className="text-xs text-gray-500">注塑合计（含税）</div>
-          <div className="text-lg font-semibold mt-1">{money(summary.injectionIncVat)}</div>
+          <div className="text-xs text-gray-500">{isCfg ? '注塑费用（不含税）' : '注塑合计（含税）'}</div>
+          <div className="text-lg font-semibold mt-1">{money(view.injection)}</div>
+          {isCfg && view.injectionQty > 0 && (
+            <div className="text-xs text-emerald-700 mt-0.5">
+              单件 {money(view.unitCost)} × {view.injectionQty.toLocaleString('zh-CN')} 件
+            </div>
+          )}
         </div>
         <div className="bg-white border border-gray-200 rounded p-4">
           <div className="text-xs text-gray-500">单件成本（不含税）</div>
-          <div className="text-lg font-semibold mt-1">{money(summary.unitCostExVat)}</div>
+          <div className="text-lg font-semibold mt-1">{money(view.unitCost)}</div>
         </div>
         <div className="bg-white border border-gray-200 rounded p-4 bg-gray-50">
           <div className="text-xs text-gray-500">含税总价</div>
-          <div className="text-lg font-semibold mt-1">{money(summary.grandTotalIncVat)}</div>
+          <div className="text-lg font-semibold mt-1">{money(view.total)}</div>
         </div>
       </div>
 
@@ -215,14 +256,26 @@ export default function QuoteDetail() {
                   <Field label="联系人" value={q.customer?.contactName} />
                   <Field label="电话" value={q.customer?.phone} />
                   <Field label="邮箱" value={q.customer?.email} />
-                  <Field label="产品名称" value={input.productName} />
-                  <Field label="材料" value={input.material} />
-                  <Field label="钢材" value={input.steel} />
-                  <Field label="复杂度" value={input.complexity} />
-                  <Field label="单件重量" value={input.singleWeightKg != null ? `${input.singleWeightKg} kg` : ''} />
-                  <Field label="腔数" value={input.cavityCount} />
-                  <Field label="成型周期" value={input.cycleTimeS != null ? `${input.cycleTimeS} s` : ''} />
-                  <Field label="首单数量" value={Number(input.firstOrderQty || 0).toLocaleString()} />
+                  {isCfg ? (
+                    <>
+                      <Field label="模具类型" value={input.moldTypeName} />
+                      <Field label="产品名称" value={input.productName} />
+                      {(input.parameters ?? []).map((p: any) => (
+                        <Field key={p.name} label={p.name} value={paramText(p)} />
+                      ))}
+                    </>
+                  ) : (
+                    <>
+                      <Field label="产品名称" value={input.productName} />
+                      <Field label="材料" value={input.material} />
+                      <Field label="钢材" value={input.steel} />
+                      <Field label="复杂度" value={input.complexity} />
+                      <Field label="单件重量" value={input.singleWeightKg != null ? `${input.singleWeightKg} kg` : ''} />
+                      <Field label="腔数" value={input.cavityCount} />
+                      <Field label="成型周期" value={input.cycleTimeS != null ? `${input.cycleTimeS} s` : ''} />
+                      <Field label="首单数量" value={Number(input.firstOrderQty || 0).toLocaleString()} />
+                    </>
+                  )}
                 </div>
                 {input.customParams && Object.keys(input.customParams).length > 0 && (
                   <div className="mt-3 pt-3 border-t border-gray-100">
@@ -240,6 +293,31 @@ export default function QuoteDetail() {
 
               <section>
                 <h3 className="text-sm font-medium mb-2">模具费用明细</h3>
+                {isCfg ? (
+                  <table className="w-full text-sm">
+                    <thead className="text-xs text-gray-500">
+                      <tr>
+                        <th className="text-left py-1.5">项目</th>
+                        <th className="text-left py-1.5">计算说明</th>
+                        <th className="text-right py-1.5">金额</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {cfgMoldLines.map((l, i) => (
+                        <tr key={i}>
+                          <td className="py-1.5">{l.name}</td>
+                          <td className="py-1.5 text-xs text-gray-500 font-mono">{l.readable}</td>
+                          <td className="py-1.5 text-right">{money(l.value)}</td>
+                        </tr>
+                      ))}
+                      <tr className="border-t border-gray-200">
+                        <td className="py-1.5 font-medium">模具费用合计</td>
+                        <td />
+                        <td className="py-1.5 text-right font-medium">{money(view.mold)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                ) : (
                 <table className="w-full text-sm">
                   <thead className="text-xs text-gray-500">
                     <tr>
@@ -287,10 +365,43 @@ export default function QuoteDetail() {
                     </tr>
                   </tbody>
                 </table>
+                )}
               </section>
 
               <section>
-                <h3 className="text-sm font-medium mb-2">注塑单件成本</h3>
+                <h3 className="text-sm font-medium mb-2">注塑费用明细</h3>
+                {isCfg ? (
+                  <table className="w-full text-sm">
+                    <thead className="text-xs text-gray-500">
+                      <tr>
+                        <th className="text-left py-1.5">项目</th>
+                        <th className="text-left py-1.5">计算说明</th>
+                        <th className="text-right py-1.5">单件成本</th>
+                        <th className="text-right py-1.5">金额</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {cfgInjLines.map((l, i) => (
+                        <tr key={i}>
+                          <td className="py-1.5">{l.name}</td>
+                          <td className="py-1.5 text-xs text-gray-500 font-mono">{l.readable}</td>
+                          <td className="py-1.5 text-right text-emerald-700">
+                            {l.unitPrice != null ? money(l.unitPrice) : '—'}
+                          </td>
+                          <td className="py-1.5 text-right">{money(l.value)}</td>
+                        </tr>
+                      ))}
+                      <tr className="border-t border-gray-200">
+                        <td className="py-1.5 font-medium">注塑费用合计</td>
+                        <td className="py-1.5 text-xs text-gray-500">
+                          单件 {money(view.unitCost)} × {view.injectionQty.toLocaleString('zh-CN')} 件
+                        </td>
+                        <td className="py-1.5 text-right font-medium">{money(view.unitCost)}</td>
+                        <td className="py-1.5 text-right font-medium">{money(view.injection)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                ) : (
                 <table className="w-full text-sm">
                   <thead className="text-xs text-gray-500">
                     <tr>
@@ -326,6 +437,7 @@ export default function QuoteDetail() {
                     </tr>
                   </tbody>
                 </table>
+                )}
               </section>
 
               {calc.businessTerms?.length > 0 && (
@@ -386,7 +498,7 @@ export default function QuoteDetail() {
                   <tr key={ver.id}>
                     <td className="py-1.5">v{ver.versionNo}</td>
                     <td className="py-1.5 text-right">
-                      {money((ver.calcResultJson as any)?.summary?.grandTotalIncVat)}
+                      {money(verTotal(ver.calcResultJson))}
                     </td>
                     <td className="py-1.5 text-gray-600">{ver.changeNote || '—'}</td>
                     <td className="py-1.5 text-right text-xs text-gray-500">

@@ -41,6 +41,13 @@ function genShareToken(): string {
   return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
 }
 
+/** 报价单含税总价 —— 兼容两代数据结构（配置驱动 lines / 老 11 项 summary） */
+function calcTotal(calc: any): number {
+  if (!calc) return 0;
+  if (Array.isArray(calc.lines)) return Number(calc.total) || 0;
+  return Number(calc.summary?.grandTotalIncVat) || 0;
+}
+
 /** 参数下拉选项存在 String 字段里（JSON），解析失败就当没有 */
 function parseParamOptions(raw: string | null | undefined): { label: string; value: number }[] | undefined {
   if (!raw) return undefined;
@@ -120,7 +127,7 @@ export async function quoteRoutes(app: FastifyInstance) {
       customerName: q.customer?.name || '',
       customerEmail: q.customer?.email || '',
       productName: (q.versions[0]?.paramsJson as any)?.productName || '',
-      grandTotal: (q.versions[0]?.calcResultJson as any)?.summary?.grandTotalIncVat || 0,
+      grandTotal: calcTotal(q.versions[0]?.calcResultJson),
       createdBy: q.createdBy.name,
       createdAt: q.createdAt,
       expiresAt: q.expiresAt,
@@ -166,7 +173,7 @@ export async function quoteRoutes(app: FastifyInstance) {
       versionNo: v.versionNo,
       createdAt: v.createdAt,
       changeNote: v.changeNote,
-      grandTotal: (v.calcResultJson as any).summary.grandTotalIncVat,
+      grandTotal: calcTotal(v.calcResultJson),
     }));
   });
 
@@ -466,6 +473,9 @@ export async function quoteRoutes(app: FastifyInstance) {
 
       const shareUrl = `${process.env.PUBLIC_WEB_URL || 'http://47.242.248.104'}/share/${share.shareToken}`;
 
+      // 邮件里的金额同样要兼容两代结构：配置驱动取 calc 顶层，老模型取 summary
+      const cfgMail = Array.isArray(calc?.lines);
+
       let emailResult: { ok: boolean; error?: string } = { ok: false, error: '未发送' };
       if (body.sendEmail) {
         emailResult = await sendQuoteNotification({
@@ -473,10 +483,12 @@ export async function quoteRoutes(app: FastifyInstance) {
           customerName: q.customer?.name || '客户',
           quoteNo: q.quoteNo,
           productName: params?.productName || '产品',
-          grandTotalIncVat: summary.grandTotalIncVat || 0,
-          moldTotalExVat: summary.moldTotalExVat || 0,
-          unitCostExVat: summary.unitCostExVat || 0,
-          firstOrderQty: params?.firstOrderQty || 0,
+          grandTotalIncVat: cfgMail ? Number(calc.total) || 0 : summary.grandTotalIncVat || 0,
+          moldTotalExVat: cfgMail ? Number(calc.mold) || 0 : summary.moldTotalExVat || 0,
+          unitCostExVat: cfgMail ? Number(calc.unitCost) || 0 : summary.unitCostExVat || 0,
+          firstOrderQty: cfgMail
+            ? Number(calc.injectionQty) || 0
+            : Number(params?.values?.['首单数量'] ?? params?.firstOrderQty ?? 0) || 0,
           validUntil: q.expiresAt,
           shareUrl,
           senderName: q.createdBy?.name || '报价员',
@@ -536,6 +548,7 @@ export async function quoteRoutes(app: FastifyInstance) {
       const calc = version.calcResultJson as any;
       const params = version.paramsJson as any;
       const summary = calc?.summary || {};
+      const cfgMail = Array.isArray(calc?.lines);
       const shareUrl = `${process.env.PUBLIC_WEB_URL || 'http://47.242.248.104'}/share/${share.shareToken}`;
 
       const result = await sendQuoteNotification({
@@ -543,10 +556,12 @@ export async function quoteRoutes(app: FastifyInstance) {
         customerName: q.customer?.name || '客户',
         quoteNo: q.quoteNo,
         productName: params?.productName || '产品',
-        grandTotalIncVat: summary.grandTotalIncVat || 0,
-        moldTotalExVat: summary.moldTotalExVat || 0,
-        unitCostExVat: summary.unitCostExVat || 0,
-        firstOrderQty: params?.firstOrderQty || 0,
+        grandTotalIncVat: cfgMail ? Number(calc.total) || 0 : summary.grandTotalIncVat || 0,
+        moldTotalExVat: cfgMail ? Number(calc.mold) || 0 : summary.moldTotalExVat || 0,
+        unitCostExVat: cfgMail ? Number(calc.unitCost) || 0 : summary.unitCostExVat || 0,
+        firstOrderQty: cfgMail
+          ? Number(calc.injectionQty) || 0
+          : Number(params?.values?.['首单数量'] ?? params?.firstOrderQty ?? 0) || 0,
         validUntil: q.expiresAt,
         shareUrl,
         senderName: q.createdBy?.name || '报价员',
@@ -863,7 +878,14 @@ export async function quoteRoutes(app: FastifyInstance) {
       const calc = latest.calcResultJson as any;
       const systemValue =
         body.systemValue ??
-        Number(calc?.summary?.[body.field] ?? calc?.moldFeeItems?.[body.field]?.value ?? 0);
+        // 配置驱动下金额在 calc 顶层，老模型在 summary / moldFeeItems
+        Number(
+          (body.field === 'grandTotalIncVat' && Array.isArray(calc?.lines) ? calc.total : undefined) ??
+            calc?.summary?.[body.field] ??
+            (body.field === 'unitCostExVat' && Array.isArray(calc?.lines) ? calc.unitCost : undefined) ??
+            calc?.moldFeeItems?.[body.field]?.value ??
+            0,
+        );
 
       const adjustment = await prisma.quoteAdjustment.create({
         data: {

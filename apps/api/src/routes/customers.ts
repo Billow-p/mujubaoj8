@@ -4,6 +4,13 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 
+/** 报价单含税总价 —— 兼容两代数据结构（配置驱动 lines / 老 11 项 summary） */
+function quoteTotal(calc: any): number {
+  if (!calc) return 0;
+  if (Array.isArray(calc.lines)) return Number(calc.total) || 0;
+  return Number(calc.summary?.grandTotalIncVat) || 0;
+}
+
 const CreateCustomerSchema = z.object({
   code: z.string().max(30).optional(),
   name: z.string().min(1),
@@ -84,8 +91,7 @@ export async function customerRoutes(app: FastifyInstance) {
           lastQuoteAt: last?.createdAt ?? null,
           lastQuoteNo: last?.quoteNo ?? null,
           lastQuoteId: last?.id ?? null,
-          lastAmount:
-            (last?.versions?.[0]?.calcResultJson as any)?.summary?.grandTotalIncVat ?? null,
+          lastAmount: last?.versions?.[0] ? quoteTotal(last.versions[0].calcResultJson) || null : null,
         },
       };
     });
@@ -113,7 +119,7 @@ export async function customerRoutes(app: FastifyInstance) {
     return quotes.map((q: any) => {
       const v = q.versions[0];
       const params = (v?.paramsJson ?? {}) as any;
-      const summary = (v?.calcResultJson as any)?.summary ?? {};
+      const vals = (params.values ?? {}) as any;
       return {
         id: q.id,
         quoteNo: q.quoteNo,
@@ -125,8 +131,9 @@ export async function customerRoutes(app: FastifyInstance) {
         versionNo: v?.versionNo ?? 1,
         productName: params.productName ?? '',
         material: params.material ?? '',
-        firstOrderQty: params.firstOrderQty ?? 0,
-        grandTotalIncVat: summary.grandTotalIncVat ?? 0,
+        // 配置驱动下「首单数量」是用户自定义参数，按名字取
+        firstOrderQty: Number(vals['首单数量'] ?? params.firstOrderQty ?? 0) || 0,
+        grandTotalIncVat: quoteTotal(v?.calcResultJson),
       };
     });
   });
@@ -157,9 +164,7 @@ export async function customerRoutes(app: FastifyInstance) {
     });
 
     const confirmed = quotes.filter((q: any) => q.status === 'confirmed');
-    const grandTotals = quotes.map(
-      (q: any) => (q.versions[0]?.calcResultJson as any)?.summary?.grandTotalIncVat || 0,
-    );
+    const grandTotals = quotes.map((q: any) => quoteTotal(q.versions[0]?.calcResultJson));
     const avgGrandTotal =
       grandTotals.length > 0 ? Math.round(grandTotals.reduce((a: number, b: number) => a + b, 0) / grandTotals.length) : 0;
 
