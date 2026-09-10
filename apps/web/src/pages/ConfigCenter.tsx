@@ -280,7 +280,7 @@ export default function ConfigCenter() {
   const mats: any[] = cfg?.materials ?? [];
   const terms: any[] = cfg?.terms ?? [];
   const items: any[] = cfg?.items ?? [];
-  const gridCols = folded ? '250px minmax(0,1fr) 48px' : '250px minmax(0,1fr) 340px';
+  const gridCols = folded ? '290px minmax(0,1fr) 48px' : '290px minmax(0,1fr) 340px';
 
   return (
     <div className="max-w-[1600px] mx-auto p-5">
@@ -378,16 +378,25 @@ export default function ConfigCenter() {
                         <select
                           value={p.type ?? 'decimal'}
                           onChange={(e) => setParamType(i, e.target.value)}
-                          className="w-[50px] border border-gray-300 rounded px-0.5 py-1 text-[11px] text-gray-500"
+                          className="w-[52px] shrink-0 border border-gray-300 rounded px-0.5 py-0.5 text-[11px] text-gray-500"
                         >
                           <option value="decimal">数字</option>
                           <option value="select">下拉</option>
                         </select>
+                        <button
+                          onClick={() => patch((c) => { c.parameters.splice(i, 1); })}
+                          className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 text-sm leading-none shrink-0"
+                        >×</button>
+                      </div>
+
+                      {/* 默认值单独一行 —— 挤在同一行会把参数名压成看不见 */}
+                      <div className="flex items-center gap-1.5 mt-1 pl-1">
+                        <span className="text-[11px] text-gray-400 shrink-0">默认</span>
                         {isSel ? (
                           <select
                             value={num(p.defaultValue)}
                             onChange={(e) => patch((c) => { c.parameters[i].defaultValue = e.target.value; })}
-                            className="w-[88px] border border-emerald-300 rounded px-1 py-1 text-[11.5px] bg-emerald-50 text-emerald-900"
+                            className="flex-1 min-w-0 border border-emerald-300 rounded px-1 py-0.5 text-[11.5px] bg-emerald-50 text-emerald-900"
                           >
                             {opts.map((o, oi) => (
                               <option key={oi} value={o.value}>{o.label}</option>
@@ -398,14 +407,12 @@ export default function ConfigCenter() {
                             type="number"
                             value={num(p.defaultValue)}
                             onChange={(e) => patch((c) => { c.parameters[i].defaultValue = e.target.value; })}
-                            className="w-[84px] border border-gray-300 rounded px-1.5 py-1 text-[12px] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            className="w-[104px] border border-gray-300 rounded px-1.5 py-0.5 text-[12px] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                           />
                         )}
-                        <span className="text-[11px] text-gray-400 w-[28px] truncate" title={p.unit || ''}>{p.unit}</span>
-                        <button
-                          onClick={() => patch((c) => { c.parameters.splice(i, 1); })}
-                          className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 text-sm leading-none shrink-0"
-                        >×</button>
+                        <span className="text-[11px] text-gray-400 truncate" title={p.unit || ''}>
+                          {p.unit || ''}
+                        </span>
                       </div>
 
                       {isSel && (
@@ -455,30 +462,38 @@ export default function ConfigCenter() {
             {pane === 'mat' && (
               <div className="space-y-0.5">
                 {mats.map((m, i) => (
-                  <div key={m.id ?? i} className="flex items-center gap-1.5 px-1 py-1.5 rounded hover:bg-gray-50 group">
-                    <input
-                      value={m.name}
-                      onChange={(e) => patch((c) => { c.materials[i].name = e.target.value; c.materials[i].code = e.target.value; })}
-                      className="w-[80px] border border-gray-300 rounded px-1.5 py-1 text-[12.5px]"
-                    />
-                    <input
-                      type="number"
-                      value={num(m.currentPrice)}
-                      onChange={(e) => patch((c) => { c.materials[i].currentPrice = e.target.value; })}
-                      className="w-[84px] border border-gray-300 rounded px-1.5 py-1 text-[12.5px] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                    <span className="text-[11.5px] text-gray-400 w-[30px] truncate" title={m.unit || ''}>{m.unit}</span>
-                    <input
-                      type="number"
-                      value={num(m.lossRate)}
-                      onChange={(e) => patch((c) => { c.materials[i].lossRate = e.target.value; })}
-                      title="损耗率（0.05 = 5%）"
-                      className="w-[60px] border border-gray-300 rounded px-1.5 py-1 text-[12.5px] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                    <button
-                      onClick={() => patch((c) => { c.materials.splice(i, 1); })}
-                      className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 text-sm leading-none"
-                    >×</button>
+                  <div key={m.id ?? i} className="px-1 py-1.5 rounded hover:bg-gray-50 group">
+                    <div className="flex items-center gap-1">
+                      <input
+                        value={m.name}
+                        onChange={(e) => patch((c) => { c.materials[i].name = e.target.value; c.materials[i].code = e.target.value; })}
+                        className="flex-1 min-w-0 border border-gray-300 rounded px-1.5 py-0.5 text-[12.5px]"
+                      />
+                      <button
+                        onClick={() => patch((c) => { c.materials.splice(i, 1); })}
+                        className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 text-sm leading-none shrink-0"
+                      >×</button>
+                    </div>
+
+                    {/* 单价与损耗单独一行 */}
+                    <div className="flex items-center gap-1.5 mt-1 pl-1">
+                      <span className="text-[11px] text-gray-400 shrink-0">单价</span>
+                      <input
+                        type="number"
+                        value={num(m.currentPrice)}
+                        onChange={(e) => patch((c) => { c.materials[i].currentPrice = e.target.value; })}
+                        className="w-[92px] border border-gray-300 rounded px-1.5 py-0.5 text-[12px] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                      <span className="text-[11px] text-gray-400 truncate" title={m.unit || ''}>{m.unit}</span>
+                      <span className="text-[11px] text-gray-400 shrink-0">损耗</span>
+                      <input
+                        type="number"
+                        value={num(m.lossRate)}
+                        onChange={(e) => patch((c) => { c.materials[i].lossRate = e.target.value; })}
+                        title="损耗率（0.05 = 5%）"
+                        className="w-[56px] border border-gray-300 rounded px-1.5 py-0.5 text-[12px] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                    </div>
                   </div>
                 ))}
                 <button
