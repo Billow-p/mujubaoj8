@@ -27,6 +27,13 @@ api.interceptors.response.use(
   },
 );
 
+// 客户分享（免登录，凭 token）
+export const share = {
+  get: (token: string) => api.get(`/share/${token}`).then((r) => r.data),
+  // 显式传空对象：Fastify 不接受「声明 JSON 但 body 为空」的请求
+  confirm: (token: string) => api.post(`/share/${token}/confirm`, {}).then((r) => r.data),
+};
+
 // 认证
 export const auth = {
   login: (email: string, password: string) => api.post('/auth/login', { email, password }).then((r) => r.data),

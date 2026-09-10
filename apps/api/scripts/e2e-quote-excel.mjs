@@ -28,9 +28,12 @@ const check = (name, cond, extra) => {
 };
 
 async function req(method, p, body, token) {
-  const headers = { 'Content-Type': 'application/json' };
+  const headers = {};
   if (token) headers.Authorization = `Bearer ${token}`;
-  const resp = await fetch(BASE + p, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  // 只有真的有 body 时才声明 JSON —— 否则 Fastify 会以
+  // "Body cannot be empty when content-type is set to 'application/json'" 拒绝
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const resp = await fetch(BASE + p, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
   const text = await resp.text();
   let data = text;
   try { data = JSON.parse(text); } catch { /* keep */ }
@@ -314,6 +317,76 @@ async function main() {
     const gdBuf = Buffer.from(await gdResp.arrayBuffer());
     check('省内 Excel 导出成功', gdResp.status === 200 && gdBuf.length > 5000, `${gdBuf.length} 字节`);
     fs.writeFileSync(path.join(apiDir, '..', '..', 'prototype', 'sample-quote-guangdong.xlsx'), gdBuf);
+
+    // ---------- N. 客户分享页（免登录，凭 token） ----------
+    console.log('\n[N] 客户分享链接');
+    const sendRes = await req('POST', `/api/quotes/${qid}/send`, { email: 'buyer@example.com', sendEmail: false }, token);
+    check('生成分享链接', sendRes.status === 200 && !!sendRes.data.shareToken, sendRes.data?.fullShareUrl);
+    check(
+      '分享链接指向正式域名（非 IP）',
+      /^https:\/\/ycwl\.chat\/share\//.test(sendRes.data.fullShareUrl || ''),
+      sendRes.data?.fullShareUrl,
+    );
+
+    const st = sendRes.data.shareToken;
+    const sv = await req('GET', `/api/share/${st}`);
+    check('免登录可打开分享页', sv.status === 200);
+    check('返回报价单号', sv.data.quoteNo === created.data.quoteNo, sv.data.quoteNo);
+    check('汇总-模具费正确', sv.data.summary?.moldExVat === calc.mold, `${sv.data.summary?.moldExVat} vs ${calc.mold}`);
+    check('汇总-注塑费正确', sv.data.summary?.injectionExVat === calc.injection, String(sv.data.summary?.injectionExVat));
+    check('汇总-单件成本正确', sv.data.summary?.unitCost === calc.unitCost, String(sv.data.summary?.unitCost));
+    check('汇总-注塑数量正确', sv.data.summary?.injectionQty === 5000, String(sv.data.summary?.injectionQty));
+    check(
+      '汇总-不含税合计 = 模具 + 注塑 + 利润（利润不单独暴露）',
+      sv.data.summary?.netExVat === Math.round((calc.mold + calc.injection + calc.profit) * 100) / 100,
+      `${sv.data.summary?.netExVat} vs ${calc.mold + calc.injection + calc.profit}`,
+    );
+    check('汇总-含税总价正确', sv.data.summary?.totalIncVat === calc.total, String(sv.data.summary?.totalIncVat));
+
+    // 脱敏：客户不该看到成本构成与利润
+    const svText = JSON.stringify(sv.data);
+    check('脱敏-不含分项明细 lines', !('lines' in sv.data) && !svText.includes('calcResultJson'));
+    check('脱敏-不含利润字段', !svText.includes('"profit"'));
+    check('脱敏-不含逐项费用名', !svText.includes('模芯钢材费') && !svText.includes('CNC'));
+    check('脱敏-不含钢材单价等内部参数', !svText.includes('钢材单价'));
+
+    check(
+      '含商务条款',
+      Array.isArray(sv.data.businessTerms) && sv.data.businessTerms.length > 0,
+      `${sv.data.businessTerms?.length} 条`,
+    );
+    check('含产品规格', Array.isArray(sv.data.specs) && sv.data.specs.length > 0, (sv.data.specs || []).map((x) => x.label).join('、'));
+    check('规格含注塑数量', (sv.data.specs || []).some((x) => x.label === '注塑数量'));
+    check('规格含产品参数（腔数）', (sv.data.specs || []).some((x) => x.label === '腔数'));
+    check('规格不含模具尺寸', !(sv.data.specs || []).some((x) => String(x.label).includes('模芯')));
+
+    // 首次访问留痕（业务侧能看到客户是否打开过）
+    const prisma2 = new PrismaClient();
+    const viewLog = await prisma2.quoteLog.findFirst({ where: { quoteId: qid, action: 'viewed' } });
+    check('首次查看已留痕', !!viewLog, viewLog?.detail);
+    const shareRow = await prisma2.quoteShare.findUnique({ where: { shareToken: st } });
+    check('记录访问时间', !!shareRow?.accessedAt);
+
+    // 客户确认
+    const cf = await req('POST', `/api/share/${st}/confirm`);
+    check('客户确认成功', cf.status === 200, `HTTP ${cf.status} ${JSON.stringify(cf.data).slice(0, 140)}`);
+    const afterQ = await req('GET', `/api/quotes/${qid}`, undefined, token);
+    check('报价单状态变为已成交', afterQ.data.status === 'confirmed', afterQ.data.status);
+
+    // 过期后不再展示金额
+    await prisma2.quoteShare.update({
+      where: { shareToken: st },
+      data: { expiresAt: new Date(Date.now() - 86400000) },
+    });
+    const svExp = await req('GET', `/api/share/${st}`);
+    check('过期仍可打开（给友好提示）', svExp.status === 200 && svExp.data.expired === true);
+    check('过期后隐藏金额', svExp.data.summary === null);
+    check('过期后仍保留报价单号与条款', !!svExp.data.quoteNo && svExp.data.businessTerms.length > 0);
+    await prisma2.$disconnect();
+
+    // 无效 token
+    const bad = await req('GET', '/api/share/this-token-does-not-exist');
+    check('无效 token → 404', bad.status === 404, String(bad.status));
 
     // ---------- Excel 落盘供人工查看 ----------
     const out = path.join(apiDir, '..', '..', 'prototype', 'sample-quote.xlsx');

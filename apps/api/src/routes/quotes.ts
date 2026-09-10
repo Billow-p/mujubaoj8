@@ -57,6 +57,78 @@ function calcTotal(calc: any): number {
   return Number(calc.summary?.grandTotalIncVat) || 0;
 }
 
+/**
+ * 客户分享页的汇总口径：只给汇总数字，不给分项成本，也不给利润。
+ *
+ * 客户视角的构成 = 模具费 + 注塑费 + 利润 + 税，其中利润不单独列出，
+ * 而是并入「不含税合计」——所以看得到总价，看不出成本结构。
+ * 兼容两代数据结构（配置驱动 / 老 11 项模型）。
+ */
+function shareSummary(calc: any, params: any) {
+  if (!calc) return null;
+
+  if (Array.isArray(calc.lines)) {
+    const mold = Number(calc.mold) || 0;
+    const injection = Number(calc.injection) || 0;
+    const profit = Number(calc.profit) || 0;
+    return {
+      moldExVat: mold,
+      injectionExVat: injection,
+      injectionQty: Number(calc.injectionQty) || 0,
+      unitCost: Number(calc.unitCost) || 0,
+      netExVat: Math.round((mold + injection + profit) * 100) / 100,
+      taxRate: Number(calc.taxRate) || 0,
+      tax: Number(calc.tax) || 0,
+      totalIncVat: Number(calc.total) || 0,
+    };
+  }
+
+  const sm = calc.summary ?? {};
+  const net = Number(sm.grandTotalExVat) || 0;
+  const tax = Number(sm.grandTotalVat) || 0;
+  return {
+    moldExVat: Number(sm.moldTotalExVat) || 0,
+    injectionExVat: Number(sm.injectionTotalExVat) || 0,
+    injectionQty: Number(params?.firstOrderQty) || 0,
+    unitCost: Number(sm.unitCostExVat) || 0,
+    netExVat: net,
+    taxRate: net > 0 ? Number((tax / net).toFixed(4)) : 0,
+    tax,
+    totalIncVat: Number(sm.grandTotalIncVat) || 0,
+  };
+}
+
+/**
+ * 内部工艺参数（钢材单价、模具尺寸、运输箱尺寸等）——客户不需要看到。
+ * 用于老报价单的兜底判断：它们的 paramsJson.parameters 里没有 group 字段。
+ */
+const INTERNAL_PARAM = /模芯|模具重|运输箱|钢材|原料单价|密度|运费单价|成本/;
+
+/**
+ * 分享页展示的产品规格：只给客户关心的（产品参数 + 数量类参数），
+ * 不含钢材单价、模具尺寸这类内部工艺参数。
+ */
+function shareSpecs(params: any): { label: string; value: string }[] {
+  const defs: any[] = params?.parameters ?? [];
+  const values = params?.values ?? {};
+  const out: { label: string; value: string }[] = [];
+
+  for (const d of defs) {
+    const raw = values[d.name];
+    if (raw === undefined || raw === null || raw === '') continue;
+    const name = String(d.name);
+    const keep = d.group
+      ? d.group === '产品' || /数量|件数|穴数/.test(name)
+      : !INTERNAL_PARAM.test(name); // 老报价单无 group，用关键词兜底
+    if (!keep) continue;
+    const opt = (d.options ?? []).find((o: any) => Number(o.value) === Number(raw));
+    const unit = d.unit && !opt ? ` ${d.unit}` : '';
+    out.push({ label: name, value: opt ? String(opt.label) : `${raw}${unit}` });
+  }
+
+  return out.slice(0, 8);
+}
+
 /** 参数下拉选项存在 String 字段里（JSON），解析失败就当没有 */
 function parseParamOptions(raw: string | null | undefined): { label: string; value: number }[] | undefined {
   if (!raw) return undefined;
@@ -772,6 +844,8 @@ export async function quoteRoutes(app: FastifyInstance) {
                 unit: p.unit,
                 type: p.type,
                 options: parseParamOptions(p.options),
+                // 分组用于客户分享页筛选「产品参数」（客户不关心模具尺寸、钢材单价）
+                group: p.group,
               })),
               values: params,
               manualAmounts: body.manualAmounts ?? {},
@@ -973,6 +1047,78 @@ export async function quoteRoutes(app: FastifyInstance) {
       return { ok: true, status: body.status };
     },
   );
+
+  // ================================================================
+  // 客户查看分享报价单（免登录，凭 token）
+  // 只暴露「汇总 + 商务条款 + 产品规格」，不含分项成本与利润
+  // ================================================================
+  app.get('/api/share/:token', async (req, reply) => {
+    const { token } = req.params as any;
+    const share = await prisma.quoteShare.findUnique({
+      where: { shareToken: token },
+      include: {
+        quote: { include: { company: true, customer: true, versions: true } },
+      },
+    });
+    if (!share) return reply.code(404).send({ error: '链接无效或已被撤销' });
+
+    const q = share.quote;
+    // 客户看到的必须是「发送当时冻结的那一版」，而不是后来改过的最新版
+    const version =
+      q.versions.find((v) => v.id === share.versionId) ??
+      [...q.versions].sort((a, b) => b.versionNo - a.versionNo)[0];
+    if (!version) return reply.code(404).send({ error: '报价单内容缺失' });
+
+    // 首次查看留痕（业务侧能看到客户是否打开过）
+    if (!share.accessedAt) {
+      await prisma.quoteShare.update({
+        where: { id: share.id },
+        data: { accessedAt: new Date() },
+      });
+      await prisma.quoteLog.create({
+        data: {
+          quoteId: q.id,
+          action: 'viewed',
+          detail: `客户 ${share.email} 打开了报价单`,
+        },
+      });
+    }
+
+    const params = (version.paramsJson ?? {}) as any;
+    const calc = (version.calcResultJson ?? {}) as any;
+    const expired = share.expiresAt < new Date();
+
+    const businessTerms = ((version.businessTermsJson as any) ?? [])
+      .filter((t: any) => t?.enabled !== false)
+      .map((t: any) => ({ index: t.index, text: t.text }));
+
+    const base = {
+      quoteNo: q.quoteNo,
+      status: q.status,
+      createdAt: q.createdAt,
+      expiresAt: share.expiresAt,
+      expired,
+      alreadyConfirmed: !!share.confirmedAt,
+      companyName: q.company?.name ?? '',
+      customerName: params.customerName || q.customer?.name || '',
+      contactName: q.customer?.contactName ?? '',
+      productName: params.productName || '',
+      moldTypeName: params.moldTypeName || '',
+      versionNo: version.versionNo,
+      businessTerms,
+    };
+
+    // 过期后连金额一起收起来，避免客户按过期价下单
+    if (expired) {
+      return { ...base, summary: null, specs: [] };
+    }
+
+    return {
+      ...base,
+      summary: shareSummary(calc, params),
+      specs: shareSpecs(params),
+    };
+  });
 
   // ================================================================
   // 客户通过分享链接确认

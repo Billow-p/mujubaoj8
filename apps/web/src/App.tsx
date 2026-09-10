@@ -10,6 +10,7 @@ import QuoteItems from './pages/QuoteItems';
 import Materials from './pages/Materials';
 import Parameters from './pages/Parameters';
 import ConfigCenter from './pages/ConfigCenter';
+import SharePage from './pages/SharePage';
 import Layout from './components/Layout';
 import { auth } from './api';
 import { useAuth } from './store';
@@ -27,6 +28,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      {/* 客户查看报价单：免登录，独立于后台布局 */}
+      <Route path="/share/:token" element={<SharePage />} />
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/quotes/new" element={<ConfiguredQuote />} />
