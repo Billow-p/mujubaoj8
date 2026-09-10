@@ -15,6 +15,7 @@ const CreateQuoteSchema = z.object({
   customerName: z.string().min(1),
   customerEmail: z.string().email().optional(), // 新增：客户邮箱（直发场景）
   input: z.any(), // QuoteInput - 已校验（含 extras/customParams）
+  customFormulas: z.array(z.any()).optional(), // 参数中心 — 用户公式
 });
 
 const UpdateQuoteSchema = z.object({
@@ -36,6 +37,37 @@ function genQuoteNo(): string {
 
 function genShareToken(): string {
   return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+}
+
+// 加载企业已启用的报价项（PRD 5.9：报价项自动参与计算并随版本冻结）
+async function loadEnabledFormulas(companyId: string) {
+  const items = await prisma.customFormula.findMany({
+    where: { companyId, enabled: true },
+    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+  });
+  return items.map((f) => ({
+    name: f.name,
+    scope: f.scope as 'mold' | 'injection' | 'summary',
+    expression: f.expression,
+    condition: f.condition ?? undefined,
+    code: f.code ?? undefined,
+    category: f.category ?? undefined,
+    unit: f.unit ?? undefined,
+    version: f.version,
+    enabled: true,
+    sortOrder: f.sortOrder,
+    note: f.note ?? undefined,
+  }));
+}
+
+// 合并：企业启用项 + 请求方显式传入项（按 name 去重，传入优先）
+function mergeFormulas(
+  fromDb: Awaited<ReturnType<typeof loadEnabledFormulas>>,
+  fromBody: any[] | undefined,
+) {
+  if (!fromBody || fromBody.length === 0) return fromDb;
+  const names = new Set(fromBody.map((f: any) => f?.name).filter(Boolean));
+  return [...fromBody, ...fromDb.filter((f) => !names.has(f.name))];
 }
 
 export async function quoteRoutes(app: FastifyInstance) {
@@ -156,7 +188,13 @@ export async function quoteRoutes(app: FastifyInstance) {
       return reply.code(400).send({ validationErrors: errors });
     }
 
-    const result = calculateQuote({ input: body.input });
+    const companyFormulas = await loadEnabledFormulas(companyId);
+    const formulas = mergeFormulas(companyFormulas, body.customFormulas);
+
+    const result = calculateQuote({
+      input: body.input,
+      customFormulas: formulas,
+    });
 
     // 找到或创建客户
     let customerId = body.customerId;
@@ -201,7 +239,7 @@ export async function quoteRoutes(app: FastifyInstance) {
         versions: {
           create: {
             versionNo: 1,
-            paramsJson: body.input as any,
+            paramsJson: { ...body.input, customFormulas: formulas } as any,
             calcResultJson: result as any,
             businessTermsJson: result.businessTerms as any,
             createdById: userId,
@@ -308,11 +346,18 @@ export async function quoteRoutes(app: FastifyInstance) {
         return reply.code(400).send({ validationErrors: errors });
       }
 
+      // 报价项：沿用该版本冻结的，或重新取企业启用项（PRD 5.9）
+      const frozen = (latestVersion.paramsJson as any)?.customFormulas;
+      const formulas = Array.isArray(frozen) && frozen.length > 0
+        ? frozen
+        : await loadEnabledFormulas(companyId);
+
       const calcReq: CalcQuoteRequest = {
         input: body.input,
         overrides: body.overrides as any,
         locks: body.locks as any,
         businessTermOverrides: body.businessTermOverrides,
+        customFormulas: formulas,
       };
       const result = calculateQuote(calcReq);
 
@@ -321,7 +366,7 @@ export async function quoteRoutes(app: FastifyInstance) {
           quoteId: id,
           versionNo: latestVersion.versionNo + 1,
           parentVersionId: latestVersion.id,
-          paramsJson: body.input as any,
+          paramsJson: { ...body.input, customFormulas: formulas } as any,
           calcResultJson: result as any,
           businessTermsJson: result.businessTerms as any,
           createdById: userId,
@@ -572,6 +617,176 @@ export async function quoteRoutes(app: FastifyInstance) {
           `attachment; filename="${encodeURIComponent(`报价单_${q.quoteNo}.xlsx`)}"`,
         )
         .send(buf);
+    },
+  );
+
+  // ================================================================
+  // 复制历史报价生成新报价（PRD 6.3：原报价不改变）
+  // ================================================================
+  app.post(
+    '/api/quotes/:id/duplicate',
+    { preHandler: [app.authenticate] },
+    async (req, reply) => {
+      const { companyId, userId } = req.user as any;
+      const { id } = req.params as any;
+      const src = await prisma.quote.findFirst({
+        where: { id, companyId },
+        include: { versions: { orderBy: { versionNo: 'desc' }, take: 1 } },
+      });
+      if (!src) return reply.code(404).send({ error: '报价单不存在' });
+      const v = src.versions[0];
+      if (!v) return reply.code(400).send({ error: '源报价单无可用版本' });
+
+      const input = { ...(v.paramsJson as any) };
+      const formulas = Array.isArray(input.customFormulas) ? input.customFormulas : [];
+
+      const errors = validateQuoteInput(input);
+      if (errors.length > 0) return reply.code(400).send({ validationErrors: errors });
+
+      const result = calculateQuote({ input, customFormulas: formulas });
+
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 30);
+
+      const quote = await prisma.quote.create({
+        data: {
+          companyId,
+          customerId: src.customerId,
+          createdById: userId,
+          quoteNo: genQuoteNo(),
+          status: 'draft',
+          expiresAt,
+          versions: {
+            create: {
+              versionNo: 1,
+              paramsJson: input as any,
+              calcResultJson: result as any,
+              businessTermsJson: result.businessTerms as any,
+              createdById: userId,
+              changeNote: `复制自 ${src.quoteNo}`,
+            },
+          },
+          logs: {
+            create: {
+              userId,
+              action: 'created',
+              detail: `复制自报价单 ${src.quoteNo}`,
+            },
+          },
+        },
+        include: { versions: true },
+      });
+      return quote;
+    },
+  );
+
+  // ================================================================
+  // 人工调整留痕（PRD 5.6 / P12）
+  // 记录系统计算值 → 调整值，并写入新的报价版本
+  // ================================================================
+  app.post(
+    '/api/quotes/:id/adjust',
+    { preHandler: [app.authenticate] },
+    async (req, reply) => {
+      const { companyId, userId } = req.user as any;
+      const { id } = req.params as any;
+      const body = z
+        .object({
+          field: z.string().min(1).max(60),
+          adjustedValue: z.number(),
+          systemValue: z.number().optional(),
+          reason: z.string().max(200).optional(),
+        })
+        .parse(req.body);
+
+      const q = await prisma.quote.findFirst({
+        where: { id, companyId },
+        include: { versions: { orderBy: { versionNo: 'desc' }, take: 1 } },
+      });
+      if (!q) return reply.code(404).send({ error: '报价单不存在' });
+      const latest = q.versions[0];
+      if (!latest) return reply.code(400).send({ error: '报价单无可用版本' });
+
+      const calc = latest.calcResultJson as any;
+      const systemValue =
+        body.systemValue ??
+        Number(calc?.summary?.[body.field] ?? calc?.moldFeeItems?.[body.field]?.value ?? 0);
+
+      const adjustment = await prisma.quoteAdjustment.create({
+        data: {
+          quoteId: id,
+          versionNo: latest.versionNo,
+          field: body.field,
+          systemValue,
+          adjustedValue: body.adjustedValue,
+          reason: body.reason,
+          createdById: userId,
+        },
+      });
+
+      await prisma.quoteLog.create({
+        data: {
+          quoteId: id,
+          userId,
+          action: 'adjusted',
+          detail: `人工调整「${body.field}」：${systemValue} → ${body.adjustedValue}${
+            body.reason ? `（原因：${body.reason}）` : ''
+          }`,
+        },
+      });
+
+      return adjustment;
+    },
+  );
+
+  app.get(
+    '/api/quotes/:id/adjustments',
+    { preHandler: [app.authenticate] },
+    async (req, reply) => {
+      const { companyId } = req.user as any;
+      const { id } = req.params as any;
+      const q = await prisma.quote.findFirst({ where: { id, companyId } });
+      if (!q) return reply.code(404).send({ error: '报价单不存在' });
+      return prisma.quoteAdjustment.findMany({
+        where: { quoteId: id },
+        orderBy: { createdAt: 'desc' },
+      });
+    },
+  );
+
+  // ================================================================
+  // 状态流转：成交 / 未成交 / 作废（PRD 5.8）
+  // ================================================================
+  app.patch(
+    '/api/quotes/:id/status',
+    { preHandler: [app.authenticate] },
+    async (req, reply) => {
+      const { companyId, userId } = req.user as any;
+      const { id } = req.params as any;
+      const body = z
+        .object({
+          status: z.enum(['draft', 'sent', 'confirmed', 'lost', 'void']),
+          note: z.string().max(200).optional(),
+        })
+        .parse(req.body);
+
+      const q = await prisma.quote.findFirst({ where: { id, companyId } });
+      if (!q) return reply.code(404).send({ error: '报价单不存在' });
+
+      const data: any = { status: body.status };
+      if (body.status === 'confirmed') data.confirmedAt = new Date();
+      if (body.status === 'sent' && !q.sentAt) data.sentAt = new Date();
+
+      await prisma.quote.update({ where: { id }, data });
+      await prisma.quoteLog.create({
+        data: {
+          quoteId: id,
+          userId,
+          action: body.status,
+          detail: `状态变更为 ${body.status}${body.note ? `（${body.note}）` : ''}`,
+        },
+      });
+      return { ok: true, status: body.status };
     },
   );
 

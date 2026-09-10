@@ -2,7 +2,7 @@
 // 实时计算（前端用 @mqs/calc-engine）+ 提交即生成报价单
 // 流程：填参数 → 实时看总价 → 提交（可选填客户邮箱自动发邮件 + 可下载 Excel）
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { calculateQuote, validateQuoteInput, compareOptimalCavity } from '@mqs/calc-engine';
 import type {
@@ -14,7 +14,7 @@ import type {
   QuoteExtras,
 } from '@mqs/shared';
 import type { CavityComparison } from '@mqs/calc-engine';
-import { calc, quotes } from '../api';
+import { calc, quotes, parameters, quoteItems } from '../api';
 
 const DEFAULT_INPUT: QuoteInput = {
   customerName: '',
@@ -56,6 +56,34 @@ export default function NewQuote() {
   const [error, setError] = useState('');
   const [cavityComparison, setCavityComparison] = useState<CavityComparison[] | null>(null);
   const [successMsg, setSuccessMsg] = useState('');
+  // 参数中心：企业自定义参数定义（按类型渲染输入控件）
+  const [paramDefs, setParamDefs] = useState<any[]>([]);
+  // 报价项中心：已启用的自定义报价项，参与实时计算
+  const [enabledItems, setEnabledItems] = useState<any[]>([]);
+
+  useEffect(() => {
+    parameters.list({ enabled: 'true' }).then(setParamDefs).catch(() => setParamDefs([]));
+    quoteItems
+      .list()
+      .then((l: any[]) => setEnabledItems(l.filter((i: any) => i.enabled)))
+      .catch(() => setEnabledItems([]));
+  }, []);
+
+  // 自定义参数默认值预填
+  useEffect(() => {
+    if (paramDefs.length === 0) return;
+    setInput((prev: QuoteInput) => {
+      const cp = { ...(prev.customParams ?? {}) } as Record<string, any>;
+      let changed = false;
+      for (const p of paramDefs) {
+        if (cp[p.code] === undefined && p.defaultValue) {
+          cp[p.code] = p.defaultValue;
+          changed = true;
+        }
+      }
+      return changed ? { ...prev, customParams: cp } : prev;
+    });
+  }, [paramDefs]);
 
   // 附加项本地状态（与 input.extras 同步）
   const moldExtras: ExtraItem[] = input.extras?.moldExtras ?? [];
@@ -93,6 +121,7 @@ export default function NewQuote() {
         input,
         overrides,
         locks: Array.from(locks) as any,
+        customFormulas: enabledItems,
       });
     } catch (e: any) {
       return { error: e.message };
@@ -481,42 +510,84 @@ export default function NewQuote() {
         </Section>
       )}
 
-      {/* ⑥ 自定义参数（仅记录，不参与计算） */}
-      <Section title="⑥ 自定义参数 · 仅存档，不参与计算">
-        <p className="text-xs text-gray-500 mb-3">
-          用于记录临时出现的新参数（如热流道规格、特殊工艺要求）。这些字段不会被计算引擎使用，但会随报价单存档、出现在 Excel 中。
-        </p>
-        <div className="space-y-2">
-          {Object.entries(customParams).map(([k, v]) => (
-            <div key={k} className="flex items-center gap-2">
-              <input
-                value={k}
-                onChange={(e) => {
-                  const next = { ...customParams };
-                  delete next[k];
-                  next[e.target.value] = v;
-                  updateCustomParams(next);
-                }}
-                placeholder="参数名（如 热流道品牌）"
-                className="w-48 bg-yellow-50 border border-yellow-300 rounded px-3 py-1.5 text-sm focus:border-yellow-500 focus:outline-none"
-              />
-              <input
-                value={v}
-                onChange={(e) => updateCustomParams({ ...customParams, [k]: e.target.value })}
-                placeholder="值（如 HASCO 8 点）"
-                className="flex-1 bg-yellow-50 border border-yellow-300 rounded px-3 py-1.5 text-sm focus:border-yellow-500 focus:outline-none"
-              />
-              <button onClick={() => removeCustomParam(k)} className="text-xs text-red-500 px-2 hover:text-red-700">删除</button>
+      {/* ⑥ 自定义参数（参数中心定义的会参与公式计算） */}
+      <Section title="⑥ 自定义参数">
+        {paramDefs.length > 0 && (
+          <div className="mb-4">
+            <div className="text-xs font-medium text-gray-700 mb-2">
+              企业参数（来自参数中心，可被报价项公式引用）
             </div>
-          ))}
-          {Object.keys(customParams).length === 0 && (
-            <div className="text-xs text-gray-400">暂无自定义参数，点击下方按钮添加</div>
-          )}
+            <div className="grid grid-cols-2 gap-3">
+              {paramDefs.map((p) => (
+                <label key={p.id} className="flex items-center gap-2 text-sm">
+                  <span className="w-32 text-gray-600 shrink-0">
+                    {p.name}
+                    {p.required && <span className="text-red-500"> *</span>}
+                    {p.unit && <span className="text-gray-400 text-xs"> ({p.unit})</span>}
+                  </span>
+                  {p.type === 'select' ? (
+                    <select
+                      value={customParams[p.code] ?? ''}
+                      onChange={(e) => updateCustomParams({ ...customParams, [p.code]: e.target.value })}
+                      className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm"
+                    >
+                      <option value="">请选择</option>
+                      {(p.options ? JSON.parse(p.options) : []).map((o: string) => (
+                        <option key={o} value={o}>{o}</option>
+                      ))}
+                    </select>
+                  ) : p.type === 'switch' ? (
+                    <input
+                      type="checkbox"
+                      checked={customParams[p.code] === 'true' || customParams[p.code] === '1'}
+                      onChange={(e) => updateCustomParams({ ...customParams, [p.code]: String(e.target.checked) })}
+                    />
+                  ) : (
+                    <input
+                      type={['int', 'decimal', 'money', 'percent'].includes(p.type) ? 'number' : p.type === 'date' ? 'date' : 'text'}
+                      value={customParams[p.code] ?? ''}
+                      onChange={(e) => updateCustomParams({ ...customParams, [p.code]: e.target.value })}
+                      className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm"
+                    />
+                  )}
+                  <code className="text-xs text-gray-400 font-mono">{`{${p.code}}`}</code>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="text-xs font-medium text-gray-700 mb-2">临时参数（本次报价专用，随单存档）</div>
+        <div className="space-y-2">
+          {Object.entries(customParams)
+            .filter(([k]) => !paramDefs.some((p) => p.code === k))
+            .map(([k, v]) => (
+              <div key={k} className="flex items-center gap-2">
+                <input
+                  value={k}
+                  onChange={(e) => {
+                    const next = { ...customParams };
+                    delete next[k];
+                    next[e.target.value] = v;
+                    updateCustomParams(next);
+                  }}
+                  placeholder="参数名（如 热流道品牌）"
+                  className="w-48 bg-yellow-50 border border-yellow-300 rounded px-3 py-1.5 text-sm focus:border-yellow-500 focus:outline-none"
+                />
+                <input
+                  value={v}
+                  onChange={(e) => updateCustomParams({ ...customParams, [k]: e.target.value })}
+                  placeholder="值（如 HASCO 8 点）"
+                  className="flex-1 bg-yellow-50 border border-yellow-300 rounded px-3 py-1.5 text-sm focus:border-yellow-500 focus:outline-none"
+                />
+                <button onClick={() => removeCustomParam(k)} className="text-xs text-red-500 px-2 hover:text-red-700">删除</button>
+              </div>
+            ))}
           <button
             onClick={addCustomParam}
             className="text-xs border border-gray-300 px-3 py-1.5 rounded hover:bg-gray-50"
           >
-            + 添加新参数
+            + 添加临时参数
           </button>
         </div>
       </Section>

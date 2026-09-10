@@ -23,6 +23,10 @@ model Company {
   steelOverrides    SteelOverride[]
   businessTermOverrides BusinessTermOverride[]
   complexityOverrides  ComplexityOverride[]
+  customFormulas      CustomFormula[]
+  materials           Material[]
+  customParameters    CustomParameter[]
+  quoteTemplates      QuoteTemplate[]
 }
 
 // 2. 用户
@@ -85,6 +89,7 @@ model QuoteEmailLog {
 model Customer {
   id           String   @id @default(cuid())
   companyId    String
+  code         String?  // 客户编号
   name         String
   contactName  String?
   email        String?  // 客户邮箱（发报价单用）
@@ -128,6 +133,7 @@ model Quote {
   shares      QuoteShare[]
   logs        QuoteLog[]
   emailLogs   QuoteEmailLog[]
+  adjustments QuoteAdjustment[]
 
   @@index([companyId, status])
   @@index([companyId, createdById, createdAt])
@@ -141,6 +147,8 @@ enum QuoteStatus {
   rejected
   sent
   confirmed
+  lost
+  void
   expired
 }
 
@@ -240,4 +248,136 @@ model BusinessTermOverride {
   company Company @relation(fields: [companyId], references: [id])
 
   @@unique([companyId, index])
+}
+
+// 9. 报价项中心 — 用户自定义报价项（含公式 / 条件 / 测试发布）
+// 对应 PRD：P3 报价项 + P7 公式引擎 + P8 条件 + P9 测试发布
+model CustomFormula {
+  id         String   @id @default(cuid())
+  companyId  String
+  code       String?  // 报价项编码，公式中可用 {code} 引用其它项（计算链）
+  name       String   // 报价项名（"热流道费"、"试模加次"）
+  category   String   @default("自定义") // 材料费/模架/CNC/EDM/线切割/热流道/滑块/镶件/试模/表面处理/包装/运输/人工/管理费/利润/税费/自定义
+  scope      String   // 'mold' | 'injection' | 'summary'  计入哪类合计
+  unit       String?  // 单位：元 / 元每件
+  expression String   // DSL 表达式：数字、+ - * / ( )、函数 max/min/round/if、变量 {cavityCount}、引用其它公式 {heatRunnerFee}
+  condition  String?  // 条件表达式，为空或求值为真时才计入（支持 IF/AND/OR/比较）
+  // P9：测试通过才能启用
+  enabled    Boolean  @default(false)
+  tested     Boolean  @default(false)
+  lastTestAt DateTime?
+  lastTestResult String?
+  version    Int      @default(1)
+  sortOrder  Int      @default(0)
+  note       String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, scope, sortOrder])
+  @@unique([companyId, scope, name])
+}
+
+// 10. 材料中心 — 企业材料库（对应 PRD P5 + P6）
+model Material {
+  id           String   @id @default(cuid())
+  companyId    String
+  code         String   // 材料编码
+  name         String   // ABS / PP / PC ...
+  category     String   @default("塑料原料") // 塑料原料 / 模具钢材 / 辅料
+  unit         String   @default("kg")      // g / kg / t / 件
+  density      Float?   // g/cm3
+  lossRate     Float    @default(0.05)      // 损耗率
+  currentPrice Float    @default(0)         // 当前单价（元/unit）
+  currency     String   @default("CNY")
+  priceRule    String   @default("fixed")   // fixed 固定价 / tiered 阶梯价
+  priceTiers   String?                      // JSON: [{minQty, maxQty, price}]
+  remark       String?
+  isPreset     Boolean  @default(false)     // 系统预置材料
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company Company        @relation(fields: [companyId], references: [id])
+  prices  MaterialPrice[]
+
+  @@unique([companyId, code])
+  @@index([companyId, category])
+}
+
+// 材料价格版本（PRD 3.7：改价形成新版本，历史报价沿用旧版本）
+model MaterialPrice {
+  id            String   @id @default(cuid())
+  materialId    String
+  version       Int
+  price         Float
+  effectiveFrom DateTime @default(now())
+  note          String?
+  createdAt     DateTime @default(now())
+
+  material Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  @@unique([materialId, version])
+  @@index([materialId])
+}
+
+// 11. 参数中心（对应 PRD P4）
+model CustomParameter {
+  id           String   @id @default(cuid())
+  companyId    String
+  code         String   // 参数编码，公式中用 {code} 引用
+  name         String
+  type         String   @default("decimal") // text|int|decimal|money|percent|select|multiselect|switch|date
+  unit         String?
+  defaultValue String?
+  required     Boolean  @default(false)
+  options      String?  // JSON 数组，用于 select / multiselect
+  min          Float?
+  max          Float?
+  group        String   @default("通用") // 模具参数 / 注塑参数 / 商务参数 / 通用
+  sortOrder    Int      @default(0)
+  enabled      Boolean  @default(true)
+  remark       String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, code])
+  @@index([companyId, group, sortOrder])
+}
+
+// 12. 报价模板（对应 PRD P10）
+model QuoteTemplate {
+  id          String   @id @default(cuid())
+  companyId   String
+  name        String
+  description String?
+  itemCodes   String   // JSON 数组：选中的报价项 code，按顺序
+  enabled     Boolean  @default(true)
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, name])
+}
+
+// 13. 人工调整留痕（对应 PRD 5.6 / P12）
+model QuoteAdjustment {
+  id            String   @id @default(cuid())
+  quoteId       String
+  versionNo     Int
+  field         String   // 被调整的报价项/字段
+  systemValue   Float    // 系统计算值
+  adjustedValue Float    // 人工调整值
+  reason        String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId, versionNo])
 }

@@ -22,7 +22,7 @@ fi
 rm -f /etc/nginx/conf.d/mold-quotation.conf
 
 # 写入新配置
-cp ${APP_DIR}/deploy/nginx.conf /etc/nginx/conf.d/wycl-chat.conf
+cp ${APP_DIR}/deploy/nginx.conf /etc/nginx/conf.d/ycwl-chat.conf
 
 # 验证配置
 nginx -t

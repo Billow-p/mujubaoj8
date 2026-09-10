@@ -102,7 +102,12 @@ const rExtras = calculateQuote({
 const baseSubtotal = r.summary.grandTotalIncVat;
 const newSubtotal = rExtras.summary.grandTotalIncVat;
 const diff = newSubtotal - baseSubtotal;
-const expectedDiff = (1500 + 800) * 1.13 + 0.5 * 300000 * 1.13;
+// 规则：附加项与自定义报价项属于成本，与管理费/利润一并加成后再计税
+//   模具侧：(附加项合计 × (1 + 管理费率)) × (1 + 税率)
+//   注塑侧：单件附加 × 数量 × (1 + 税率)
+const mgmt = 1 + baseInput.managementRate;
+const vat = 1 + baseInput.vatRate;
+const expectedDiff = (1500 + 800) * mgmt * vat + 0.5 * 300000 * vat;
 console.log(`  基础含税: ¥${baseSubtotal}`);
 console.log(`  加 extras 后: ¥${newSubtotal}（差值 ¥${diff}）`);
 console.log(`  期望差值: ¥${expectedDiff.toFixed(0)} → ${Math.abs(diff - expectedDiff) < 5 ? '✓' : '✗'}`);
@@ -110,3 +115,57 @@ console.log(`  moldExtrasTotal = ¥${rExtras.summary.moldExtrasTotal}（期望 2
 console.log(`  injectionExtrasUnit = ¥${rExtras.summary.injectionExtrasUnit}（期望 0.5） → ${rExtras.summary.injectionExtrasUnit === 0.5 ? '✓' : '✗'}`);
 console.log(`  extras.moldExtras.length = ${rExtras.extras?.moldExtras.length}（期望 2） → ${rExtras.extras?.moldExtras.length === 2 ? '✓' : '✗'}`);
 console.log(`  extras.injectionExtras.length = ${rExtras.extras?.injectionExtras.length}（期望 1） → ${rExtras.extras?.injectionExtras.length === 1 ? '✓' : '✗'}`);
+
+// 测试参数中心 customFormulas
+console.log('\n===== 参数中心 customFormulas =====');
+const rCustom = calculateQuote({
+  input: baseInput,
+  customFormulas: [
+    {
+      name: '热流道费',
+      scope: 'mold',
+      expression: 'cavityCount * 1500 + 3000',
+      enabled: true,
+      sortOrder: 0,
+      note: '每腔 1500 + 基础 3000',
+    },
+    {
+      name: '特殊工艺系数',
+      scope: 'mold',
+      expression: 'designFee * 0.5',
+      enabled: true,
+      sortOrder: 1,
+    },
+    {
+      name: '精密装配费',
+      scope: 'injection',
+      expression: 'round(machining * 1.2, 2)',
+      enabled: true,
+      sortOrder: 2,
+    },
+  ],
+});
+const expectedHeatRunner = 2 * 1500 + 3000; // 6000
+const expectedSpecial = 6000 * 0.5; // 3000（designFee 是 6000）
+const expectedAssembly = Math.round(1.02 * 1.2 * 100) / 100; // 1.22
+console.log(`  热流道费 = ¥${rCustom.customFormulas?.mold[0]?.value}（期望 ${expectedHeatRunner}） → ${rCustom.customFormulas?.mold[0]?.value === expectedHeatRunner ? '✓' : '✗'}`);
+console.log(`  特殊工艺系数 = ¥${rCustom.customFormulas?.mold[1]?.value}（期望 ${expectedSpecial}） → ${rCustom.customFormulas?.mold[1]?.value === expectedSpecial ? '✓' : '✗'}`);
+console.log(`  精密装配费 = ¥${rCustom.customFormulas?.injection[0]?.value}（期望 ${expectedAssembly}） → ${rCustom.customFormulas?.injection[0]?.value === expectedAssembly ? '✓' : '✗'}`);
+// 验证 moldCustom 影响 moldSubtotal
+const expectedMoldSubtotal = 158088 + expectedHeatRunner + expectedSpecial; // 158088 = 11项模具费基础小计
+console.log(`  moldSubtotal 含 custom = ¥${rCustom.summary.moldSubtotal}（期望 ${expectedMoldSubtotal}） → ${rCustom.summary.moldSubtotal === expectedMoldSubtotal ? '✓' : '✗'}`);
+console.log(`  unitCostExVat 含 custom = ¥${rCustom.summary.unitCostExVat}（期望 ${(4.15 + expectedAssembly).toFixed(2)}） → ${Math.abs(rCustom.summary.unitCostExVat - (4.15 + expectedAssembly)) < 0.02 ? '✓' : '✗'}`);
+
+// 公式错误容错：单个公式失败不应阻塞整单
+console.log('\n===== customFormulas 错误容错 =====');
+const rCustom2 = calculateQuote({
+  input: baseInput,
+  customFormulas: [
+    { name: '正确公式', scope: 'mold', expression: 'cavityCount * 100', enabled: true, sortOrder: 0 },
+    { name: '错误公式', scope: 'mold', expression: 'undefinedVar * 2', enabled: true, sortOrder: 1 },
+  ],
+});
+const correctVal = rCustom2.customFormulas?.mold[0]?.value;
+const errVal = rCustom2.customFormulas?.mold[1]?.value;
+console.log(`  正确公式结果 = ¥${correctVal}（期望 200） → ${correctVal === 200 ? '✓' : '✗'}`);
+console.log(`  错误公式结果 = ¥${errVal}（期望 0，不阻塞） → ${errVal === 0 ? '✓' : '✗'}`);

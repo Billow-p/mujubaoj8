@@ -104,7 +104,11 @@ export default function Dashboard() {
             <tbody className="divide-y divide-gray-100">
               {list.map((q) => (
                 <tr key={q.id} className="hover:bg-gray-50">
-                  <td className="px-5 py-2.5 font-mono text-xs">{q.quoteNo}</td>
+                  <td className="px-5 py-2.5">
+                    <Link to={`/quotes/${q.id}`} className="font-mono text-xs text-blue-600 hover:underline">
+                      {q.quoteNo}
+                    </Link>
+                  </td>
                   <td className="px-5 py-2.5">{q.customerName}</td>
                   <td className="px-5 py-2.5">{q.productName}</td>
                   <td className="px-5 py-2.5 text-right">¥{(q.grandTotal || 0).toLocaleString()}</td>
@@ -116,11 +120,17 @@ export default function Dashboard() {
                   <td className="px-5 py-2.5 text-xs text-gray-600">
                     {new Date(q.createdAt).toLocaleDateString()}
                   </td>
-                  <td className="px-5 py-2.5 text-center">
+                  <td className="px-5 py-2.5 text-center whitespace-nowrap">
+                    <Link
+                      to={`/quotes/${q.id}`}
+                      className="text-xs text-gray-600 border border-gray-200 px-2 py-1 rounded hover:bg-gray-50"
+                    >
+                      查看
+                    </Link>
                     <button
                       onClick={() => handleExport(q.id)}
                       disabled={exporting === q.id}
-                      className="text-xs text-blue-600 border border-blue-200 px-2 py-1 rounded hover:bg-blue-50 disabled:opacity-50"
+                      className="text-xs text-blue-600 border border-blue-200 px-2 py-1 rounded hover:bg-blue-50 disabled:opacity-50 ml-1"
                     >
                       {exporting === q.id ? '导出中...' : '导出 Excel'}
                     </button>

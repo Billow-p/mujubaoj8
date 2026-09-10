@@ -3,6 +3,11 @@ import { useEffect } from 'react';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import NewQuote from './pages/NewQuote';
+import QuoteDetail from './pages/QuoteDetail';
+import Customers from './pages/Customers';
+import QuoteItems from './pages/QuoteItems';
+import Materials from './pages/Materials';
+import Parameters from './pages/Parameters';
 import Layout from './components/Layout';
 import { auth } from './api';
 import { useAuth } from './store';
@@ -23,7 +28,11 @@ export default function App() {
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/quotes/new" element={<NewQuote />} />
-        <Route path="/quotes/:id" element={<div className="p-6">报价单详情（开发中）</div>} />
+        <Route path="/quotes/:id" element={<QuoteDetail />} />
+        <Route path="/customers" element={<Customers />} />
+        <Route path="/settings/quote-items" element={<QuoteItems />} />
+        <Route path="/settings/materials" element={<Materials />} />
+        <Route path="/settings/parameters" element={<Parameters />} />
       </Route>
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>

@@ -1,6 +1,15 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../store';
 
+const NAV = [
+  { to: '/', label: '工作台', exact: true },
+  { to: '/quotes/new', label: '新建报价单' },
+  { to: '/customers', label: '客户库' },
+  { to: '/settings/quote-items', label: '报价项中心' },
+  { to: '/settings/materials', label: '材料中心' },
+  { to: '/settings/parameters', label: '参数中心' },
+];
+
 export default function Layout() {
   const { user, setUser } = useAuth();
   const location = useLocation();
@@ -12,6 +21,9 @@ export default function Layout() {
     navigate('/login');
   };
 
+  const active = (item: (typeof NAV)[number]) =>
+    item.exact ? location.pathname === item.to : location.pathname.startsWith(item.to);
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white">
@@ -22,18 +34,17 @@ export default function Layout() {
               <span className="font-semibold text-sm">模具注塑报价系统</span>
             </Link>
             <nav className="flex items-center gap-1 text-sm">
-              <Link
-                to="/"
-                className={`px-3 py-1.5 rounded ${location.pathname === '/' ? 'bg-gray-900 text-white' : 'hover:bg-gray-100'}`}
-              >
-                工作台
-              </Link>
-              <Link
-                to="/quotes/new"
-                className={`px-3 py-1.5 rounded ${location.pathname === '/quotes/new' ? 'bg-gray-900 text-white' : 'hover:bg-gray-100'}`}
-              >
-                新建报价单
-              </Link>
+              {NAV.map((item) => (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className={`px-3 py-1.5 rounded whitespace-nowrap ${
+                    active(item) ? 'bg-gray-900 text-white' : 'hover:bg-gray-100'
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              ))}
             </nav>
           </div>
           <div className="flex items-center gap-3 text-sm">

@@ -40,7 +40,7 @@ services:
       SMTP_PASS: ${SMTP_PASS:-lbukpgyzzmtqbcfl}
       SMTP_FROM: ${SMTP_FROM:-模具注塑报价系统 <729503962@qq.com>}
       # ---- 公网地址（生成报价单分享链接）----
-      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-https://wycl.chat}
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-https://ycwl.chat}
     ports:
       - '3000:3000'
 

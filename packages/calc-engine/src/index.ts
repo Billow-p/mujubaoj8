@@ -10,8 +10,15 @@ import type {
   QuoteInput,
   QuoteSummary,
   BusinessTermItem,
+  CustomFormulaInput,
+  CustomFormulaResults,
 } from '@mqs/shared';
 import { DEFAULT_BUSINESS_TERMS } from '@mqs/shared';
+import { evaluateExpression } from './expression.js';
+
+// 表达式求值器对外暴露（供后端公式测试接口复用）
+export { evaluateExpression, normalizeExpression } from './expression.js';
+export type { Scope } from './expression.js';
 import {
   COMPLEXITY_COEFF,
   STEEL_COEFF,
@@ -266,10 +273,15 @@ function calcSummary(
   injectionItems: InjectionItems,
   input: QuoteInput,
   extras: { moldExtrasTotal: number; injectionExtrasUnit: number },
+  custom: { moldCustom: number; injectionCustom: number } = {
+    moldCustom: 0,
+    injectionCustom: 0,
+  },
 ): QuoteSummary {
-  const moldSubtotal = calcMoldSubtotal(moldItems);
+  const moldSubtotal =
+    calcMoldSubtotal(moldItems) + extras.moldExtrasTotal + custom.moldCustom;
   const moldManagementFee = Math.round(moldSubtotal * input.managementRate);
-  const moldTotalExVat = moldSubtotal + moldManagementFee + extras.moldExtrasTotal;
+  const moldTotalExVat = moldSubtotal + moldManagementFee;
 
   const unitCostExVat = round(
     injectionItems.material.value +
@@ -277,7 +289,8 @@ function calcSummary(
       injectionItems.postProcess.value +
       injectionItems.packaging.value +
       injectionItems.moldAmortization.value +
-      extras.injectionExtrasUnit,
+      extras.injectionExtrasUnit +
+      custom.injectionCustom,
   );
 
   const injectionTotalExVat = Math.round(unitCostExVat * input.firstOrderQty);
@@ -378,11 +391,124 @@ export function calculateQuote(req: CalcQuoteRequest): QuoteCalcResult {
     injectionExtras.reduce((s, e) => s + (Number(e.amount) || 0), 0),
   );
 
+  // 参数中心 — 用户自定义公式求值
+  const customResults: CustomFormulaResults = {
+    mold: [],
+    injection: [],
+    summary: [],
+  };
+  let moldCustom = 0;
+  let injectionCustom = 0;
+  if (req.customFormulas && req.customFormulas.length > 0) {
+    // 按 scope、sortOrder 排序
+    const sorted = [...req.customFormulas]
+      .filter((f) => f.enabled !== false)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+
+    // 构建可用变量名集合
+    const inputKeys = Object.keys(input);
+    const moldKeys = Object.keys(moldFeeItems);
+    const injectionKeys = Object.keys(injectionItems);
+    const formulaNames = sorted.map((f) => f.name);
+    const formulaCodes = sorted.map((f) => f.code).filter(Boolean) as string[];
+    // PRD 4.3：自定义参数也可被公式引用
+    const customParamEntries = Object.entries(
+      (input as any).customParams ?? {},
+    ).filter(([, v]) => typeof v === 'number' || !Number.isNaN(Number(v)));
+    const customParamKeys = customParamEntries.map(([k]) => k);
+
+    const allowed = new Set<string>([
+      ...inputKeys,
+      ...moldKeys,
+      ...injectionKeys,
+      ...formulaNames,
+      ...formulaCodes,
+      ...customParamKeys,
+    ]);
+
+    // scope：变量值
+    const scope: Record<string, number> = {
+      ...Object.fromEntries(
+        Object.entries(input).filter(([, v]) => typeof v === 'number'),
+      ),
+      ...Object.fromEntries(
+        Object.entries(moldFeeItems).map(([k, v]) => [k, (v as CalcItem).value]),
+      ),
+      ...Object.fromEntries(
+        Object.entries(injectionItems).map(([k, v]) => [k, (v as CalcItem).value]),
+      ),
+      ...Object.fromEntries(
+        customParamEntries.map(([k, v]) => [k, Number(v)]),
+      ),
+    };
+
+    // 依次求值，按 scope 分类
+    for (const f of sorted) {
+      try {
+        // PRD 4.2：条件公式 —— 条件为假时该项不计入
+        if (f.condition && f.condition.trim()) {
+          const condVal = evaluateExpression(f.condition, scope, allowed);
+          if (condVal === 0) {
+            const skipped = { name: f.name, expression: f.expression, value: 0, note: '【条件不满足，未计入】' };
+            if (f.scope === 'injection') customResults.injection.push(skipped);
+            else if (f.scope === 'summary') customResults.summary.push(skipped);
+            else customResults.mold.push(skipped);
+            scope[f.name] = 0;
+            if (f.code) scope[f.code] = 0;
+            continue;
+          }
+        }
+
+        const v = evaluateExpression(f.expression, scope, allowed);
+        const rounded = Math.round(v * 100) / 100;
+        scope[f.name] = rounded; // 后续公式可引用
+        if (f.code) scope[f.code] = rounded;
+        if (f.scope === 'mold') {
+          moldCustom += rounded;
+          customResults.mold.push({
+            name: f.name,
+            expression: f.expression,
+            value: rounded,
+            note: f.note,
+          });
+        } else if (f.scope === 'injection') {
+          injectionCustom += rounded;
+          customResults.injection.push({
+            name: f.name,
+            expression: f.expression,
+            value: rounded,
+            note: f.note,
+          });
+        } else {
+          // summary scope：直接累加到 moldTotalExVat（暂以 moldCustom 形式实现）
+          moldCustom += rounded;
+          customResults.summary.push({
+            name: f.name,
+            expression: f.expression,
+            value: rounded,
+            note: f.note,
+          });
+        }
+      } catch (e: any) {
+        // 单个公式失败不阻塞整单，记录到 note
+        customResults.mold.push({
+          name: f.name,
+          expression: f.expression,
+          value: 0,
+          note: `【错误】${e.message}`,
+        });
+      }
+    }
+  }
+
   // 重算汇总（注入最终值）
-  const summary = calcSummary(moldFeeItems, injectionItems, input, {
-    moldExtrasTotal,
-    injectionExtrasUnit,
-  });
+  const summary = calcSummary(
+    moldFeeItems,
+    injectionItems,
+    input,
+    { moldExtrasTotal, injectionExtrasUnit },
+    { moldCustom, injectionCustom },
+  );
 
   // 商务条款
   const businessTerms = applyBusinessTermOverrides(req.businessTermOverrides);
@@ -406,6 +532,7 @@ export function calculateQuote(req: CalcQuoteRequest): QuoteCalcResult {
         note: e.note,
       })),
     },
+    customFormulas: customResults,
     provenance,
   };
 }

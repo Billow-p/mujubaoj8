@@ -149,6 +149,8 @@ export interface QuoteCalcResult {
     moldExtras: { id: string; name: string; amount: number; note?: string }[];
     injectionExtras: { id: string; name: string; amount: number; note?: string }[];
   };
+  // 参数中心 — 用户自定义公式的求值结果
+  customFormulas?: CustomFormulaResults;
   // 用于追溯：每个分项的"输入来源"标签
   provenance: {
     complexityCoeff: number;
@@ -163,6 +165,29 @@ export interface CalcQuoteRequest {
   overrides?: Partial<Record<keyof MoldFeeItems | keyof InjectionItems, number>>;
   locks?: Array<keyof MoldFeeItems | keyof InjectionItems>;
   businessTermOverrides?: BusinessTermItem[];
+  customFormulas?: CustomFormulaInput[];
+}
+
+// 自定义公式（与数据库 CustomFormula 表同结构，但更灵活）
+export interface CustomFormulaInput {
+  name: string;
+  scope: 'mold' | 'injection' | 'summary';
+  expression: string;
+  enabled: boolean;
+  sortOrder: number;
+  note?: string;
+  code?: string;      // 报价项编码，其它公式可用 {code} 引用（计算链）
+  condition?: string; // 条件表达式，求值为真才计入该报价项
+  category?: string;  // 报价项分类
+  unit?: string;      // 单位
+  version?: number;   // 报价项版本（历史报价冻结）
+}
+
+// 自定义公式求值结果（按 scope 分类）
+export interface CustomFormulaResults {
+  mold: { name: string; expression: string; value: number; note?: string }[];
+  injection: { name: string; expression: string; value: number; note?: string }[];
+  summary: { name: string; expression: string; value: number; note?: string }[];
 }
 
 // 默认商务条款模板

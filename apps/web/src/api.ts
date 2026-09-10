@@ -76,6 +76,21 @@ export const quotes = {
   // 邮件发送记录
   emailLogs: (id: string) => api.get(`/quotes/${id}/email-logs`).then((r) => r.data),
 
+  // 复制历史报价生成新报价（原报价不变）
+  duplicate: (id: string) => api.post(`/quotes/${id}/duplicate`).then((r) => r.data),
+
+  // 人工调整留痕
+  adjust: (id: string, body: { field: string; adjustedValue: number; systemValue?: number; reason?: string }) =>
+    api.post(`/quotes/${id}/adjust`, body).then((r) => r.data),
+  adjustments: (id: string) => api.get(`/quotes/${id}/adjustments`).then((r) => r.data),
+
+  // 状态流转：成交 / 未成交 / 作废
+  setStatus: (id: string, status: string, note?: string) =>
+    api.patch(`/quotes/${id}/status`, { status, note }).then((r) => r.data),
+
+  // 版本历史
+  versions: (id: string) => api.get(`/quotes/${id}/versions`).then((r) => r.data),
+
   // 导出 Excel（返回 Blob）
   exportExcel: async (id: string): Promise<void> => {
     const resp = await api.get(`/quotes/${id}/export-excel`, {
@@ -105,7 +120,53 @@ export const calc = {
 
 // 客户
 export const customers = {
-  list: () => api.get('/customers').then((r) => r.data),
+  list: (keyword?: string) =>
+    api.get('/customers', { params: { keyword } }).then((r) => r.data),
   get: (id: string) => api.get(`/customers/${id}`).then((r) => r.data),
+  quotes: (id: string) => api.get(`/customers/${id}/quotes`).then((r) => r.data),
   create: (body: any) => api.post('/customers', body).then((r) => r.data),
+  update: (id: string, body: any) =>
+    api.patch(`/customers/${id}`, body).then((r) => r.data),
+};
+
+// 报价项中心（公式 / 条件 / 测试发布）
+export const quoteItems = {
+  list: () => api.get('/formulas').then((r) => r.data),
+  variables: () => api.get('/formulas/variables').then((r) => r.data),
+  test: (body: { expression: string; condition?: string; variables?: Record<string, number> }) =>
+    api.post('/formulas/test', body).then((r) => r.data),
+  create: (body: any) => api.post('/formulas', body).then((r) => r.data),
+  update: (id: string, body: any) => api.patch(`/formulas/${id}`, body).then((r) => r.data),
+  testOne: (id: string, body?: any) => api.post(`/formulas/${id}/test`, body ?? {}).then((r) => r.data),
+  enable: (id: string) => api.post(`/formulas/${id}/enable`).then((r) => r.data),
+  disable: (id: string) => api.post(`/formulas/${id}/disable`).then((r) => r.data),
+  duplicate: (id: string) => api.post(`/formulas/${id}/duplicate`).then((r) => r.data),
+  remove: (id: string) => api.delete(`/formulas/${id}`).then((r) => r.data),
+};
+
+// 材料中心
+export const materials = {
+  list: () => api.get('/materials').then((r) => r.data),
+  seedPreset: () => api.post('/materials/seed-preset').then((r) => r.data),
+  create: (body: any) => api.post('/materials', body).then((r) => r.data),
+  update: (id: string, body: any) => api.patch(`/materials/${id}`, body).then((r) => r.data),
+  prices: (id: string) => api.get(`/materials/${id}/prices`).then((r) => r.data),
+  remove: (id: string) => api.delete(`/materials/${id}`).then((r) => r.data),
+};
+
+// 参数中心
+export const parameters = {
+  list: (params?: any) => api.get('/parameters', { params }).then((r) => r.data),
+  create: (body: any) => api.post('/parameters', body).then((r) => r.data),
+  update: (id: string, body: any) => api.patch(`/parameters/${id}`, body).then((r) => r.data),
+  toggle: (id: string) => api.post(`/parameters/${id}/toggle`).then((r) => r.data),
+  remove: (id: string) => api.delete(`/parameters/${id}`).then((r) => r.data),
+};
+
+// 报价模板
+export const templates = {
+  list: () => api.get('/templates').then((r) => r.data),
+  create: (body: any) => api.post('/templates', body).then((r) => r.data),
+  update: (id: string, body: any) => api.patch(`/templates/${id}`, body).then((r) => r.data),
+  remove: (id: string) => api.delete(`/templates/${id}`).then((r) => r.data),
 };
