@@ -6,9 +6,11 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { calculateQuote, validateQuoteInput } from '@mqs/calc-engine';
-import type { CalcQuoteRequest } from '@mqs/shared';
+import type { CalcQuoteRequest, QuoteItemDef } from '@mqs/shared';
 import { sendQuoteNotification } from '../services/email.js';
 import { buildQuoteExcel } from '../services/excel.js';
+import { toExcelModel } from '../services/quoteModel.js';
+import { calculateConfigured } from '@mqs/calc-engine';
 
 const CreateQuoteSchema = z.object({
   customerId: z.string().optional(),
@@ -596,16 +598,16 @@ export async function quoteRoutes(app: FastifyInstance) {
       const version = q.versions[0];
       if (!version) return reply.code(400).send({ error: '报价单无可用版本' });
 
-      const buf = await buildQuoteExcel({
-        quoteNo: q.quoteNo,
-        customerName: q.customer?.name || '',
-        productName: (version.paramsJson as any)?.productName || '',
-        input: version.paramsJson as any,
-        result: version.calcResultJson as any,
-        businessTerms: (version.businessTermsJson as any) || undefined,
-        senderName: q.createdBy?.name,
-        createdAt: q.createdAt,
-      });
+      const [moldType, company] = await Promise.all([
+        q.moldTypeId
+          ? prisma.moldType.findUnique({ where: { id: q.moldTypeId }, select: { name: true } })
+          : Promise.resolve(null),
+        prisma.company.findUnique({ where: { id: q.companyId }, select: { name: true } }),
+      ]);
+
+      const model = toExcelModel(q, version, moldType?.name);
+      if (company?.name) model.company = { ...(model.company ?? {}), name: company.name };
+      const buf = await buildQuoteExcel(model);
 
       reply
         .header(
@@ -619,6 +621,135 @@ export async function quoteRoutes(app: FastifyInstance) {
         .send(buf);
     },
   );
+
+  // ================================================================
+  // 按配置中心创建报价单（选模具类型 → 填数据 → 自动算价）
+  // ================================================================
+  app.post('/api/quotes/configured', { preHandler: [app.authenticate] }, async (req, reply) => {
+    const { companyId, userId } = req.user as any;
+    const body = z
+      .object({
+        moldTypeId: z.string().min(1),
+        customerName: z.string().min(1).max(100),
+        customerEmail: z.string().email().optional().or(z.literal('')),
+        productName: z.string().max(100).optional(),
+        values: z.record(z.union([z.number(), z.string()])).optional().default({}),
+        manualAmounts: z.record(z.number()).optional(),
+      })
+      .parse(req.body);
+
+    const moldType = await prisma.moldType.findFirst({ where: { id: body.moldTypeId, companyId } });
+    if (!moldType) return reply.code(404).send({ error: '模具类型不存在' });
+
+    const [parameters, items, terms] = await Promise.all([
+      prisma.customParameter.findMany({ where: { companyId, moldTypeId: moldType.id } }),
+      prisma.quoteItem.findMany({
+        where: { companyId, moldTypeId: moldType.id },
+        orderBy: { sortOrder: 'asc' },
+      }),
+      prisma.businessTerm.findMany({
+        where: { companyId, moldTypeId: moldType.id, enabled: true },
+        orderBy: { sortOrder: 'asc' },
+      }),
+    ]);
+
+    // 参数值：传入优先，否则用默认值
+    const params: Record<string, number> = {};
+    for (const p of parameters) {
+      const raw = (body.values as any)[p.name];
+      const n = Number(raw !== undefined && raw !== '' ? raw : p.defaultValue);
+      if (Number.isFinite(n)) params[p.name] = n;
+    }
+    for (const [k, v] of Object.entries(body.values as any)) {
+      const n = Number(v);
+      if (Number.isFinite(n) && !(k in params)) params[k] = n;
+    }
+
+    // 手填项若本次填了金额，按固定金额参与计算
+    const defs: QuoteItemDef[] = items.map((it, i) => {
+      const base: QuoteItemDef = {
+        name: it.name,
+        category: it.category,
+        scope: (it.scope as 'mold' | 'injection') ?? 'mold',
+        calcType: it.calcType as any,
+        calcConfig: (it.calcConfig ?? {}) as any,
+        expression: it.expression ?? undefined,
+        enabled: it.enabled,
+        sortOrder: i,
+        unit: it.unit ?? undefined,
+      };
+      const amt = body.manualAmounts?.[it.name];
+      if (it.calcType === 'manual' && amt != null) {
+        return { ...base, calcType: 'fixed' as const, calcConfig: { amount: amt } };
+      }
+      return base;
+    });
+
+    const result = calculateConfigured(defs, params, {
+      profitRate: moldType.profitRate,
+      taxRate: moldType.taxRate,
+    });
+
+    // 客户：有则复用
+    let customerId: string | undefined;
+    const existing = await prisma.customer.findFirst({ where: { companyId, name: body.customerName } });
+    if (existing) {
+      customerId = existing.id;
+      if (body.customerEmail && existing.email !== body.customerEmail) {
+        await prisma.customer.update({ where: { id: existing.id }, data: { email: body.customerEmail } });
+      }
+    } else {
+      const c = await prisma.customer.create({
+        data: { companyId, name: body.customerName, email: body.customerEmail || null },
+      });
+      customerId = c.id;
+    }
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+
+    const quote = await prisma.quote.create({
+      data: {
+        companyId,
+        customerId,
+        moldTypeId: moldType.id,
+        createdById: userId,
+        quoteNo: genQuoteNo(),
+        status: 'draft',
+        expiresAt,
+        versions: {
+          create: {
+            versionNo: 1,
+            paramsJson: {
+              moldTypeId: moldType.id,
+              moldTypeName: moldType.name,
+              productName: body.productName ?? '',
+              customerName: body.customerName,
+              customerEmail: body.customerEmail ?? '',
+              parameters: parameters.map((p) => ({ name: p.name, unit: p.unit })),
+              values: params,
+              manualAmounts: body.manualAmounts ?? {},
+              items: defs,
+            } as any,
+            calcResultJson: result as any,
+            businessTermsJson: terms.map((t, i) => ({
+              index: i + 1,
+              enabled: true,
+              text: t.text,
+            })) as any,
+            createdById: userId,
+            changeNote: '按配置创建',
+          },
+        },
+        logs: {
+          create: { userId, action: 'created', detail: `按「${moldType.name}」配置创建报价单` },
+        },
+      },
+      include: { versions: true },
+    });
+
+    return quote;
+  });
 
   // ================================================================
   // 复制历史报价生成新报价（PRD 6.3：原报价不改变）

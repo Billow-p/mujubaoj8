@@ -1,303 +1,534 @@
-// Excel 导出服务 — 用 exceljs 生成报价单 .xlsx
-// 设计：3 个 sheet：① 报价汇总  ② 模具费明细+注塑明细  ③ 商务条款
+// Excel 报价单导出 — 正式单据样式
+// Sheet1「报价单」：公司抬头 → 单据信息 → 客户/项目 → 费用明细 → 汇总 → 条款 → 签字
+// Sheet2「计算明细」：每个费用的计算方式与代入过程（内部核算用）
 
 import ExcelJS from 'exceljs';
-import type { QuoteCalcResult, QuoteInput, BusinessTermItem, ExtraItem } from '@mqs/shared';
 
-const MONEY = (n: number) => Math.round((n ?? 0) * 100) / 100;
-
-const MOLD_FEE_LABELS: Record<string, string> = {
-  coreSteel: '1. 模芯钢料费',
-  designFee: '2. 模具设计费',
-  moldBase: '3. 模架费',
-  standardParts: '4. 标准件',
-  cncMachining: '5. CNC 加工',
-  edm: '6. EDM 电火花',
-  wireCutting: '7. 线切割',
-  polishing: '8. 省模抛光',
-  trialMold: '9. 试模费',
-  surfaceTreatment: '10. 表面处理',
-  packagingShipping: '11. 模具包装运输',
+const C = {
+  brand: 'FF1E40AF',
+  brandLight: 'FFEFF6FF',
+  text: 'FF111827',
+  muted: 'FF6B7280',
+  line: 'FFD1D5DB',
+  zebra: 'FFF9FAFB',
+  groupBg: 'FFF3F4F6',
+  totalBg: 'FF1E3A8A',
 };
 
-const INJECTION_LABELS: Record<string, string> = {
-  material: '1. 材料费',
-  machining: '2. 注塑加工费',
-  postProcess: '3. 后加工费',
-  packaging: '4. 包装费',
-  moldAmortization: '5. 模具分摊',
-};
+const MONEY_FMT = '#,##0.00';
+const thin = { style: 'thin' as const, color: { argb: C.line } };
+const box = { top: thin, left: thin, bottom: thin, right: thin };
 
-export interface ExcelExportOptions {
-  quoteNo: string;
-  customerName: string;
-  productName: string;
-  input: QuoteInput;
-  result: QuoteCalcResult;
-  businessTerms?: BusinessTermItem[];
-  senderName?: string;
-  createdAt?: Date;
+export interface ExcelLine {
+  name: string;
+  readable?: string;
+  value: number;
+  note?: string;
 }
 
-export async function buildQuoteExcel(opts: ExcelExportOptions): Promise<Buffer> {
-  const { quoteNo, customerName, productName, input, result, businessTerms, senderName, createdAt } = opts;
+export interface ExcelQuoteModel {
+  company?: { name?: string; phone?: string; address?: string; email?: string };
+  quoteNo: string;
+  createdAt: Date;
+  expiresAt?: Date | null;
+  moldTypeName?: string;
+  customer: {
+    name: string;
+    contact?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    address?: string | null;
+  };
+  project: { label: string; value: string }[];
+  moldLines: ExcelLine[];
+  injectionLines: ExcelLine[];
+  summary: {
+    mold: number;
+    injection: number;
+    profitRate: number;
+    profit: number;
+    taxRate: number;
+    tax: number;
+    total: number;
+  };
+  terms: string[];
+  senderName?: string;
+}
+
+const fmtDate = (d?: Date | null) =>
+  d
+    ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    : '';
+
+export async function buildQuoteExcel(model: ExcelQuoteModel): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = senderName || '模具注塑报价系统';
-  wb.created = createdAt || new Date();
+  wb.creator = model.company?.name || model.senderName || '模具注塑报价系统';
+  wb.created = model.createdAt;
 
-  // ==================== Sheet 1: 报价汇总 ====================
-  const s1 = wb.addWorksheet('报价汇总', { views: [{ showGridLines: false }] });
-
-  // 标题块
-  s1.mergeCells('A1:F1');
-  s1.getCell('A1').value = '模 具 注 塑 报 价 单';
-  s1.getCell('A1').font = { size: 18, bold: true, color: { argb: 'FFFFFFFF' } };
-  s1.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' };
-  s1.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
-  s1.getRow(1).height = 36;
-
-  // 基本信息
-  const infoRows: [string, string][] = [
-    ['报价编号', quoteNo],
-    ['客户名称', customerName],
-    ['产品名称', productName],
-    ['产品材质', input.material],
-    ['模具钢材', input.steel],
-    ['产品复杂度', complexityLabel(input.complexity)],
-    ['首单数量', `${input.firstOrderQty.toLocaleString('zh-CN')} 件`],
-    ['模具腔数', `${input.cavityCount} 腔`],
-    ['报价日期', (createdAt || new Date()).toLocaleDateString('zh-CN')],
-    ['报价员', senderName || '—'],
-  ];
-  let row = 3;
-  infoRows.forEach(([k, v]) => {
-    s1.getCell(`A${row}`).value = k;
-    s1.getCell(`A${row}`).font = { bold: true, color: { argb: 'FF6B7280' } };
-    s1.getCell(`B${row}`).value = v;
-    row++;
-  });
-
-  row += 1;
-  // 总价块
-  s1.getCell(`A${row}`).value = '含 税 总 计';
-  s1.getCell(`A${row}`).font = { size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
-  s1.getCell(`A${row}`).alignment = { horizontal: 'center', vertical: 'middle' };
-  s1.getCell(`A${row}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
-  s1.mergeCells(`A${row}:B${row}`);
-  s1.getRow(row).height = 28;
-
-  row += 1;
-  s1.getCell(`A${row}`).value = '模具费（含税）';
-  s1.getCell(`B${row}`).value = MONEY(result.summary.moldIncVat);
-  s1.getCell(`B${row}`).numFmt = '"¥"#,##0.00';
-
-  row += 1;
-  s1.getCell(`A${row}`).value = `注塑费（${input.firstOrderQty.toLocaleString('zh-CN')}件 × ¥${result.summary.unitCostExVat.toFixed(2)}）含税`;
-  s1.getCell(`B${row}`).value = MONEY(result.summary.injectionIncVat);
-  s1.getCell(`B${row}`).numFmt = '"¥"#,##0.00';
-
-  row += 1;
-  s1.getCell(`A${row}`).value = '含税总计';
-  s1.getCell(`A${row}`).font = { bold: true, size: 12 };
-  s1.getCell(`B${row}`).value = MONEY(result.summary.grandTotalIncVat);
-  s1.getCell(`B${row}`).numFmt = '"¥"#,##0.00';
-  s1.getCell(`B${row}`).font = { bold: true, size: 14, color: { argb: 'FF1E40AF' } };
-
-  row += 1;
-  s1.getCell(`A${row}`).value = '（不含税）';
-  s1.getCell(`A${row}`).font = { color: { argb: 'FF6B7280' } };
-  s1.getCell(`B${row}`).value = MONEY(result.summary.grandTotalExVat);
-  s1.getCell(`B${row}`).numFmt = '"¥"#,##0.00';
-  s1.getCell(`B${row}`).font = { color: { argb: 'FF6B7280' } };
-
-  // 列宽
-  s1.getColumn(1).width = 32;
-  s1.getColumn(2).width = 28;
-  s1.getColumn(3).width = 14;
-  s1.getColumn(4).width = 14;
-  s1.getColumn(5).width = 14;
-  s1.getColumn(6).width = 14;
-
-  // ==================== Sheet 2: 费用明细 ====================
-  const s2 = wb.addWorksheet('费用明细', { views: [{ showGridLines: false }] });
-
-  // 模具费明细
-  s2.getCell('A1').value = '模具费明细';
-  s2.getCell('A1').font = { bold: true, size: 14 };
-  s2.mergeCells('A1:E1');
-
-  const header2 = ['#', '项目', '计算依据', '金额（元）', '锁定'];
-  header2.forEach((h, i) => {
-    const c = s2.getCell(2, i + 1);
-    c.value = h;
-    c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF374151' } };
-    c.alignment = { horizontal: 'center', vertical: 'middle' };
-    c.border = {
-      top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-      bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-    };
-  });
-
-  let r2 = 3;
-  Object.entries(result.moldFeeItems).forEach(([k, item], i) => {
-    s2.getCell(r2, 1).value = i + 1;
-    s2.getCell(r2, 2).value = MOLD_FEE_LABELS[k] || k;
-    s2.getCell(r2, 3).value = item.formula;
-    s2.getCell(r2, 4).value = MONEY(item.value);
-    s2.getCell(r2, 4).numFmt = '"¥"#,##0.00';
-    s2.getCell(r2, 5).value = item.locked ? '🔒' : '';
-    if (item.overridden || item.locked) {
-      s2.getRow(r2).eachCell((c) => (c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } }));
-    }
-    r2++;
-  });
-  // 用户加的模具附加项
-  (result.extras?.moldExtras ?? []).forEach((e: ExtraItem, i) => {
-    s2.getCell(r2, 1).value = 11 + i + 1;
-    s2.getCell(r2, 2).value = `附加：${e.name}`;
-    s2.getCell(r2, 3).value = e.note || '用户自定义';
-    s2.getCell(r2, 4).value = MONEY(e.amount);
-    s2.getCell(r2, 4).numFmt = '"¥"#,##0.00';
-    s2.getRow(r2).eachCell((c) => (c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } }));
-    r2++;
-  });
-
-  // 小计
-  s2.getCell(r2, 2).value = '模具费小计';
-  s2.getCell(r2, 2).font = { bold: true };
-  s2.getCell(r2, 4).value = MONEY(result.summary.moldSubtotal + (result.summary.moldExtrasTotal || 0));
-  s2.getCell(r2, 4).numFmt = '"¥"#,##0.00';
-  s2.getCell(r2, 4).font = { bold: true };
-  r2++;
-
-  s2.getCell(r2, 2).value = '管理费+利润';
-  s2.getCell(r2, 4).value = MONEY(result.summary.moldManagementFee);
-  s2.getCell(r2, 4).numFmt = '"¥"#,##0.00';
-  r2++;
-
-  s2.getCell(r2, 2).value = '模具合计（不含税）';
-  s2.getCell(r2, 2).font = { bold: true, size: 12 };
-  s2.getCell(r2, 4).value = MONEY(result.summary.moldTotalExVat);
-  s2.getCell(r2, 4).numFmt = '"¥"#,##0.00';
-  s2.getCell(r2, 4).font = { bold: true, size: 12, color: { argb: 'FF1E40AF' } };
-  s2.getCell(r2, 2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
-  s2.getCell(r2, 4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
-  r2++;
-
-  // 注塑明细
-  r2 += 2;
-  s2.getCell(r2, 1).value = '注塑单件成本';
-  s2.getCell(r2, 1).font = { bold: true, size: 14 };
-  s2.mergeCells(r2, 1, r2, 5);
-  r2++;
-
-  ['#', '项目', '计算依据', '单价（元/件）', '锁定'].forEach((h, i) => {
-    const c = s2.getCell(r2, i + 1);
-    c.value = h;
-    c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF374151' } };
-    c.alignment = { horizontal: 'center', vertical: 'middle' };
-  });
-  r2++;
-
-  Object.entries(result.injectionItems).forEach(([k, item], i) => {
-    s2.getCell(r2, 1).value = i + 1;
-    s2.getCell(r2, 2).value = INJECTION_LABELS[k] || k;
-    s2.getCell(r2, 3).value = item.formula;
-    s2.getCell(r2, 4).value = MONEY(item.value);
-    s2.getCell(r2, 4).numFmt = '"¥"#,##0.00';
-    s2.getCell(r2, 5).value = item.locked ? '🔒' : '';
-    if (item.overridden || item.locked) {
-      s2.getRow(r2).eachCell((c) => (c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } }));
-    }
-    r2++;
-  });
-  // 用户加的注塑附加项
-  (result.extras?.injectionExtras ?? []).forEach((e: ExtraItem) => {
-    s2.getCell(r2, 2).value = `附加：${e.name}`;
-    s2.getCell(r2, 3).value = e.note || '用户自定义';
-    s2.getCell(r2, 4).value = MONEY(e.amount);
-    s2.getCell(r2, 4).numFmt = '"¥"#,##0.00';
-    s2.getRow(r2).eachCell((c) => (c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } }));
-    r2++;
-  });
-
-  s2.getCell(r2, 2).value = `单件成本小计`;
-  s2.getCell(r2, 2).font = { bold: true, size: 12 };
-  s2.getCell(r2, 4).value = MONEY(result.summary.unitCostExVat);
-  s2.getCell(r2, 4).numFmt = '"¥"#,##0.00';
-  s2.getCell(r2, 4).font = { bold: true, size: 12, color: { argb: 'FF1E40AF' } };
-  r2++;
-  s2.getCell(r2, 2).value = `首单 ${input.firstOrderQty.toLocaleString('zh-CN')} 件 注塑合计（含税）`;
-  s2.getCell(r2, 2).font = { bold: true };
-  s2.getCell(r2, 4).value = MONEY(result.summary.injectionIncVat);
-  s2.getCell(r2, 4).numFmt = '"¥"#,##0.00';
-  s2.getCell(r2, 4).font = { bold: true };
-
-  s2.getColumn(1).width = 6;
-  s2.getColumn(2).width = 28;
-  s2.getColumn(3).width = 48;
-  s2.getColumn(4).width = 18;
-  s2.getColumn(5).width = 8;
-
-  // ==================== Sheet 3: 商务条款 ====================
-  const s3 = wb.addWorksheet('商务条款', { views: [{ showGridLines: false }] });
-  s3.getCell('A1').value = '商务条款';
-  s3.getCell('A1').font = { bold: true, size: 14 };
-  s3.mergeCells('A1:C1');
-
-  ['#', '条款', '说明'].forEach((h, i) => {
-    const c = s3.getCell(2, i + 1);
-    c.value = h;
-    c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF374151' } };
-    c.alignment = { horizontal: 'center', vertical: 'middle' };
-  });
-  let r3 = 3;
-  (businessTerms ?? result.businessTerms ?? []).forEach((t) => {
-    if (!t.enabled) return;
-    s3.getCell(r3, 1).value = t.index;
-    s3.getCell(r3, 2).value = `条款 ${t.index}`;
-    s3.getCell(r3, 3).value = t.text;
-    s3.getRow(r3).height = 28;
-    s3.getCell(r3, 3).alignment = { vertical: 'middle', wrapText: true };
-    r3++;
-  });
-  s3.getColumn(1).width = 6;
-  s3.getColumn(2).width = 14;
-  s3.getColumn(3).width = 90;
-
-  // ==================== Sheet 4 (可选): 自定义参数 ====================
-  if (input.customParams && Object.keys(input.customParams).length > 0) {
-    const s4 = wb.addWorksheet('自定义参数', { views: [{ showGridLines: false }] });
-    s4.getCell('A1').value = '自定义参数（仅记录，不参与计算）';
-    s4.getCell('A1').font = { bold: true, size: 14 };
-    s4.mergeCells('A1:B1');
-    let r4 = 3;
-    ['参数', '内容'].forEach((h, i) => {
-      const c = s4.getCell(2, i + 1);
-      c.value = h;
-      c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF374151' } };
-    });
-    Object.entries(input.customParams).forEach(([k, v]) => {
-      s4.getCell(r4, 1).value = k;
-      s4.getCell(r4, 2).value = String(v);
-      r4++;
-    });
-    s4.getColumn(1).width = 28;
-    s4.getColumn(2).width = 56;
-  }
+  buildMainSheet(wb, model);
+  buildDetailSheet(wb, model);
 
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);
 }
 
-function complexityLabel(c: string): string {
-  return (
-    { simple: '简单(0.7)', medium: '中等(1.0)', complex: '复杂(1.5)', ultra_precision: '超精密(2.5)' }[
-      c
-    ] || c
-  );
+function buildMainSheet(wb: ExcelJS.Workbook, m: ExcelQuoteModel) {
+  const ws = wb.addWorksheet('报价单', {
+    views: [{ showGridLines: false }],
+    pageSetup: {
+      paperSize: 9,
+      orientation: 'portrait',
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+      margins: { left: 0.5, right: 0.5, top: 0.6, bottom: 0.6, header: 0.3, footer: 0.3 },
+    },
+  });
+
+  ws.columns = [{ width: 7 }, { width: 26 }, { width: 46 }, { width: 17 }, { width: 16 }];
+  const LAST = 5;
+  let r = 1;
+
+  // 公司抬头
+  ws.mergeCells(r, 1, r, LAST);
+  const title = ws.getCell(r, 1);
+  title.value = m.company?.name || '模具注塑报价单';
+  title.font = { size: 20, bold: true, color: { argb: 'FFFFFFFF' }, name: '微软雅黑' };
+  title.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.brand } };
+  title.alignment = { horizontal: 'center', vertical: 'middle' };
+  ws.getRow(r).height = 38;
+  r++;
+
+  ws.mergeCells(r, 1, r, LAST);
+  const sub = ws.getCell(r, 1);
+  const contact = [
+    m.company?.address,
+    m.company?.phone && `电话：${m.company.phone}`,
+    m.company?.email,
+  ]
+    .filter(Boolean)
+    .join('　|　');
+  sub.value = contact || '模具设计与制造 · 注塑成型一站式服务';
+  sub.font = { size: 10, color: { argb: C.muted }, name: '微软雅黑' };
+  sub.alignment = { horizontal: 'center', vertical: 'middle' };
+  sub.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.brandLight } };
+  ws.getRow(r).height = 22;
+  r += 2;
+
+  // 单据标题
+  ws.mergeCells(r, 1, r, LAST);
+  const doc = ws.getCell(r, 1);
+  doc.value = '模  具  报  价  单';
+  doc.font = { size: 16, bold: true, color: { argb: C.text }, name: '微软雅黑' };
+  doc.alignment = { horizontal: 'center', vertical: 'middle' };
+  ws.getRow(r).height = 30;
+  r++;
+
+  ws.mergeCells(r, 1, r, 2);
+  ws.mergeCells(r, 4, r, LAST);
+  const q1 = ws.getCell(r, 1);
+  q1.value = `报价编号：${m.quoteNo}`;
+  q1.font = { size: 10.5, color: { argb: C.muted }, name: '微软雅黑' };
+  q1.alignment = { horizontal: 'left', vertical: 'middle' };
+  const q2 = ws.getCell(r, 4);
+  q2.value = `报价日期：${fmtDate(m.createdAt)}　有效期：${
+    m.expiresAt ? fmtDate(m.expiresAt) : '自报价日起 30 天'
+  }`;
+  q2.font = { size: 10.5, color: { argb: C.muted }, name: '微软雅黑' };
+  q2.alignment = { horizontal: 'right', vertical: 'middle' };
+  ws.getRow(r).height = 22;
+  r += 2;
+
+  const sectionBar = (text: string) => {
+    ws.mergeCells(r, 1, r, LAST);
+    const c = ws.getCell(r, 1);
+    c.value = text;
+    c.font = { size: 11.5, bold: true, color: { argb: C.brand }, name: '微软雅黑' };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.brandLight } };
+    c.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+    c.border = box;
+    ws.getRow(r).height = 24;
+    r++;
+  };
+
+  // 客户与项目
+  sectionBar('一、客户与项目信息');
+
+  const customerRows: [string, string][] = [
+    ['客户名称', m.customer.name],
+    ['联系人', m.customer.contact || '—'],
+    ['联系电话', m.customer.phone || '—'],
+    ['电子邮箱', m.customer.email || '—'],
+  ];
+  const projectRows: [string, string][] = [
+    ...(m.moldTypeName ? ([['模具类型', m.moldTypeName]] as [string, string][]) : []),
+    ...m.project.map((p) => [p.label, p.value] as [string, string]),
+  ];
+  const rows = Math.max(customerRows.length, projectRows.length, 4);
+
+  for (let i = 0; i < rows; i++) {
+    ws.getRow(r).height = 22;
+    const lk = ws.getCell(r, 1);
+    lk.value = customerRows[i]?.[0] ?? '';
+    lk.font = { size: 10.5, color: { argb: C.muted }, name: '微软雅黑' };
+    lk.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.groupBg } };
+    lk.alignment = { horizontal: 'center', vertical: 'middle' };
+    lk.border = box;
+
+    const lv = ws.getCell(r, 2);
+    ws.mergeCells(r, 2, r, 3);
+    lv.value = customerRows[i]?.[1] ?? '';
+    lv.font = { size: 11, color: { argb: C.text }, name: '微软雅黑' };
+    lv.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+    lv.border = box;
+
+    const rk = ws.getCell(r, 4);
+    rk.value = projectRows[i]?.[0] ?? '';
+    rk.font = { size: 10.5, color: { argb: C.muted }, name: '微软雅黑' };
+    rk.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.groupBg } };
+    rk.alignment = { horizontal: 'center', vertical: 'middle' };
+    rk.border = box;
+
+    const rv = ws.getCell(r, 5);
+    rv.value = projectRows[i]?.[1] ?? '';
+    rv.font = { size: 11, color: { argb: C.text }, name: '微软雅黑' };
+    rv.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+    rv.border = box;
+    r++;
+  }
+  r++;
+
+  // 费用明细
+  sectionBar('二、费用明细');
+
+  ['序号', '费用项目', '计算说明', '金额（元）', '备注'].forEach((t, i) => {
+    const c = ws.getCell(r, i + 1);
+    c.value = t;
+    c.font = { size: 11, bold: true, color: { argb: 'FFFFFFFF' }, name: '微软雅黑' };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.brand } };
+    c.alignment = { horizontal: i === 3 ? 'right' : 'center', vertical: 'middle' };
+    c.border = box;
+  });
+  ws.getRow(r).height = 26;
+  r++;
+
+  const groupRow = (label: string, amount: number) => {
+    ws.getRow(r).height = 22;
+    const c1 = ws.getCell(r, 1);
+    ws.mergeCells(r, 1, r, 2);
+    c1.value = label;
+    c1.font = { size: 11, bold: true, color: { argb: C.text }, name: '微软雅黑' };
+    c1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.groupBg } };
+    c1.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+    c1.border = box;
+
+    const c3 = ws.getCell(r, 3);
+    c3.value = '';
+    c3.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.groupBg } };
+    c3.border = box;
+
+    const c4 = ws.getCell(r, 4);
+    c4.value = amount;
+    c4.numFmt = MONEY_FMT;
+    c4.font = { size: 11, bold: true, color: { argb: C.text }, name: '微软雅黑' };
+    c4.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.groupBg } };
+    c4.alignment = { horizontal: 'right', vertical: 'middle' };
+    c4.border = box;
+
+    const c5 = ws.getCell(r, 5);
+    c5.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.groupBg } };
+    c5.border = box;
+    r++;
+  };
+
+  const lineRow = (idx: number, line: ExcelLine, zebra: boolean) => {
+    const bg = zebra ? C.zebra : 'FFFFFFFF';
+    const vals: (string | number)[] = [idx, line.name, line.readable || '', line.value, line.note || ''];
+    vals.forEach((v, i) => {
+      const c = ws.getCell(r, i + 1);
+      c.value = v;
+      c.font = {
+        size: 10.5,
+        color: { argb: i === 2 ? C.muted : C.text },
+        name: '微软雅黑',
+        bold: i === 3,
+      };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+      c.alignment = {
+        horizontal: i === 0 ? 'center' : i === 3 ? 'right' : 'left',
+        vertical: 'middle',
+        indent: i === 1 || i === 2 || i === 4 ? 1 : 0,
+      };
+      if (i === 3) c.numFmt = MONEY_FMT;
+      c.border = box;
+    });
+    ws.getRow(r).height = 24;
+    r++;
+  };
+
+  if (m.moldLines.length) {
+    groupRow('（一）模具费用', m.summary.mold);
+    m.moldLines.forEach((l, i) => lineRow(i + 1, l, i % 2 === 1));
+  }
+  if (m.injectionLines.length) {
+    groupRow('（二）注塑费用', m.summary.injection);
+    m.injectionLines.forEach((l, i) => lineRow(i + 1, l, i % 2 === 1));
+  }
+  if (!m.moldLines.length && !m.injectionLines.length) {
+    ws.mergeCells(r, 1, r, LAST);
+    const c = ws.getCell(r, 1);
+    c.value = '（无费用明细）';
+    c.font = { size: 10.5, color: { argb: C.muted }, name: '微软雅黑' };
+    c.alignment = { horizontal: 'center', vertical: 'middle' };
+    c.border = box;
+    ws.getRow(r).height = 24;
+    r++;
+  }
+  r++;
+
+  // 汇总
+  sectionBar('三、费用汇总');
+
+  const sumRow = (label: string, value: number, opts: { pct?: string } = {}) => {
+    const lc = ws.getCell(r, 3);
+    lc.value = opts.pct ? `${label}（${opts.pct}）` : label;
+    lc.font = { size: 10.5, color: { argb: C.muted }, name: '微软雅黑' };
+    lc.alignment = { horizontal: 'right', vertical: 'middle', indent: 1 };
+    lc.border = box;
+
+    const vc = ws.getCell(r, 4);
+    vc.value = value;
+    vc.numFmt = MONEY_FMT;
+    vc.font = { size: 10.5, color: { argb: C.text }, name: '微软雅黑' };
+    vc.alignment = { horizontal: 'right', vertical: 'middle' };
+    vc.border = box;
+
+    ws.getCell(r, 5).border = box;
+    ws.getRow(r).height = 22;
+    r++;
+  };
+
+  const s = m.summary;
+  if (s.mold) sumRow('模具费用合计', s.mold);
+  if (s.injection) sumRow('注塑费用合计', s.injection);
+  if (s.profit) sumRow('利润', s.profit, { pct: `${Math.round(s.profitRate * 1000) / 10}%` });
+  if (s.tax) sumRow('税额', s.tax, { pct: `${Math.round(s.taxRate * 1000) / 10}%` });
+
+  {
+    ws.getRow(r).height = 36;
+    const lc = ws.getCell(r, 3);
+    lc.value = '含 税 总 价';
+    lc.font = { size: 13, bold: true, color: { argb: 'FFFFFFFF' }, name: '微软雅黑' };
+    lc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.totalBg } };
+    lc.alignment = { horizontal: 'right', vertical: 'middle', indent: 1 };
+    lc.border = box;
+
+    const vc = ws.getCell(r, 4);
+    vc.value = s.total;
+    vc.numFmt = MONEY_FMT;
+    vc.font = { size: 15, bold: true, color: { argb: 'FFFFFFFF' }, name: '微软雅黑' };
+    vc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.totalBg } };
+    vc.alignment = { horizontal: 'right', vertical: 'middle' };
+    vc.border = box;
+
+    const nc = ws.getCell(r, 5);
+    nc.value = '（人民币）';
+    nc.font = { size: 10, color: { argb: 'FFFFFFFF' }, name: '微软雅黑' };
+    nc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.totalBg } };
+    nc.alignment = { horizontal: 'center', vertical: 'middle' };
+    nc.border = box;
+    r++;
+  }
+
+  ws.mergeCells(r, 1, r, LAST);
+  const cap = ws.getCell(r, 1);
+  cap.value = `大写金额：${toChineseAmount(s.total)}`;
+  cap.font = { size: 11, color: { argb: C.text }, name: '微软雅黑' };
+  cap.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.brandLight } };
+  cap.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+  cap.border = box;
+  ws.getRow(r).height = 24;
+  r += 2;
+
+  // 条款
+  if (m.terms.length) {
+    sectionBar('四、商务条款');
+    m.terms.forEach((t, i) => {
+      ws.mergeCells(r, 1, r, LAST);
+      const c = ws.getCell(r, 1);
+      c.value = `${i + 1}. ${t}`;
+      c.font = { size: 10.5, color: { argb: C.text }, name: '微软雅黑' };
+      c.alignment = { horizontal: 'left', vertical: 'middle', indent: 1, wrapText: true };
+      c.border = box;
+      ws.getRow(r).height = 20;
+      r++;
+    });
+    r++;
+  }
+
+  // 签字
+  ws.mergeCells(r, 1, r, LAST);
+  const note = ws.getCell(r, 1);
+  note.value = '本报价单经双方确认后生效。如需调整规格或数量，价格需重新核算。';
+  note.font = { size: 10, italic: true, color: { argb: C.muted }, name: '微软雅黑' };
+  note.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+  r += 2;
+
+  ws.mergeCells(r, 1, r, 2);
+  ws.mergeCells(r, 4, r, LAST);
+  const g1 = ws.getCell(r, 1);
+  g1.value = `供方签字（盖章）：${m.senderName ? m.senderName + '　' : ''}____________________`;
+  g1.font = { size: 11, color: { argb: C.text }, name: '微软雅黑' };
+  g1.alignment = { horizontal: 'left', vertical: 'middle' };
+  const g2 = ws.getCell(r, 4);
+  g2.value = '需方签字（盖章）：____________________';
+  g2.font = { size: 11, color: { argb: C.text }, name: '微软雅黑' };
+  g2.alignment = { horizontal: 'left', vertical: 'middle' };
+  ws.getRow(r).height = 30;
+
+  ws.headerFooter.oddFooter = `&L模具注塑报价系统&C第 &P 页 / 共 &N 页&R${m.quoteNo}`;
+}
+
+function buildDetailSheet(wb: ExcelJS.Workbook, m: ExcelQuoteModel) {
+  const ws = wb.addWorksheet('计算明细', { views: [{ showGridLines: false }] });
+  ws.columns = [{ width: 8 }, { width: 24 }, { width: 60 }, { width: 18 }];
+
+  ws.mergeCells('A1:D1');
+  const t = ws.getCell('A1');
+  t.value = `计算明细 · ${m.quoteNo}`;
+  t.font = { size: 14, bold: true, color: { argb: 'FFFFFFFF' }, name: '微软雅黑' };
+  t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.brand } };
+  t.alignment = { horizontal: 'center', vertical: 'middle' };
+  ws.getRow(1).height = 30;
+
+  let r = 2;
+  ws.mergeCells(r, 1, r, 4);
+  const meta = ws.getCell(r, 1);
+  meta.value = `${m.customer.name}　·　${m.project.map((p) => `${p.label}：${p.value}`).join('　·　')}`;
+  meta.font = { size: 10, color: { argb: C.muted }, name: '微软雅黑' };
+  meta.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+  r += 2;
+
+  ['序号', '费用项目', '计算方式与代入过程', '金额（元）'].forEach((h, i) => {
+    const c = ws.getCell(r, i + 1);
+    c.value = h;
+    c.font = { size: 11, bold: true, color: { argb: 'FFFFFFFF' }, name: '微软雅黑' };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.brand } };
+    c.alignment = { horizontal: i === 3 ? 'right' : 'center', vertical: 'middle' };
+    c.border = box;
+  });
+  ws.getRow(r).height = 24;
+  r++;
+
+  const all = [
+    ...m.moldLines,
+    ...m.injectionLines,
+  ];
+  all.forEach((l, i) => {
+    const bg = i % 2 === 1 ? C.zebra : 'FFFFFFFF';
+    const vals: (string | number)[] = [i + 1, l.name, l.readable || '', l.value];
+    vals.forEach((v, ci) => {
+      const c = ws.getCell(r, ci + 1);
+      c.value = v;
+      c.font = { size: 10.5, color: { argb: ci === 2 ? C.muted : C.text }, name: '微软雅黑', bold: ci === 3 };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+      c.alignment = {
+        horizontal: ci === 0 ? 'center' : ci === 3 ? 'right' : 'left',
+        vertical: 'middle',
+        indent: ci === 2 ? 1 : 0,
+      };
+      if (ci === 3) c.numFmt = MONEY_FMT;
+      c.border = box;
+    });
+    ws.getRow(r).height = 22;
+    r++;
+  });
+
+  r++;
+  const s = m.summary;
+  const rows: [string, number][] = [
+    ['模具费用合计', s.mold],
+    ['注塑费用合计', s.injection],
+    ['利润', s.profit],
+    ['税额', s.tax],
+    ['含税总价', s.total],
+  ];
+  rows.forEach(([label, v], i) => {
+    const isTotal = i === rows.length - 1;
+    const lc = ws.getCell(r, 3);
+    lc.value = label;
+    lc.font = { size: isTotal ? 11.5 : 10.5, bold: isTotal, color: { argb: isTotal ? C.brand : C.muted }, name: '微软雅黑' };
+    lc.alignment = { horizontal: 'right', vertical: 'middle', indent: 1 };
+    lc.border = box;
+    const vc = ws.getCell(r, 4);
+    vc.value = v;
+    vc.numFmt = MONEY_FMT;
+    vc.font = { size: isTotal ? 12.5 : 10.5, bold: isTotal, color: { argb: isTotal ? C.brand : C.text }, name: '微软雅黑' };
+    vc.alignment = { horizontal: 'right', vertical: 'middle' };
+    vc.border = box;
+    ws.getCell(r, 1).border = box;
+    ws.getCell(r, 2).border = box;
+    ws.getRow(r).height = isTotal ? 26 : 22;
+    r++;
+  });
+
+  r++;
+  ws.mergeCells(r, 1, r, 4);
+  const tip = ws.getCell(r, 1);
+  tip.value = '说明：计算方式由配置中心设定，金额为系统按公式自动核算结果。';
+  tip.font = { size: 9.5, italic: true, color: { argb: C.muted }, name: '微软雅黑' };
+  tip.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+}
+
+/** 金额转中文大写 */
+export function toChineseAmount(n: number): string {
+  const num = Math.round((n || 0) * 100) / 100;
+  if (num === 0) return '零元整';
+
+  const digits = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖'];
+  const units = ['', '拾', '佰', '仟'];
+  const bigUnits = ['', '万', '亿', '兆'];
+
+  const intPart = Math.floor(Math.abs(num));
+  const decPart = Math.round((Math.abs(num) - intPart) * 100);
+
+  let intStr = '';
+  if (intPart === 0) {
+    intStr = '零';
+  } else {
+    const groups: string[] = [];
+    let rest = intPart;
+    while (rest > 0) {
+      groups.push(String(rest % 10000).padStart(4, '0'));
+      rest = Math.floor(rest / 10000);
+    }
+    groups.forEach((g, gi) => {
+      let gs = '';
+      let zero = false;
+      for (let i = 0; i < 4; i++) {
+        const d = Number(g[i]);
+        if (d === 0) {
+          zero = true;
+        } else {
+          if (zero && gs) gs += digits[0];
+          zero = false;
+          gs += digits[d] + units[3 - i];
+        }
+      }
+      if (gs) intStr = gs + bigUnits[gi] + intStr;
+    });
+    intStr = intStr.replace(/零+/g, '零').replace(/零$/, '');
+  }
+
+  let result = intStr + '元';
+  if (decPart === 0) {
+    result += '整';
+  } else {
+    const jiao = Math.floor(decPart / 10);
+    const fen = decPart % 10;
+    if (jiao > 0) result += digits[jiao] + '角';
+    else if (fen > 0) result += '零';
+    if (fen > 0) result += digits[fen] + '分';
+  }
+  return (num < 0 ? '负' : '') + result;
 }

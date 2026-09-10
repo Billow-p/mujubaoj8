@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import NewQuote from './pages/NewQuote';
+import ConfiguredQuote from './pages/ConfiguredQuote';
 import QuoteDetail from './pages/QuoteDetail';
 import Customers from './pages/Customers';
 import QuoteItems from './pages/QuoteItems';
@@ -28,7 +29,8 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
-        <Route path="/quotes/new" element={<NewQuote />} />
+        <Route path="/quotes/new" element={<ConfiguredQuote />} />
+        <Route path="/quotes/new/advanced" element={<NewQuote />} />
         <Route path="/quotes/:id" element={<QuoteDetail />} />
         <Route path="/customers" element={<Customers />} />
         <Route path="/settings/config" element={<ConfigCenter />} />

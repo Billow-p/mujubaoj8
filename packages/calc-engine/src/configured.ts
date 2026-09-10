@@ -122,42 +122,33 @@ export function calculateConfigured(
   }
   const allowed = new Set<string>(Object.keys(scope));
 
-  const lines: ConfigCalcLine[] = [];
-  let mold = 0;
-  let injection = 0;
+  const sorted = [...items].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  const lines: ConfigCalcLine[] = new Array(sorted.length);
+  const meta = (it: QuoteItemDef) => ({
+    name: it.name,
+    category: it.category ?? '自定义',
+    scope: it.scope,
+    calcType: it.calcType,
+  });
+
+  // ---- 第一遍：直接费用项（比例项先挂起） ----
+  const percentQueue: { idx: number; it: QuoteItemDef }[] = [];
+  let directMold = 0;
+  let directInjection = 0;
   let materialTotal = 0;
 
-  const sorted = [...items].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-
-  for (const it of sorted) {
-    const base = {
-      name: it.name,
-      category: it.category ?? '自定义',
-      scope: it.scope,
-      calcType: it.calcType,
-    };
-
+  sorted.forEach((it, idx) => {
     if (it.enabled === false) {
-      lines.push({ ...base, value: 0, expression: '', readable: describeItem(it), skipped: true });
-      continue;
+      lines[idx] = { ...meta(it), value: 0, expression: '', readable: describeItem(it), skipped: true };
+      return;
     }
-
     if (it.calcType === 'manual') {
-      lines.push({ ...base, value: 0, expression: '', readable: describeItem(it), manual: true });
-      continue;
+      lines[idx] = { ...meta(it), value: 0, expression: '', readable: describeItem(it), manual: true };
+      return;
     }
-
     if (it.calcType === 'percent') {
-      const rate = Number(it.calcConfig?.rate) || 0;
-      const baseName = it.calcConfig?.base ?? '模具小计';
-      const from = baseName === '材料费合计' ? materialTotal : mold;
-      const v = Math.round(from * rate);
-      if (it.scope === 'injection') injection += v;
-      else mold += v;
-      scope[it.name] = v;
-      allowed.add(it.name);
-      lines.push({ ...base, value: r2(v), expression: `${from} * ${rate}`, readable: describeItem(it) });
-      continue;
+      percentQueue.push({ idx, it });
+      return;
     }
 
     const expression = buildItemExpression(it);
@@ -166,19 +157,44 @@ export function calculateConfigured(
       const rounded = r2(v);
       scope[it.name] = rounded;
       allowed.add(it.name);
-      if (it.scope === 'injection') injection += rounded;
-      else mold += rounded;
+      if (it.scope === 'injection') directInjection += rounded;
+      else directMold += rounded;
       if (it.category === '材料费') materialTotal += rounded;
-      lines.push({ ...base, value: rounded, expression, readable: describeItem(it) });
+      lines[idx] = { ...meta(it), value: rounded, expression, readable: describeItem(it) };
     } catch (e) {
-      lines.push({
-        ...base,
+      lines[idx] = {
+        ...meta(it),
         value: 0,
         expression,
         readable: describeItem(it),
         error: friendlyCalcError(e),
-      });
+      };
     }
+  });
+
+  // ---- 第二遍：比例项，基数 = 全部直接费用（与它排在哪个位置无关） ----
+  let mold = directMold;
+  let injection = directInjection;
+  for (const { idx, it } of percentQueue) {
+    const rate = Number(it.calcConfig?.rate) || 0;
+    const baseName = it.calcConfig?.base ?? '模具小计';
+    const from =
+      baseName === '材料费合计'
+        ? materialTotal
+        : it.scope === 'injection'
+          ? directInjection
+          : directMold;
+    const v = Math.round(from * rate);
+    if (it.scope === 'injection') injection += v;
+    else mold += v;
+    scope[it.name] = v;
+    allowed.add(it.name);
+    lines[idx] = {
+      ...meta(it),
+      value: r2(v),
+      expression: `${from} * ${rate}`,
+      readable: describeItem(it),
+    };
   }
 
   const profitRate = Number(opts.profitRate) || 0;

@@ -62,6 +62,16 @@ export const quotes = {
     input: any;
   }) => api.post('/quotes', body).then((r) => r.data),
 
+  // 按配置中心创建报价单
+  createConfigured: (body: {
+    moldTypeId: string;
+    customerName: string;
+    customerEmail?: string;
+    productName?: string;
+    values: Record<string, any>;
+    manualAmounts?: Record<string, number>;
+  }) => api.post('/quotes/configured', body).then((r) => r.data),
+
   update: (id: string, versionNo: string, body: any) =>
     api.patch(`/quotes/${id}/versions/${versionNo}`, body).then((r) => r.data),
 

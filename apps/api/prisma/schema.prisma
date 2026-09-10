@@ -117,6 +117,7 @@ model Quote {
   id              String   @id @default(cuid())
   companyId       String
   customerId      String?
+  moldTypeId      String?  // 配置中心的模具类型（新流程）
   createdById     String
   approvedById    String?
   quoteNo         String   @unique  // BJ-2026-0906-A02

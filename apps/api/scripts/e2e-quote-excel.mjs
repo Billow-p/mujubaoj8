@@ -1,0 +1,249 @@
+// 配置驱动报价单 + Excel 导出 端到端测试
+// 运行：node apps/api/scripts/e2e-quote-excel.mjs
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
+import bcrypt from 'bcryptjs';
+import { PrismaClient } from '@prisma/client';
+import ExcelJS from 'exceljs';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const apiDir = path.resolve(here, '..');
+
+const fileEnv = {};
+for (const line of fs.readFileSync(path.join(apiDir, '.env'), 'utf8').split(/\r?\n/)) {
+  const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
+  if (m) fileEnv[m[1]] = m[2].replace(/^["']|["']$/g, '');
+}
+Object.assign(process.env, fileEnv);
+const BASE = `http://127.0.0.1:${Number(fileEnv.PORT || 4799)}`;
+
+let pass = 0, fail = 0;
+const failures = [];
+const check = (name, cond, extra) => {
+  if (cond) { pass++; console.log(`  \u2713 ${name}${extra ? ` — ${extra}` : ''}`); }
+  else { fail++; failures.push(name); console.log(`  \u2717 ${name}${extra ? ` — ${extra}` : ''}`); }
+};
+
+async function req(method, p, body, token) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const resp = await fetch(BASE + p, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const text = await resp.text();
+  let data = text;
+  try { data = JSON.parse(text); } catch { /* keep */ }
+  return { status: resp.status, data };
+}
+
+async function seed() {
+  const prisma = new PrismaClient();
+  await prisma.$connect();
+  // 按外键依赖顺序清理（所有引用 Company 的表都必须先清）
+  await prisma.quoteAdjustment.deleteMany({});
+  await prisma.quoteVersion.deleteMany({});
+  await prisma.quoteLog.deleteMany({});
+  await prisma.quoteEmailLog.deleteMany({});
+  await prisma.quoteShare.deleteMany({});
+  await prisma.quote.deleteMany({});
+  await prisma.customer.deleteMany({});
+  await prisma.quoteItem.deleteMany({});
+  await prisma.businessTerm.deleteMany({});
+  await prisma.materialPrice.deleteMany({});
+  await prisma.material.deleteMany({});
+  await prisma.customParameter.deleteMany({});
+  await prisma.moldType.deleteMany({});
+  await prisma.customFormula.deleteMany({});
+  await prisma.quoteTemplate.deleteMany({});
+  await prisma.materialOverride.deleteMany({});
+  await prisma.steelOverride.deleteMany({});
+  await prisma.complexityOverride.deleteMany({});
+  await prisma.businessTermOverride.deleteMany({});
+  await prisma.emailVerification.deleteMany({});
+  await prisma.user.deleteMany({});
+  await prisma.company.deleteMany({});
+
+  const c = await prisma.company.create({ data: { name: '星辉模具制造有限公司' } });
+  await prisma.user.create({
+    data: { companyId: c.id, email: 'q1@mqs.local', passwordHash: bcrypt.hashSync('password123', 10), name: '张报价', role: 'admin', emailVerified: true },
+  });
+  await prisma.$disconnect();
+}
+
+async function waitApi(ms = 30000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    try { const r = await fetch(`${BASE}/health`); if (r.ok) return true; } catch { /* wait */ }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
+}
+
+async function main() {
+  console.log('\n===== 配置驱动报价单 + Excel 导出 测试 =====');
+  await seed();
+  const api = spawn(process.execPath, ['dist/index.js'], {
+    cwd: apiDir, env: { ...process.env, LOG_LEVEL: 'warn' }, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  api.stderr.on('data', (d) => process.stderr.write(`  [api:err] ${d}`));
+  const up = await waitApi();
+  check('API 启动', up);
+  if (!up) { api.kill(); process.exit(1); }
+
+  try {
+    const login = await req('POST', '/api/auth/login', { email: 'q1@mqs.local', password: 'password123' });
+    const token = login.data?.token;
+    check('登录成功', !!token);
+
+    // ---------- 准备配置 ----------
+    console.log('\n[1] 准备配置');
+    await req('POST', '/api/mold-types/init-preset', {}, token);
+    const types = await req('GET', '/api/mold-types', undefined, token);
+    const inj = types.data.find((t) => t.code === 'injection');
+    check('注塑类型就绪', !!inj, inj?.name);
+
+    // 加一个手填项，验证手动金额
+    const cfg = await req('GET', `/api/config/${inj.id}`, undefined, token);
+    await req('PUT', `/api/config/${inj.id}`, {
+      items: [
+        ...cfg.data.items.map((it) => ({ id: it.id, name: it.name, category: it.category, scope: it.scope, calcType: it.calcType, calcConfig: it.calcConfig, enabled: it.enabled })),
+        { name: '差旅费', category: '自定义', scope: 'mold', calcType: 'manual', enabled: true },
+      ],
+    }, token);
+    const cfg2 = await req('GET', `/api/config/${inj.id}`, undefined, token);
+    check('手填项已加入', cfg2.data.items.some((x) => x.name === '差旅费'));
+
+    // ---------- 创建报价单 ----------
+    console.log('\n[2] 按配置创建报价单');
+    const created = await req('POST', '/api/quotes/configured', {
+      moldTypeId: inj.id,
+      customerName: '顺德电器有限公司',
+      productName: '洗衣机控制面板',
+      values: { 腔数: 2, 单件重量: 0.18, 模芯长: 500, 模芯宽: 400, 模芯高: 150, 钢材单价: 25, 首单数量: 300000 },
+      manualAmounts: { 差旅费: 3500 },
+    }, token);
+    check('报价单创建成功', created.status === 200 && !!created.data.id, created.data?.quoteNo);
+    const qid = created.data?.id;
+
+    const detail = await req('GET', `/api/quotes/${qid}`, undefined, token);
+    const ver = detail.data?.versions?.[0];
+    const calc = ver?.calcResultJson;
+    check('计算结果已存储', !!calc && Array.isArray(calc.lines));
+    const lineOf = (n) => calc.lines.find((l) => l.name === n);
+    check('模芯钢材费 = 5887.5', lineOf('模芯钢材费')?.value === 5887.5, String(lineOf('模芯钢材费')?.value));
+    check('CNC 加工费 = 38400', lineOf('CNC 加工费')?.value === 38400);
+    check('试模费 = 5000', lineOf('试模费')?.value === 5000);
+    check('手填差旅费 = 3500', lineOf('差旅费')?.value === 3500, String(lineOf('差旅费')?.value));
+    const sub = 5887.5 + 38400 + 6000 + 5000 + 3500;
+    check('管理费 = 全部直接费用 × 15%', lineOf('管理费')?.value === Math.round(sub * 0.15), String(lineOf('管理费')?.value));
+    check('模具合计正确', calc.mold === sub + Math.round(sub * 0.15), String(calc.mold));
+    check('含税总价 > 0', calc.total > 0, String(calc.total));
+    check('报价单已关联模具类型', detail.data.moldTypeId === inj.id);
+    check('参数值已冻结到版本', ver.paramsJson?.values?.['腔数'] === 2);
+
+    // ---------- Excel 导出 ----------
+    console.log('\n[3] Excel 导出');
+    const resp = await fetch(`${BASE}/api/quotes/${qid}/export-excel`, { headers: { Authorization: `Bearer ${token}` } });
+    const buf = Buffer.from(await resp.arrayBuffer());
+    check('导出成功', resp.status === 200 && buf.length > 5000, `${buf.length} 字节`);
+    check('文件头是 xlsx', buf.slice(0, 2).toString() === 'PK');
+
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+
+    // sheet 结构
+    check('含「报价单」sheet', !!wb.getWorksheet('报价单'));
+    check('含「计算明细」sheet', !!wb.getWorksheet('计算明细'));
+    check('共 2 个 sheet', wb.worksheets.length === 2, `${wb.worksheets.length}`);
+
+    const ws = wb.getWorksheet('报价单');
+
+    // 抬头
+    const a1 = ws.getCell('A1');
+    check('抬头显示公司名', a1.value === '星辉模具制造有限公司', String(a1.value));
+    check('抬头有底色', !!a1.fill && a1.fill.fgColor?.argb === 'FF1E40AF');
+    check('抬头字色为白', a1.font?.color?.argb === 'FFFFFFFF');
+    check('抬头字号 20', a1.font?.size === 20);
+
+    // 收集整表文本便于查找
+    const allText = [];
+    ws.eachRow((row) => row.eachCell((c) => { if (c.value != null) allText.push(String(c.value)); }));
+    const has = (s) => allText.some((t) => t.includes(s));
+
+    check('含单据标题', has('模  具  报  价  单'));
+    check('含报价编号', has(created.data.quoteNo));
+    check('含客户名称', has('顺德电器有限公司'));
+    check('含模具类型', has('注塑模具'));
+    check('含产品名称', has('洗衣机控制面板'));
+    check('含费用分组-模具费用', has('（一）模具费用'));
+    check('含费用明细项', has('模芯钢材费'));
+    check('含手填费用项', has('差旅费'));
+    check('含汇总-含税总价', has('含 税 总 价'));
+    check('含大写金额', allText.some((t) => t.startsWith('大写金额：')));
+    check('含商务条款', has('商务条款'));
+    check('含供方签字栏', has('供方签字'));
+    check('含需方签字栏', has('需方签字'));
+
+    // 数值：总价单元格
+    let totalCell = null;
+    ws.eachRow((row) => row.eachCell((c) => {
+      if (String(c.value).includes('含 税 总 价')) totalCell = ws.getCell(c.row, c.col + 1);
+    }));
+    check('总价金额单元格存在', !!totalCell);
+    check('总价金额与计算一致', Math.abs(Number(totalCell?.value) - calc.total) < 0.01, `${totalCell?.value} vs ${calc.total}`);
+    check('总价有金额格式', totalCell?.numFmt === '#,##0.00', String(totalCell?.numFmt));
+    check('总价字体加粗放大', totalCell?.font?.bold === true && totalCell?.font?.size === 15);
+    check('总价行深色底', totalCell?.fill?.fgColor?.argb === 'FF1E3A8A');
+
+    // 明细行：检查有边框、右对齐、金额格式
+    let sampleMoneyCell = null;
+    ws.eachRow((row) => row.eachCell((c) => {
+      if (!sampleMoneyCell && c.numFmt === '#,##0.00' && typeof c.value === 'number' && c.value === 5887.5) {
+        sampleMoneyCell = c;
+      }
+    }));
+    check('明细金额单元格存在', !!sampleMoneyCell);
+    check('明细金额右对齐', sampleMoneyCell?.alignment?.horizontal === 'right');
+    check('明细金额有边框', !!sampleMoneyCell?.border?.top);
+    check('明细金额加粗', sampleMoneyCell?.font?.bold === true);
+
+    // 计算说明列有内容
+    const hasReadable = allText.some((t) => t.includes('模芯长') && t.includes('钢材单价'));
+    check('明细含中文计算说明', hasReadable);
+
+    // 明细 sheet
+    const ws2 = wb.getWorksheet('计算明细');
+    const text2 = [];
+    ws2.eachRow((row) => row.eachCell((c) => { if (c.value != null) text2.push(String(c.value)); }));
+    check('明细表含报价编号', text2.some((t) => t.includes(created.data.quoteNo)));
+    check('明细表含计算过程', text2.some((t) => t.includes('模芯长')));
+    check('明细表含含税总价', text2.some((t) => t.includes('含税总价')));
+
+    // ---------- 大写金额校验 ----------
+    console.log('\n[4] 金额大写');
+    const { toChineseAmount } = await import('../dist/services/excel.js');
+    check('1612285 → 壹佰陆拾壹万贰仟贰佰捌拾伍元整', toChineseAmount(1612285) === '壹佰陆拾壹万贰仟贰佰捌拾伍元整', toChineseAmount(1612285));
+    check('100.5 → 壹佰元伍角', toChineseAmount(100.5) === '壹佰元伍角', toChineseAmount(100.5));
+    check('0 → 零元整', toChineseAmount(0) === '零元整', toChineseAmount(0));
+    check('10000 → 壹万元整', toChineseAmount(10000) === '壹万元整', toChineseAmount(10000));
+
+    // ---------- Excel 落盘供人工查看 ----------
+    const out = path.join(apiDir, '..', '..', 'prototype', 'sample-quote.xlsx');
+    fs.writeFileSync(out, buf);
+    console.log(`\n  已导出样张：${out}`);
+  } catch (e) {
+    fail++;
+    failures.push('执行异常: ' + e.message);
+    console.log('\n执行异常：', e.stack);
+  } finally {
+    api.kill();
+  }
+
+  console.log('\n===== 结果 =====');
+  console.log(`${pass} 通过 / ${fail} 失败`);
+  if (fail) { console.log('失败项：'); failures.forEach((f) => console.log('  - ' + f)); }
+  process.exit(fail ? 1 : 0);
+}
+
+main();
