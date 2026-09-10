@@ -1,0 +1,11 @@
+[Unit]
+Description=Let's Encrypt 证书续期（模具注塑报价系统）
+Documentation=https://certbot.eff.org
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# certbot 装在独立 venv（/opt/certbot），不走系统包管理器
+# 只在距到期 30 天内才真正续期，平时是空操作
+ExecStart=/opt/certbot/bin/certbot renew --quiet --deploy-hook "systemctl reload nginx"

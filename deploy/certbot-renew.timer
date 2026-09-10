@@ -1,0 +1,11 @@
+[Unit]
+Description=每天两次检查 Let's Encrypt 证书续期
+
+[Timer]
+# 错开整点，随机延迟 1 小时，避免与 Let's Encrypt 的续期高峰撞车
+OnCalendar=*-*-* 00,12:17:00
+RandomizedDelaySec=3600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

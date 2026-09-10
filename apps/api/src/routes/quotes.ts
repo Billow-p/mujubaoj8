@@ -41,6 +41,15 @@ function genShareToken(): string {
   return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
 }
 
+/**
+ * 对外可访问的站点地址，用于生成分享链接与邮件里的链接。
+ * 来自 PUBLIC_WEB_URL（生产为 https://ycwl.chat），未配置时兜底到正式域名。
+ * 统一在这里取，避免各处硬编码导致链接指向不一致。
+ */
+function publicWebUrl(): string {
+  return (process.env.PUBLIC_WEB_URL || 'https://ycwl.chat').replace(/\/+$/, '');
+}
+
 /** 报价单含税总价 —— 兼容两代数据结构（配置驱动 lines / 老 11 项 summary） */
 function calcTotal(calc: any): number {
   if (!calc) return 0;
@@ -295,7 +304,7 @@ export async function quoteRoutes(app: FastifyInstance) {
           expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         },
       });
-      shareUrl = `${process.env.PUBLIC_WEB_URL || 'http://47.242.248.104'}/share/${share.shareToken}`;
+      shareUrl = `${publicWebUrl()}/share/${share.shareToken}`;
 
       const me = await prisma.user.findUnique({ where: { id: userId } });
       const emailResult = await sendQuoteNotification({
@@ -471,7 +480,7 @@ export async function quoteRoutes(app: FastifyInstance) {
         },
       });
 
-      const shareUrl = `${process.env.PUBLIC_WEB_URL || 'http://47.242.248.104'}/share/${share.shareToken}`;
+      const shareUrl = `${publicWebUrl()}/share/${share.shareToken}`;
 
       // 邮件里的金额同样要兼容两代结构：配置驱动取 calc 顶层，老模型取 summary
       const cfgMail = Array.isArray(calc?.lines);
@@ -549,7 +558,7 @@ export async function quoteRoutes(app: FastifyInstance) {
       const params = version.paramsJson as any;
       const summary = calc?.summary || {};
       const cfgMail = Array.isArray(calc?.lines);
-      const shareUrl = `${process.env.PUBLIC_WEB_URL || 'http://47.242.248.104'}/share/${share.shareToken}`;
+      const shareUrl = `${publicWebUrl()}/share/${share.shareToken}`;
 
       const result = await sendQuoteNotification({
         to: body.email,
