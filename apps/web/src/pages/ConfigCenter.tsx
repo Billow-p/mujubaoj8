@@ -75,6 +75,16 @@ export default function ConfigCenter() {
   const [pane, setPane] = useState<'param' | 'term'>('param');
   const [folded, setFolded] = useState(false);
   const [advOpen, setAdvOpen] = useState<Record<string, boolean>>({});
+  /** 产品数据的分组折叠：手风琴式，一次只展开一组（默认展开「模具参数」） */
+  const [paramOpen, setParamOpen] = useState<Record<string, boolean>>({ mold: true });
+  const toggleParamGroup = (k: string) =>
+    setParamOpen((s) => {
+      const wasOpen = !!s[k];
+      const next: Record<string, boolean> = {};
+      for (const key of Object.keys(s)) next[key] = false;
+      if (!wasOpen) next[k] = true;
+      return next;
+    });
   const [picking, setPicking] = useState(false);
 
   // ---------- 加载 ----------
@@ -271,8 +281,10 @@ export default function ConfigCenter() {
               onClick={() => addParamOption(i)}
               className="text-[11px] text-gray-400 hover:text-gray-900"
             >+ 加选项</button>
-            <p className="text-[11px] text-gray-400 leading-snug">
-              右边的数字参与公式计算，如「省外 = 1、省内 = 0」
+            <p className="text-[11px] text-amber-700 leading-snug bg-amber-50 border border-amber-200 rounded px-1.5 py-1">
+              这里的数字不是金额，是「系数」—— 公式会拿它去乘。
+              例如运输费 = 重量 × 运费单价 × 这里的数字，所以填 300 会变成 300 倍运费；
+              想固定加一笔钱，请在费用项里加「手填金额」类型的项。
             </p>
           </div>
         )}
@@ -502,22 +514,33 @@ export default function ConfigCenter() {
                     );
                   return (
                     <div key={g.k}>
-                      <div className="flex items-center gap-2 pt-1 pb-1.5 border-b border-gray-100">
+                      <button
+                        onClick={() => toggleParamGroup(g.k)}
+                        className="w-full flex items-center gap-2 pt-1 pb-1.5 border-b border-gray-100 text-left hover:text-gray-900"
+                      >
+                        <span className="text-gray-400 text-[10px] w-3">{paramOpen[g.k] ? '▼' : '▶'}</span>
                         <span className="text-[12.5px] font-medium text-gray-900">{g.t}</span>
                         <span className="text-[11px] text-gray-400">{g.d}</span>
                         <div className="flex-1" />
                         <span className="text-[11px] text-gray-400 tabular-nums">{list.length}</span>
-                        <button
-                          onClick={() => patch((c) => { c.parameters.push(emptyParam(g.k)); })}
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            patch((c) => { c.parameters.push(emptyParam(g.k)); });
+                          }}
                           className="border border-gray-300 px-2 py-0.5 rounded text-[11.5px] hover:bg-gray-50"
-                        >+ 加一项</button>
-                      </div>
-                      {list.length === 0 && (
-                        <p className="text-[12px] text-gray-400 py-1.5">这一类还没有参数</p>
+                        >+ 加一项</span>
+                      </button>
+                      {paramOpen[g.k] && (
+                        <>
+                          {list.length === 0 && (
+                            <p className="text-[12px] text-gray-400 py-1.5">这一类还没有参数</p>
+                          )}
+                          <div className="space-y-0.5">
+                            {list.map(({ p, i }) => renderParam(p, i))}
+                          </div>
+                        </>
                       )}
-                      <div className="space-y-0.5">
-                        {list.map(({ p, i }) => renderParam(p, i))}
-                      </div>
                     </div>
                   );
                 })}

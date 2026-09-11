@@ -66,7 +66,9 @@ ssh -o StrictHostKeyChecking=no root@47.242.248.104 "
   node scripts/migrate-add-steel-material.mjs
   echo '==> [6.7/8] 补充主流模具成本项（模架费/机台费/热流道/EDM… 默认 0，不填不计钱）'
   node scripts/migrate-add-mold-items.mjs
-  echo '==> [6.8/8] 确保全局材料库编码唯一索引（db push 可能清掉，每次重建）'
+  echo '==> [6.8/8] 修正运输区域系数语义 + 新增运输附加费'
+  node scripts/migrate-fix-freight.mjs
+  echo '==> [6.9/8] 确保全局材料库编码唯一索引（db push 可能清掉，每次重建）'
   node scripts/migrate-add-material-unique.mjs
 "
 

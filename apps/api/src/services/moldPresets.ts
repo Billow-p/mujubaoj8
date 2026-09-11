@@ -103,10 +103,11 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { code: 'packHeightCm', name: '运输箱高', value: 80, unit: 'cm', group: '运输', scope: 'common' },
       { code: 'freightRate', name: '运费单价', value: 1.2, unit: '元/kg', group: '运输', scope: 'common' },
       {
-        code: 'freightZone', name: '运输区域', value: '1', unit: '', group: '运输', type: 'select', scope: 'common',
+        code: 'freightZone', name: '运输区域', value: '0', unit: '', group: '运输', type: 'select', scope: 'common',
         options: [
           { label: '广东省内（免运费）', value: 0 },
-          { label: '广东省外', value: 1 },
+          { label: '广东省外（按正常运费）', value: 1 },
+          { label: '偏远地区（运费加倍）', value: 2 },
         ],
       },
     ],
@@ -147,6 +148,8 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       // 体积重量 = 长 × 宽 × 高 ÷ 6000（物流行业通用材积系数，单位 kg）
       { name: '运输费', category: '运输', scope: 'mold', calcType: 'formula',
         expression: '最大值 ( 模具重量, 运输箱长 * 运输箱宽 * 运输箱高 / 6000 ) * 运费单价 * 运输区域' },
+      // 运输附加费：区域系数解决不了的固定加价（如加急、木箱、保险）在这里手填，不填为 0
+      { name: '运输附加费', category: '运输', scope: 'mold', calcType: 'manual' },
 
       // ------- 注塑费用（按件计价：单件成本 × 注塑数量） -------
       // 材料单价与损耗率都来自材料库（选了牌号就按牌号走，没选则用配置里的固定值）

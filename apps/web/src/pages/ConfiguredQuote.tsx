@@ -53,6 +53,8 @@ export default function ConfiguredQuote() {
   const [parts, setParts] = useState<PartState[]>([]);
   const [customer, setCustomer] = useState({ name: '', phone: '', productName: '' });
   const [matList, setMatList] = useState<any[]>([]);
+  /** 右栏「费用明细」展开状态（m0/m1=模具，p0/p1=注塑件） */
+  const [detailOpen, setDetailOpen] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [source, setSource] = useState<any | null>(null);
@@ -876,12 +878,37 @@ export default function ConfiguredQuote() {
         {/* 右：实时算价 */}
         <div className="bg-white border border-gray-200 rounded-lg sticky top-4">
           <div className="px-3.5 py-3 border-b border-gray-200 font-semibold text-sm">实时算价</div>
-          <div className="p-3.5 max-h-[460px] overflow-y-auto">
+          <div className="px-3.5 pt-2 pb-1 text-[11.5px] text-gray-400">
+            点「费用明细」可看到每一项是怎么算出来的，改任何参数都能对上账
+          </div>
+          <div className="p-3.5 pt-1.5 max-h-[520px] overflow-y-auto">
             <div className="text-[12px] font-semibold text-gray-500 mb-1">模具费用</div>
             {(result?.moldResults ?? []).map((m: any, i: number) => (
-              <div key={i} className="flex justify-between text-[13px] py-1">
-                <span className="text-gray-700 truncate pr-2">{m.name}</span>
-                <span className="tabular-nums font-medium">{money(m.subtotal)}</span>
+              <div key={i} className="py-1">
+                <div className="flex justify-between text-[13px]">
+                  <span className="text-gray-700 truncate pr-2">{m.name}</span>
+                  <span className="tabular-nums font-medium">{money(m.subtotal)}</span>
+                </div>
+                <button
+                  onClick={() => setDetailOpen((s) => ({ ...s, [`m${i}`]: !s[`m${i}`] }))}
+                  className="text-[11px] text-gray-400 hover:text-gray-900"
+                >
+                  {detailOpen[`m${i}`] ? '▴ 收起明细' : '▾ 费用明细'}
+                </button>
+                {detailOpen[`m${i}`] && (
+                  <div className="mt-1 mb-1 space-y-0.5 border-l-2 border-gray-100 pl-2">
+                    {(m.lines ?? [])
+                      .filter((l: any) => !l.skipped)
+                      .map((l: any, li: number) => (
+                        <div key={li} className="flex justify-between text-[11.5px] text-gray-500 gap-2">
+                          <span className="truncate">{l.name}</span>
+                          <span className="tabular-nums shrink-0">
+                            {l.error ? '—' : l.manual ? '报价时填' : money(l.value)}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                )}
               </div>
             ))}
             {molds.length === 0 && <div className="text-[12.5px] text-gray-400">—</div>}
@@ -896,6 +923,26 @@ export default function ConfiguredQuote() {
                 {p.unitCost != null && (
                   <div className="text-[12px] text-emerald-700">
                     单件 {money2(p.unitCost)}　×　{(p.qty ?? 0).toLocaleString('zh-CN')} 件
+                  </div>
+                )}
+                <button
+                  onClick={() => setDetailOpen((s) => ({ ...s, [`p${i}`]: !s[`p${i}`] }))}
+                  className="text-[11px] text-gray-400 hover:text-gray-900"
+                >
+                  {detailOpen[`p${i}`] ? '▴ 收起明细' : '▾ 费用明细'}
+                </button>
+                {detailOpen[`p${i}`] && (
+                  <div className="mt-1 mb-1 space-y-0.5 border-l-2 border-gray-100 pl-2">
+                    {(p.lines ?? [])
+                      .filter((l: any) => !l.skipped)
+                      .map((l: any, li: number) => (
+                        <div key={li} className="flex justify-between text-[11.5px] text-gray-500 gap-2">
+                          <span className="truncate">{l.name}</span>
+                          <span className="tabular-nums shrink-0">
+                            {l.error ? '—' : l.manual ? '报价时填' : money(l.value)}
+                          </span>
+                        </div>
+                      ))}
                   </div>
                 )}
               </div>
