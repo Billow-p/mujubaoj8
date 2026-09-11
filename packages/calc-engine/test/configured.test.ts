@@ -1,5 +1,6 @@
 // 配置驱动算价 — 单元测试
 import type { QuoteItemDef } from '@mqs/shared';
+import { resolveMaterialPrice } from '@mqs/shared';
 import {
   buildItemExpression,
   describeItem,
@@ -286,6 +287,33 @@ t('未选材料：损耗回落配置里的 0.05 → 0.18×12×1.05 = 2.27', injU
 t('与老配置结果完全一致（零回归）', injUnit(injNew, Pq), injUnit(injOld, Pq));
 t('选 PEEK（损耗 8%）：0.18×12×1.08 = 2.33', injUnit(injNew, { ...Pq, 原料损耗率: 0.08 }), 2.33);
 t('单件成本随材料损耗率变化', injUnit(injNew, { ...Pq, 原料损耗率: 0.08 }) !== injUnit(injNew, Pq), true);
+
+console.log('=== 17. 材料阶梯价（resolveMaterialPrice，前后端共用） ===');
+const tiered = {
+  currentPrice: 12,
+  priceRule: 'tiered',
+  priceTiers: JSON.stringify([
+    { minQty: 0, maxQty: 999, price: 12 },
+    { minQty: 1000, maxQty: null, price: 10 },
+  ]),
+};
+t('固定价：忽略阶梯表', resolveMaterialPrice({ currentPrice: 12, priceRule: 'fixed', priceTiers: '[]' }, 5000), 12);
+t('用量 500kg → 命中第一档 12', resolveMaterialPrice(tiered, 500), 12);
+t('用量 1000kg → 命中第二档 10', resolveMaterialPrice(tiered, 1000), 10);
+t('用量未知 → 回落基础价 12', resolveMaterialPrice(tiered, null), 12);
+t('坏 JSON → 回落基础价 12', resolveMaterialPrice({ currentPrice: 12, priceRule: 'tiered', priceTiers: '{oops' }, 5000), 12);
+t('空阶梯表 → 基础价', resolveMaterialPrice({ currentPrice: 12, priceRule: 'tiered', priceTiers: '[]' }, 5000), 12);
+t(
+  '数组形式也支持',
+  resolveMaterialPrice({ currentPrice: 12, priceRule: 'tiered', priceTiers: [{ minQty: 1000, maxQty: null, price: 9 }] }, 2000),
+  9,
+);
+t(
+  '落在档位空隙 → 基础价',
+  resolveMaterialPrice({ currentPrice: 12, priceRule: 'tiered', priceTiers: [{ minQty: 0, maxQty: 100, price: 12 }] }, 500),
+  12,
+);
+t('上限为 null 视为不限', resolveMaterialPrice({ currentPrice: 12, priceRule: 'tiered', priceTiers: [{ minQty: 100, maxQty: null, price: 8 }] }, 999999), 8);
 
 console.log(`\n${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

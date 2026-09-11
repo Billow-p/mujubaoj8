@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { configApi } from '../api';
 import { calculateConfigured } from '@mqs/calc-engine';
 import { CALC_TYPE_META } from '@mqs/shared';
@@ -14,7 +15,6 @@ const emptyParam = () => ({
   code: '', name: '', unit: '', defaultValue: '', group: '产品',
   type: 'decimal', options: null, enabled: true,
 });
-const emptyMat = () => ({ code: '', name: '', category: '塑料原料', unit: 'kg', currentPrice: 0, lossRate: 0.05 });
 const emptyTerm = () => ({ text: '', enabled: true });
 const emptyItem = (): any => ({
   name: '新费用',
@@ -188,11 +188,7 @@ export default function ConfigCenter() {
         options: p.type === 'select' && Array.isArray(p.options) ? p.options : null,
         enabled: p.enabled !== false,
       })),
-      materials: cfg.materials.map((m: any) => ({
-        id: m.id, code: m.code, name: m.name, category: m.category, unit: m.unit,
-        currentPrice: Number(m.currentPrice) || 0, lossRate: Number(m.lossRate) || 0,
-        density: m.density == null ? null : Number(m.density),
-      })),
+      // 材料不在这里保存 —— 材料统一由「材料中心」（全局库）维护
       terms: cfg.terms.map((t: any) => ({ id: t.id, text: t.text, enabled: t.enabled !== false })),
       items: cfg.items.map((it: any, i: number) => ({
         id: it.id, name: it.name, category: it.category, scope: it.scope,
@@ -277,7 +273,6 @@ export default function ConfigCenter() {
   }
 
   const params: any[] = cfg?.parameters ?? [];
-  const mats: any[] = cfg?.materials ?? [];
   const terms: any[] = cfg?.terms ?? [];
   const items: any[] = cfg?.items ?? [];
   const gridCols = folded ? '290px minmax(0,1fr) 48px' : '290px minmax(0,1fr) 340px';
@@ -458,49 +453,24 @@ export default function ConfigCenter() {
               </div>
             )}
 
-            {/* 材料 */}
+            {/* 材料：已统一到材料中心维护，这里只做指路 */}
             {pane === 'mat' && (
-              <div className="space-y-0.5">
-                {mats.map((m, i) => (
-                  <div key={m.id ?? i} className="px-1 py-1.5 rounded hover:bg-gray-50 group">
-                    <div className="flex items-center gap-1">
-                      <input
-                        value={m.name}
-                        onChange={(e) => patch((c) => { c.materials[i].name = e.target.value; c.materials[i].code = e.target.value; })}
-                        className="flex-1 min-w-0 border border-gray-300 rounded px-1.5 py-0.5 text-[12.5px]"
-                      />
-                      <button
-                        onClick={() => patch((c) => { c.materials.splice(i, 1); })}
-                        className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 text-sm leading-none shrink-0"
-                      >×</button>
-                    </div>
-
-                    {/* 单价与损耗单独一行 */}
-                    <div className="flex items-center gap-1.5 mt-1 pl-1">
-                      <span className="text-[11px] text-gray-400 shrink-0">单价</span>
-                      <input
-                        type="number"
-                        value={num(m.currentPrice)}
-                        onChange={(e) => patch((c) => { c.materials[i].currentPrice = e.target.value; })}
-                        className="w-[92px] border border-gray-300 rounded px-1.5 py-0.5 text-[12px] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      />
-                      <span className="text-[11px] text-gray-400 truncate" title={m.unit || ''}>{m.unit}</span>
-                      <span className="text-[11px] text-gray-400 shrink-0">损耗</span>
-                      <input
-                        type="number"
-                        value={num(m.lossRate)}
-                        onChange={(e) => patch((c) => { c.materials[i].lossRate = e.target.value; })}
-                        title="损耗率（0.05 = 5%）"
-                        className="w-[56px] border border-gray-300 rounded px-1.5 py-0.5 text-[12px] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      />
-                    </div>
-                  </div>
-                ))}
-                <button
-                  onClick={() => patch((c) => { c.materials.push(emptyMat()); })}
-                  className="w-full mt-2 py-1.5 border border-dashed border-gray-300 rounded text-[12.5px] text-gray-500 hover:border-gray-900 hover:text-gray-900"
-                >+ 加一种材料</button>
-                <p className="text-[11.5px] text-gray-400 pt-2">名称 / 单价 / 损耗率</p>
+              <div className="px-1 py-3 space-y-2.5">
+                <p className="text-[12.5px] text-gray-600 leading-relaxed">
+                  材料已统一到<strong className="text-gray-900">材料中心</strong>维护，
+                  塑料 / 钢材 / 合金共一份，所有模具类型通用，改价一次全站生效。
+                </p>
+                <p className="text-[11.5px] text-gray-400 leading-relaxed">
+                  这里不再单独维护「本模具类型的材料」。以前两处各存一份价格，
+                  改了这边那边不生效，很容易算错。
+                </p>
+                <Link
+                  to="/settings/materials"
+                  className="inline-flex items-center gap-1 text-[12.5px] border border-gray-900 rounded px-3 py-1.5 hover:bg-gray-900 hover:text-white"
+                >
+                  去材料中心维护
+                  <span className="text-[11px]">→</span>
+                </Link>
               </div>
             )}
 

@@ -3,6 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { resolveMaterialPrice } from '@mqs/shared';
 import { prisma } from '../db.js';
 
 // 预置材料（单价为行业参考值，企业可改）
@@ -166,27 +167,8 @@ export function toKgFactor(unit?: string | null): number | null {
   return null;
 }
 
-// 按数量取阶梯价
-export function resolvePrice(
-  material: { currentPrice: number; priceRule: string; priceTiers?: string | null },
-  qty?: number,
-): number {
-  if (material.priceRule === 'tiered' && material.priceTiers && qty != null) {
-    try {
-      const tiers = JSON.parse(material.priceTiers) as {
-        minQty: number;
-        maxQty: number | null;
-        price: number;
-      }[];
-      for (const t of tiers) {
-        if (qty >= t.minQty && (t.maxQty == null || qty <= t.maxQty)) return t.price;
-      }
-    } catch {
-      /* 解析失败回落固定价 */
-    }
-  }
-  return material.currentPrice;
-}
+// 按用量取阶梯价 —— 实现已抽到 @mqs/shared，前后端共用，保证算价一致
+export const resolvePrice = resolveMaterialPrice;
 
 export async function materialRoutes(app: FastifyInstance) {
   // 列表

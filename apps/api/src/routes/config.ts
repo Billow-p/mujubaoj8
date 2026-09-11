@@ -190,16 +190,15 @@ export async function configRoutes(app: FastifyInstance) {
     const moldType = await prisma.moldType.findFirst({ where: { id: moldTypeId, companyId } });
     if (!moldType) return reply.code(404).send({ error: '模具类型不存在' });
 
-    const [parameters, materials, terms, items] = await Promise.all([
+    // 材料不在这里返回 —— 材料是全局库，请用 GET /api/materials（材料中心）
+    const [parameters, terms, items] = await Promise.all([
       prisma.customParameter.findMany({ where: { companyId, moldTypeId }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] }),
-      prisma.material.findMany({ where: { companyId, moldTypeId }, orderBy: [{ category: 'asc' }, { subCategory: 'asc' }, { code: 'asc' }] }),
       prisma.businessTerm.findMany({ where: { companyId, moldTypeId }, orderBy: { sortOrder: 'asc' } }),
       prisma.quoteItem.findMany({ where: { companyId, moldTypeId }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] }),
     ]);
     return {
       moldType,
       parameters: parameters.map((p) => ({ ...p, options: parseOptions(p.options) })),
-      materials,
       terms,
       items,
     };
@@ -235,25 +234,10 @@ export async function configRoutes(app: FastifyInstance) {
           else await tx.customParameter.create({ data: { ...data, companyId, moldTypeId } });
         }
       }
-      // 材料
-      if (body.materials) {
-        const ids = body.materials.map((m) => m.id).filter(Boolean) as string[];
-        await tx.material.deleteMany({ where: { companyId, moldTypeId, id: { notIn: ids } } });
-        for (const m of body.materials) {
-          const data: any = {
-            code: m.code,
-            name: m.name,
-            category: m.category ?? '塑料原料',
-            subCategory: m.subCategory ?? null,
-            unit: m.unit ?? 'kg',
-            density: m.density ?? null,
-            lossRate: m.lossRate ?? 0.05,
-            currentPrice: m.currentPrice ?? 0,
-          };
-          if (m.id) await tx.material.update({ where: { id: m.id }, data });
-          else await tx.material.create({ data: { ...data, companyId, moldTypeId } });
-        }
-      }
+      // 材料：**刻意不再处理** —— 材料统一由「材料中心」（全局库，moldTypeId = null）维护。
+      // 这里以前会按传入列表增删改「模具类型专属副本」，导致同一材料存在两份价格，
+      // 改了一份另一份不生效。保留 body.materials 的解析兼容，但**忽略其内容**，
+      // 顺便也防止老客户端把材料整批删掉。
       // 条款
       if (body.terms) {
         const ids = body.terms.map((t) => t.id).filter(Boolean) as string[];
@@ -374,21 +358,8 @@ async function createPresetMoldType(companyId: string, p: (typeof MOLD_PRESETS)[
       sortOrder: i,
     })),
   });
-  await prisma.material.createMany({
-    data: p.materials.map((m) => ({
-      companyId,
-      moldTypeId: moldType.id,
-      code: m.code,
-      name: m.name,
-      category: m.category,
-      subCategory: m.subCategory ?? null,
-      unit: m.unit,
-      density: m.density ?? null,
-      lossRate: m.lossRate,
-      currentPrice: m.price,
-      isPreset: true,
-    })),
-  });
+  // 不再为新模具类型复制一份「专属材料」——材料统一在材料中心（全局库）维护。
+  // 全局库由「材料中心 → 初始化预置材料」负责，这里只建参数/条款/费用项。
   await prisma.businessTerm.createMany({
     data: p.terms.map((t, i) => ({ companyId, moldTypeId: moldType.id, text: t, sortOrder: i })),
   });
@@ -411,9 +382,9 @@ async function createPresetMoldType(companyId: string, p: (typeof MOLD_PRESETS)[
 
 /** 复制一套配置到新类型 */
 async function copyConfig(companyId: string, fromId: string, toId: string) {
-  const [params, mats, terms, items] = await Promise.all([
+  // 材料不参与复制：材料是全局库，不属于某个模具类型
+  const [params, terms, items] = await Promise.all([
     prisma.customParameter.findMany({ where: { companyId, moldTypeId: fromId } }),
-    prisma.material.findMany({ where: { companyId, moldTypeId: fromId } }),
     prisma.businessTerm.findMany({ where: { companyId, moldTypeId: fromId } }),
     prisma.quoteItem.findMany({ where: { companyId, moldTypeId: fromId } }),
   ]);
@@ -423,15 +394,6 @@ async function copyConfig(companyId: string, fromId: string, toId: string) {
         companyId, moldTypeId: toId, code: x.code, name: x.name, type: x.type,
         unit: x.unit, defaultValue: x.defaultValue, group: x.group, scope: x.scope, options: x.options,
         sortOrder: i, enabled: x.enabled,
-      })),
-    });
-  }
-  if (mats.length) {
-    await prisma.material.createMany({
-      data: mats.map((m) => ({
-        companyId, moldTypeId: toId, code: m.code, name: m.name, category: m.category,
-        subCategory: m.subCategory ?? null,
-        unit: m.unit, density: m.density, lossRate: m.lossRate, currentPrice: m.currentPrice,
       })),
     });
   }

@@ -155,6 +155,75 @@ try {
     `unitCost=${partRes.unitCost} 期望=${expectTotal}`,
   );
 
+  // ---------- H. 材料阶梯价（按用量取价） ----------
+  // 钢材：用量 235.5kg，档位 0~100 → 20 元/kg，100 以上 → 10 元/kg，应命中 10
+  const tierSteel = await api('POST', '/api/materials', {
+    name: `阶梯钢材_${ts}`,
+    category: '模具钢材',
+    unit: 'kg',
+    currentPrice: 20,
+    lossRate: 0.1,
+    density: 7.85,
+    priceRule: 'tiered',
+    priceTiers: [
+      { minQty: 0, maxQty: 100, price: 20 },
+      { minQty: 100, maxQty: null, price: 10 },
+    ],
+  });
+  check('新增阶梯价钢材 = 200', tierSteel.status === 200, 'status=' + tierSteel.status + ' ' + (tierSteel.body?.error ?? ''));
+  if (tierSteel.body?.id) createdMaterialIds.push(tierSteel.body.id);
+
+  // 塑料：数量 1000 件 × 0.18kg = 180kg，档位 100 以上 → 25 元/kg
+  const tierPlastic = await api('POST', '/api/materials', {
+    name: `阶梯塑料_${ts}`,
+    category: '塑料原料',
+    subCategory: '通用塑料',
+    unit: 'kg',
+    currentPrice: 30,
+    lossRate: 0.05,
+    density: 1.05,
+    priceRule: 'tiered',
+    priceTiers: [
+      { minQty: 0, maxQty: 100, price: 30 },
+      { minQty: 100, maxQty: null, price: 25 },
+    ],
+  });
+  check('新增阶梯价塑料 = 200', tierPlastic.status === 200, 'status=' + tierPlastic.status + ' ' + (tierPlastic.body?.error ?? ''));
+  if (tierPlastic.body?.id) createdMaterialIds.push(tierPlastic.body.id);
+
+  const cust2 = `阶梯价客户_${ts}`;
+  customerNames.push(cust2);
+  const q2 = await api('POST', '/api/quotes/project', {
+    moldTypeId: moldType.id,
+    customerName: cust2,
+    common: { profitRate: 0, taxRate: 0 },
+    molds: [{ name: '阶梯模', materialCode: tierSteel.body.code, params: { ...dims } }],
+    parts: [{ name: '阶梯件', materialCode: tierPlastic.body.code, qty: 1000, params: { 单件重量: 0.18 } }],
+  });
+  check('阶梯价报价 = 200', q2.status === 200, 'status=' + q2.status + ' ' + (q2.body?.error ?? ''));
+  if (q2.body?.id) quoteIds.push(q2.body.id);
+
+  const calc2 = q2.body?.versions?.[0]?.calcResultJson ?? {};
+  const steelLine2 = (calc2.moldResults?.[0]?.lines ?? []).find((l) => l.name === '模芯钢材费');
+  check(
+    '阶梯价钢材命中 100kg 以上档（10 元/kg）：235.5×10×1.1 = 2590.5',
+    near(steelLine2?.value, 2590.5),
+    'value=' + steelLine2?.value,
+  );
+
+  const matLine2 = (calc2.partResults?.[0]?.lines ?? []).find((l) => l.name === '产品材料费');
+  check(
+    '阶梯价塑料按用量取价：0.18×25×1.05 = 4.73',
+    near(matLine2?.unitPrice, 4.73),
+    'unitPrice=' + matLine2?.unitPrice,
+  );
+
+  // ---------- I. 配置中心保存不再改动材料（防止把材料整批删掉） ----------
+  const beforeCount = await prisma.material.count();
+  const cfgSave = await api('PUT', `/api/config/${moldType.id}`, { materials: [] });
+  const afterCount = await prisma.material.count();
+  check('保存配置时传 materials:[] 不再删除材料', cfgSave.status === 200 && beforeCount === afterCount, `status=${cfgSave.status} ${beforeCount} → ${afterCount}`);
+
   // ---------- D. 被引用的材料不能删 ----------
   const rD = await api('DELETE', `/api/materials/${steelId}`);
   check('删除被报价引用的材料 → 被拒绝并提示停用', rD.status === 400 && /停用/.test(rD.body?.error ?? ''), `status=${rD.status} err=${rD.body?.error}`);

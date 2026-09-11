@@ -12,12 +12,40 @@ const EMPTY = {
   lossRate: '0.05',
   currentPrice: '0',
   priceRule: 'fixed',
+  priceTiers: [] as TierRow[],
   remark: '',
   enabled: true,
 };
 
 /** 重量法算价只认这几个单位（其它单位会被折算或忽略） */
 const WEIGHT_UNITS = ['kg', 'g', 't'];
+
+interface TierRow {
+  minQty: string;
+  maxQty: string;
+  price: string;
+}
+
+/** 服务端存的是 JSON 字符串，编辑时要转成可输入的字符串行 */
+const parseTiers = (raw: any): TierRow[] => {
+  let arr: any[] = [];
+  if (Array.isArray(raw)) arr = raw;
+  else if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const p = JSON.parse(raw);
+      if (Array.isArray(p)) arr = p;
+    } catch {
+      /* 坏数据当没有 */
+    }
+  }
+  return arr.map((t) => ({
+    minQty: t?.minQty == null ? '' : String(t.minQty),
+    maxQty: t?.maxQty == null ? '' : String(t.maxQty),
+    price: t?.price == null ? '' : String(t.price),
+  }));
+};
+
+const emptyTier = (): TierRow => ({ minQty: '', maxQty: '', price: '' });
 
 /**
  * 材料中心
@@ -82,6 +110,20 @@ export default function Materials() {
       const d = Number(editing.density);
       if (!Number.isFinite(d) || d < 0) return '密度要填一个不小于 0 的数字';
     }
+    if (editing.priceRule === 'tiered') {
+      const rows = parseTiers(editing.priceTiers);
+      if (rows.length === 0) return '阶梯价至少要填一档';
+      for (const [i, t] of rows.entries()) {
+        const min = Number(t.minQty);
+        const price = Number(t.price);
+        if (!t.minQty || !Number.isFinite(min) || min < 0) return `第 ${i + 1} 档的「用量下限」要填不小于 0 的数字`;
+        if (!t.price || !Number.isFinite(price) || price < 0) return `第 ${i + 1} 档的「单价」要填不小于 0 的数字`;
+        if (t.maxQty) {
+          const max = Number(t.maxQty);
+          if (!Number.isFinite(max) || max < min) return `第 ${i + 1} 档的「用量上限」要不小于下限`;
+        }
+      }
+    }
     return '';
   };
 
@@ -92,6 +134,7 @@ export default function Materials() {
       return;
     }
     setFormErr('');
+    const tiered = editing.priceRule === 'tiered';
     const body: any = {
       ...editing,
       code: String(editing.code ?? '').trim(),
@@ -100,6 +143,14 @@ export default function Materials() {
       lossRate: Number(editing.lossRate),
       currentPrice: Number(editing.currentPrice),
       subCategory: editing.subCategory || null,
+      priceRule: tiered ? 'tiered' : 'fixed',
+      priceTiers: tiered
+        ? parseTiers(editing.priceTiers).map((t) => ({
+            minQty: Number(t.minQty),
+            maxQty: t.maxQty ? Number(t.maxQty) : null,
+            price: Number(t.price),
+          }))
+        : [],
     };
     try {
       if (isNew) await materials.create(body);
@@ -110,6 +161,22 @@ export default function Materials() {
       setFormErr(e.response?.data?.error || e.message || '保存失败');
     }
   };
+
+  // ---- 阶梯价行的增删改（始终基于当前编辑对象） ----
+  const setTier = (i: number, k: keyof TierRow, v: string) =>
+    setEditing((e: any) => {
+      const rows = parseTiers(e?.priceTiers);
+      rows[i] = { ...rows[i], [k]: v };
+      return { ...e, priceTiers: rows };
+    });
+  const addTier = () =>
+    setEditing((e: any) => ({ ...e, priceTiers: [...parseTiers(e?.priceTiers), emptyTier()] }));
+  const removeTier = (i: number) =>
+    setEditing((e: any) => {
+      const rows = parseTiers(e?.priceTiers);
+      rows.splice(i, 1);
+      return { ...e, priceTiers: rows };
+    });
 
   /** 直接列表里启用 / 停用（原来只有状态标签，没法切换） */
   const toggleEnabled = async (m: any) => {
@@ -237,7 +304,14 @@ export default function Materials() {
                           )}
                         </td>
                         <td className="px-3 py-2 text-gray-600">{m.unit}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">¥{Number(m.currentPrice).toFixed(2)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          ¥{Number(m.currentPrice).toFixed(2)}
+                          {m.priceRule === 'tiered' && (
+                            <span className="ml-1.5 text-[10.5px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 py-0.5">
+                              阶梯价
+                            </span>
+                          )}
+                        </td>
                         <td className="px-3 py-2 text-right tabular-nums text-gray-600">
                           {Math.round(m.lossRate * 100)}%
                         </td>
@@ -260,7 +334,11 @@ export default function Materials() {
                             价格历史
                           </button>
                           <button
-                            onClick={() => { setIsNew(false); setFormErr(''); setEditing({ ...m }); }}
+                            onClick={() => {
+                              setIsNew(false);
+                              setFormErr('');
+                              setEditing({ ...m, priceRule: m.priceRule || 'fixed', priceTiers: parseTiers(m.priceTiers) });
+                            }}
                             className="text-gray-600 hover:text-gray-900 text-xs px-2"
                           >
                             编辑
@@ -374,11 +452,94 @@ export default function Materials() {
                 )}
               </label>
               <label className="text-sm">
-                <span className="text-gray-600">单价（元/{editing.unit}）</span>
+                <span className="text-gray-600">价格规则</span>
+                <select
+                  value={editing.priceRule ?? 'fixed'}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setEditing((cur: any) => ({
+                      ...cur,
+                      priceRule: v,
+                      priceTiers:
+                        v === 'tiered' && parseTiers(cur?.priceTiers).length === 0
+                          ? [emptyTier()]
+                          : parseTiers(cur?.priceTiers),
+                    }));
+                  }}
+                  className="mt-1 w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
+                >
+                  <option value="fixed">固定单价</option>
+                  <option value="tiered">阶梯价（按用量）</option>
+                </select>
+              </label>
+              <label className="text-sm">
+                <span className="text-gray-600">
+                  {editing.priceRule === 'tiered'
+                    ? '基础单价（没命中任何档位时用）'
+                    : `单价（元/${editing.unit}）`}
+                </span>
                 <input type="number" value={editing.currentPrice}
                   onChange={(e) => setEditing({ ...editing, currentPrice: e.target.value })}
                   className="mt-1 w-full border border-gray-300 rounded px-2 py-1.5 text-sm" />
               </label>
+
+              {/* 阶梯价：按「本次材料用量」取价 */}
+              {editing.priceRule === 'tiered' && (
+                <div className="col-span-2 border border-gray-200 rounded-lg p-3 bg-gray-50">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[12.5px] text-gray-700">
+                      按本次<strong>材料用量</strong>取价（单位 kg）
+                    </span>
+                    <button
+                      type="button"
+                      onClick={addTier}
+                      className="text-[12px] bg-gray-900 text-white px-2.5 py-1 rounded hover:bg-gray-800"
+                    >
+                      + 加一档
+                    </button>
+                  </div>
+                  <div className="space-y-1.5">
+                    {parseTiers(editing.priceTiers).map((t, ti) => (
+                      <div key={ti} className="flex items-center gap-1.5">
+                        <input
+                          value={t.minQty}
+                          onChange={(e) => setTier(ti, 'minQty', e.target.value)}
+                          placeholder="用量下限"
+                          className="w-[92px] border border-gray-300 rounded px-2 py-1 text-[12.5px] text-right"
+                        />
+                        <span className="text-[11px] text-gray-400">~</span>
+                        <input
+                          value={t.maxQty}
+                          onChange={(e) => setTier(ti, 'maxQty', e.target.value)}
+                          placeholder="不限"
+                          className="w-[92px] border border-gray-300 rounded px-2 py-1 text-[12.5px] text-right"
+                        />
+                        <span className="text-[11px] text-gray-400">kg →</span>
+                        <input
+                          value={t.price}
+                          onChange={(e) => setTier(ti, 'price', e.target.value)}
+                          placeholder="单价"
+                          className="w-[92px] border border-gray-300 rounded px-2 py-1 text-[12.5px] text-right"
+                        />
+                        <span className="text-[11px] text-gray-400">元/{editing.unit || 'kg'}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeTier(ti)}
+                          className="text-gray-300 hover:text-red-500 text-sm leading-none px-1"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    {parseTiers(editing.priceTiers).length === 0 && (
+                      <div className="text-[12px] text-gray-400">还没有档位，点「+ 加一档」</div>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-2 leading-relaxed">
+                    用量口径：注塑件 = 数量 × 单件重量；模具钢材 = 模芯体积换算重量。单位都是 kg。
+                  </p>
+                </div>
+              )}
               <label className="text-sm">
                 <span className="text-gray-600">损耗率（0-1）</span>
                 <input type="number" step="0.01" value={editing.lossRate}

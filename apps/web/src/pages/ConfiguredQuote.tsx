@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { configApi, materials as materialsApi, quotes } from '../api';
 import { calculateQuoteProject } from '@mqs/calc-engine';
 import type { QuoteItemDef } from '@mqs/shared';
-import { QTY_VAR_CANDIDATES } from '@mqs/shared';
+import { QTY_VAR_CANDIDATES, resolveMaterialPrice } from '@mqs/shared';
 
 const money = (n: number) => '¥ ' + Math.round(n || 0).toLocaleString('zh-CN');
 const money2 = (n: number) =>
@@ -129,7 +129,7 @@ export default function ConfiguredQuote() {
     return p?.defaultValue ?? 0;
   }, [cfg, qtyVarName]);
 
-  // 注塑材料费项引用的「原料单价 / 合金单价」+「损耗率」参数名（按重量项推导）
+  // 注塑材料费项引用的「原料单价 / 合金单价」+「损耗率」+「单件重量」参数名（按重量项推导）
   const injectionVars = useMemo(() => {
     const w = (cfg?.items ?? []).find(
       (it: any) => it.scope === 'injection' && it.calcType === 'weight',
@@ -138,6 +138,7 @@ export default function ConfiguredQuote() {
     return {
       priceVar: c.priceVar as string | undefined,
       lossVar: c.lossVar as string | undefined,
+      wVar: c.wVar as string | undefined,
     };
   }, [cfg]);
   const injectionPriceVar = injectionVars.priceVar;
@@ -147,6 +148,7 @@ export default function ConfiguredQuote() {
     const s = (cfg?.items ?? []).find((it: any) => it.scope === 'mold' && it.calcType === 'size');
     const c = (s?.calcConfig ?? {}) as any;
     return {
+      cfg: c,
       priceVar: c.priceVar as string | undefined,
       densityVar: c.densityVar as string | undefined,
       lossVar: c.lossVar as string | undefined,
@@ -162,10 +164,31 @@ export default function ConfiguredQuote() {
     [matList],
   );
 
-  /** 材料单价（元/kg）：材料库若按 g / t 维护，这里统一折算 */
-  const pricePerKgOf = (m: any): number => {
+  /**
+   * 材料单价（元/kg）。
+   * consumption = 本次该材料的用量（kg）；给了就按阶梯价取，否则用基础单价。
+   * 逻辑与服务端完全一致（同一个 resolveMaterialPrice）。
+   */
+  const pricePerKgOf = (m: any, consumption?: number | null): number => {
+    const base = resolveMaterialPrice(m, consumption ?? null);
     const k = kgFactorOf(m.unit);
-    return k ? (Number(m.currentPrice) || 0) / k : Number(m.currentPrice) || 0;
+    return k ? base / k : base;
+  };
+
+  /** 由「按尺寸算」配置估算钢材用量(kg) —— 与服务端 sizeItemWeightKg 一致 */
+  const sizeWeightKg = (c: any, params: Record<string, any>): number | null => {
+    const keys = [c?.l, c?.w, c?.h].filter((x: any) => x && String(x).trim());
+    if (!keys.length) return null;
+    let vol = 1;
+    for (const k of keys) {
+      const v = Number(params[k]);
+      if (!Number.isFinite(v)) return null;
+      vol *= v;
+    }
+    const dVar = c?.densityVar as string | undefined;
+    const density = Number(dVar && params[dVar] != null ? params[dVar] : c?.density);
+    if (!Number.isFinite(density) || density <= 0) return null;
+    return (vol / 1000) * (density / 1000);
   };
 
   // 材料库里的钢材（一级分类=模具钢材），按二级分类分组给下拉用
@@ -308,9 +331,16 @@ export default function ConfiguredQuote() {
       if (m.materialCode) {
         const mat = matByCode.get(m.materialCode);
         if (mat) {
-          if (moldSteelVars.priceVar) mp[moldSteelVars.priceVar] = pricePerKgOf(mat);
-          if (moldSteelVars.densityVar && mat.density != null)
-            mp[moldSteelVars.densityVar] = Number(mat.density) || 0;
+          const dVar = moldSteelVars.densityVar;
+          // 密度取「材料库的密度」优先（引擎会用它算重量），再退回整单参数/配置固定值
+          const density =
+            mat.density != null
+              ? Number(mat.density)
+              : Number(commonParams[dVar ?? '']) || Number(moldSteelVars.cfg?.density) || 0;
+          // 阶梯价的用量口径 = 本套模具的钢材用量(kg)
+          const weightKg = sizeWeightKg(moldSteelVars.cfg, { ...mp, ...(dVar ? { [dVar]: density } : {}) });
+          if (moldSteelVars.priceVar) mp[moldSteelVars.priceVar] = pricePerKgOf(mat, weightKg);
+          if (dVar && mat.density != null) mp[dVar] = Number(mat.density) || 0;
           if (moldSteelVars.lossVar && mat.lossRate != null)
             mp[moldSteelVars.lossVar] = Number(mat.lossRate) || 0;
         }
@@ -329,7 +359,11 @@ export default function ConfiguredQuote() {
       if (p.materialCode) {
         const mat = matByCode.get(p.materialCode);
         if (mat) {
-          if (injectionVars.priceVar) pp[injectionVars.priceVar] = pricePerKgOf(mat);
+          // 阶梯价的用量口径 = 数量(件) × 单件重量(kg)
+          const uw = Number(pp[injectionVars.wVar ?? '']);
+          const consumptionKg =
+            Number.isFinite(uw) && uw > 0 ? (Number(p.qty) || 0) * uw : null;
+          if (injectionVars.priceVar) pp[injectionVars.priceVar] = pricePerKgOf(mat, consumptionKg);
           if (injectionVars.lossVar && mat.lossRate != null)
             pp[injectionVars.lossVar] = Number(mat.lossRate) || 0;
         }

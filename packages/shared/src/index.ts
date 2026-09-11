@@ -199,6 +199,62 @@ export interface CustomFormulaResults {
 // ============================================================
 
 /** 一级分类：按用途场景 */
+/** 材料价格阶梯的一档 */
+export interface MaterialPriceTier {
+  /** 用量下限（含） */
+  minQty: number;
+  /** 用量上限（含）；null = 不限 */
+  maxQty: number | null;
+  /** 该档位的单价（元/材料单位） */
+  price: number;
+}
+
+/**
+ * 按「本次材料用量」取材料单价。
+ *
+ * - `priceRule !== 'tiered'` → 直接用 currentPrice
+ * - 阶梯价但没命中任何一档 → 回落到 currentPrice
+ * - 用量口径统一为**材料的实际用量**：注塑件 = 数量 × 单件重量(kg)，
+ *   模具钢材 = 模芯体积换算出的重量(kg)
+ *
+ * 前后端共用这一份实现，保证「界面实时总价」与「保存后服务端重算」完全一致。
+ */
+export function resolveMaterialPrice(
+  material: {
+    currentPrice: number;
+    priceRule?: string | null;
+    priceTiers?: string | MaterialPriceTier[] | null;
+  },
+  qty?: number | null,
+): number {
+  const base = Number(material.currentPrice) || 0;
+  if (material.priceRule !== 'tiered') return base;
+
+  const n = Number(qty);
+  if (qty == null || !Number.isFinite(n)) return base;
+
+  let tiers: MaterialPriceTier[] | null = null;
+  const raw = material.priceTiers;
+  if (Array.isArray(raw)) {
+    tiers = raw as MaterialPriceTier[];
+  } else if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) tiers = parsed as MaterialPriceTier[];
+    } catch {
+      /* 解析失败 → 回落固定价 */
+    }
+  }
+  if (!tiers || tiers.length === 0) return base;
+
+  for (const t of tiers) {
+    const min = Number(t?.minQty) || 0;
+    const max = t?.maxQty == null ? null : Number(t.maxQty);
+    if (n >= min && (max == null || n <= max)) return Number(t.price) || 0;
+  }
+  return base;
+}
+
 export const MATERIAL_GROUPS = ['模具钢材', '塑料原料', '压铸合金', '辅助材料'] as const;
 
 export type MaterialGroup = (typeof MATERIAL_GROUPS)[number];

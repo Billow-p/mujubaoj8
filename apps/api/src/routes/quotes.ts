@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { prisma } from '../db.js';
 import { calculateQuote, validateQuoteInput, calculateConfigured, calculateQuoteProject } from '@mqs/calc-engine';
 import type { CalcQuoteRequest, QuoteItemDef, QuoteProjectInput, QuoteProjectResult, QuoteProjectMold, QuoteProjectPart } from '@mqs/shared';
-import { QTY_VAR_CANDIDATES } from '@mqs/shared';
+import { QTY_VAR_CANDIDATES, resolveMaterialPrice } from '@mqs/shared';
 import { toKgFactor } from './materials.js';
 import { sendQuoteNotification } from '../services/email.js';
 import { buildQuoteExcel } from '../services/excel.js';
@@ -193,6 +193,28 @@ function parseParamOptions(raw: string | null | undefined): { label: string; val
   } catch {
     return undefined;
   }
+}
+
+/**
+ * 由「按尺寸算」的配置 + 已知参数，估算该费用项的材料用量（kg）。
+ *
+ * 与引擎里 size 的算法保持一致：长×宽×高 /1000 ×密度 /1000，单位 kg。
+ * 用途：模具钢材的**阶梯价**要按实际用料量取价，而引擎算价时用量还没出来，
+ * 所以这里先算一遍。算不出（缺尺寸/密度）返回 null → 阶梯价回落到基础单价。
+ */
+function sizeItemWeightKg(cfg: any, params: Record<string, number>): number | null {
+  const keys = [cfg?.l, cfg?.w, cfg?.h].filter((x) => x && String(x).trim()) as string[];
+  if (!keys.length) return null;
+  let vol = 1;
+  for (const k of keys) {
+    const v = Number(params[k]);
+    if (!Number.isFinite(v)) return null;
+    vol *= v;
+  }
+  const dVar = cfg?.densityVar as string | undefined;
+  const density = Number(dVar && params[dVar] != null ? params[dVar] : cfg?.density);
+  if (!Number.isFinite(density) || density <= 0) return null;
+  return (vol / 1000) * (density / 1000);
 }
 
 // 加载企业已启用的报价项（PRD 5.9：报价项自动参与计算并随版本冻结）
@@ -1019,26 +1041,28 @@ export async function quoteRoutes(app: FastifyInstance) {
       qtyVarName = QTY_VAR_CANDIDATES.find((c) => names.has(c)) ?? '注塑数量';
     }
 
-    // 注塑材料费项引用的「原料单价/合金单价」+「损耗率」参数名（按重量项推导，跨模具类型通用）
+    // 注塑材料费项引用的「原料单价/合金单价」+「损耗率」+「单件重量」参数名（按重量项推导）
     const injectionVars = (() => {
       const w = items.find(
         (it) => (it.scope as string) === 'injection' && it.calcType === 'weight',
       );
       const c = (w?.calcConfig ?? {}) as any;
-      return { priceVar: c.priceVar as string | undefined, lossVar: c.lossVar as string | undefined };
+      return {
+        priceVar: c.priceVar as string | undefined,
+        lossVar: c.lossVar as string | undefined,
+        wVar: c.wVar as string | undefined,
+      };
     })();
     const injectionPriceVar = injectionVars.priceVar;
 
     // 模具钢材费项引用的「单价 / 密度 / 损耗率」参数名（按尺寸项推导）
-    const moldSteelVars = (() => {
-      const s = items.find((it) => (it.scope as string) === 'mold' && it.calcType === 'size');
-      const c = (s?.calcConfig ?? {}) as any;
-      return {
-        priceVar: c.priceVar as string | undefined,
-        densityVar: c.densityVar as string | undefined,
-        lossVar: c.lossVar as string | undefined,
-      };
-    })();
+    const moldSteel = items.find((it) => (it.scope as string) === 'mold' && it.calcType === 'size');
+    const moldSteelCfg = (moldSteel?.calcConfig ?? {}) as any;
+    const moldSteelVars = {
+      priceVar: moldSteelCfg.priceVar as string | undefined,
+      densityVar: moldSteelCfg.densityVar as string | undefined,
+      lossVar: moldSteelCfg.lossVar as string | undefined,
+    };
 
     // 费用项定义（引擎消费）
     const defs: QuoteItemDef[] = items.map((it, i) => ({
@@ -1084,16 +1108,22 @@ export async function quoteRoutes(app: FastifyInstance) {
         const mat = materialsByCode.get(m.materialCode);
         if (mat) {
           moldMaterialNames.set(mi, mat.name);
-          // 单位换算：钢材公式按「元/kg」计价，材料库若按 g / t 维护要折算
-          const kg = toKgFactor(mat.unit);
-          const pricePerKg = kg ? Number(mat.currentPrice) / kg : null;
+          // 1) 密度先落地 —— 阶梯价要按「钢材用量(kg)」取价，而用量需要密度
+          if (moldSteelVars.densityVar && params[moldSteelVars.densityVar] == null && mat.density != null) {
+            params[moldSteelVars.densityVar] = Number(mat.density) || 0;
+          }
+          // 2) 阶梯价：用量口径 = 模芯体积换算出的钢材重量(kg)
+          const steelKg = sizeItemWeightKg(moldSteelCfg, params);
+          const unitFactor = toKgFactor(mat.unit);
+          const rawPrice = resolveMaterialPrice(mat, steelKg);
+          // 3) 单位换算：钢材公式按「元/kg」计价，材料库若按 g / t 维护要折算
+          const pricePerKg = unitFactor ? rawPrice / unitFactor : null;
           const inject = (key: string | undefined, value: unknown) => {
             if (!key || params[key] != null) return;
             const n = Number(value);
             if (Number.isFinite(n)) params[key] = n;
           };
           if (pricePerKg != null) inject(moldSteelVars.priceVar, pricePerKg);
-          inject(moldSteelVars.densityVar, mat.density);
           inject(moldSteelVars.lossVar, mat.lossRate);
         }
       }
@@ -1118,9 +1148,13 @@ export async function quoteRoutes(app: FastifyInstance) {
       if (p.materialCode) {
         const mat = materialsByCode.get(p.materialCode);
         if (mat) {
+          // 阶梯价：用量口径 = 数量(件) × 单件重量(kg)；算不出重量就回落固定价
+          const unitWeight = Number(params[injectionVars.wVar ?? '']);
+          const consumptionKg =
+            Number.isFinite(unitWeight) && unitWeight > 0 ? (Number(p.qty) || 0) * unitWeight : null;
+          const unitFactor = toKgFactor(mat.unit);
           // 单件重量按 kg 输入，材料若按 g / t 维护要折算成「元/kg」
-          const kg = toKgFactor(mat.unit);
-          const pricePerKg = kg ? Number(mat.currentPrice) / kg : null;
+          const pricePerKg = unitFactor ? resolveMaterialPrice(mat, consumptionKg) / unitFactor : null;
           if (pricePerKg != null && injectionVars.priceVar && params[injectionVars.priceVar] == null) {
             params[injectionVars.priceVar] = pricePerKg;
           }
