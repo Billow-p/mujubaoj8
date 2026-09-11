@@ -10,6 +10,18 @@ const money2 = (n: number) =>
   '¥ ' + (Number(n) || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const uid = () => Math.random().toString(36).slice(2, 9);
 
+/**
+ * 材料单位 → kg 换算系数。
+ * 返回 null 表示这个单位不适合「按重量计价」（个 / 件 / 米…），报价时不该选它。
+ */
+const kgFactorOf = (unit?: string | null): number | null => {
+  const u = String(unit || 'kg').trim().toLowerCase();
+  if (u === 'kg' || u === '千克' || u === '公斤') return 1;
+  if (u === 'g' || u === '克') return 0.001;
+  if (u === 't' || u === '吨') return 1000;
+  return null;
+};
+
 interface MoldState {
   uid: string;
   code: string;
@@ -117,13 +129,18 @@ export default function ConfiguredQuote() {
     return p?.defaultValue ?? 0;
   }, [cfg, qtyVarName]);
 
-  // 注塑材料费项引用的「原料单价 / 合金单价」参数名（按重量项推导）
-  const injectionPriceVar = useMemo(() => {
+  // 注塑材料费项引用的「原料单价 / 合金单价」+「损耗率」参数名（按重量项推导）
+  const injectionVars = useMemo(() => {
     const w = (cfg?.items ?? []).find(
       (it: any) => it.scope === 'injection' && it.calcType === 'weight',
     );
-    return (w?.calcConfig as any)?.priceVar as string | undefined;
+    const c = (w?.calcConfig ?? {}) as any;
+    return {
+      priceVar: c.priceVar as string | undefined,
+      lossVar: c.lossVar as string | undefined,
+    };
   }, [cfg]);
+  const injectionPriceVar = injectionVars.priceVar;
 
   // 模具钢材费项引用的「单价 / 密度 / 损耗率」参数名（按尺寸项推导）
   const moldSteelVars = useMemo(() => {
@@ -136,17 +153,32 @@ export default function ConfiguredQuote() {
     };
   }, [cfg]);
 
+  /**
+   * 报价页可选材料：必须「启用」且单位能用于按重量计价。
+   * 停用的材料不再出现在下拉里；单价本身按单位折算成「元/kg」。
+   */
+  const usableMaterials = useMemo(
+    () => matList.filter((m) => m.enabled !== false && kgFactorOf(m.unit) != null),
+    [matList],
+  );
+
+  /** 材料单价（元/kg）：材料库若按 g / t 维护，这里统一折算 */
+  const pricePerKgOf = (m: any): number => {
+    const k = kgFactorOf(m.unit);
+    return k ? (Number(m.currentPrice) || 0) / k : Number(m.currentPrice) || 0;
+  };
+
   // 材料库里的钢材（一级分类=模具钢材），按二级分类分组给下拉用
   const steelGroups = useMemo(() => {
     const g = new Map<string, any[]>();
-    for (const m of matList) {
+    for (const m of usableMaterials) {
       if (m.category !== '模具钢材') continue;
       const k = (m.subCategory as string) || '其他钢材';
       if (!g.has(k)) g.set(k, []);
       g.get(k)!.push(m);
     }
     return [...g.entries()] as [string, any[]][];
-  }, [matList]);
+  }, [usableMaterials]);
 
   const manualMoldItems = useMemo(
     () => (cfg?.items ?? []).filter((it: any) => it.enabled !== false && it.calcType === 'manual' && it.scope === 'mold'),
@@ -276,7 +308,7 @@ export default function ConfiguredQuote() {
       if (m.materialCode) {
         const mat = matByCode.get(m.materialCode);
         if (mat) {
-          if (moldSteelVars.priceVar) mp[moldSteelVars.priceVar] = Number(mat.currentPrice) || 0;
+          if (moldSteelVars.priceVar) mp[moldSteelVars.priceVar] = pricePerKgOf(mat);
           if (moldSteelVars.densityVar && mat.density != null)
             mp[moldSteelVars.densityVar] = Number(mat.density) || 0;
           if (moldSteelVars.lossVar && mat.lossRate != null)
@@ -293,9 +325,14 @@ export default function ConfiguredQuote() {
     });
     const partsIn = parts.map((p) => {
       const pp = coerce(p.params);
+      // 选了牌号 → 单价与损耗率都按材料库走（与钢材同一套规则）
       if (p.materialCode) {
         const mat = matByCode.get(p.materialCode);
-        if (mat && injectionPriceVar) pp[injectionPriceVar] = Number(mat.currentPrice) || 0;
+        if (mat) {
+          if (injectionVars.priceVar) pp[injectionVars.priceVar] = pricePerKgOf(mat);
+          if (injectionVars.lossVar && mat.lossRate != null)
+            pp[injectionVars.lossVar] = Number(mat.lossRate) || 0;
+        }
       }
       return {
         code: p.code || undefined,
@@ -560,7 +597,7 @@ export default function ConfiguredQuote() {
                       删除
                     </button>
                   </div>
-                  {steelGroups.length > 0 && (
+                  {moldSteelVars.priceVar && (
                     <div className="grid grid-cols-3 gap-x-4 gap-y-3 mb-3">
                       <label className="text-sm">
                         <span className="text-gray-500">模具钢材（来自材料库）</span>
@@ -569,7 +606,11 @@ export default function ConfiguredQuote() {
                           onChange={(e) => setMold(i, { materialCode: e.target.value })}
                           className="mt-1 w-full border border-gray-300 rounded px-2.5 py-2 text-sm"
                         >
-                          <option value="">— 不选（用公共参数「钢材单价」）—</option>
+                          <option value="">
+                            {steelGroups.length
+                              ? `— 不选（按整单「${moldSteelVars.priceVar}」计）—`
+                              : '— 材料库暂无可用钢材（请到材料中心维护或在下方直接填单价）—'}
+                          </option>
                           {steelGroups.map(([cat, list]) => (
                             <optgroup key={cat} label={cat}>
                               {list.map((s) => (
@@ -584,7 +625,7 @@ export default function ConfiguredQuote() {
                           const s = m.materialCode ? matByCode.get(m.materialCode) : null;
                           return s ? (
                             <span className="text-[11px] text-emerald-700">
-                              ¥{s.currentPrice}/{s.unit || 'kg'}
+                              ¥{pricePerKgOf(s).toLocaleString('zh-CN', { maximumFractionDigits: 4 })}/kg
                               {s.density ? ` · 密度 ${s.density}` : ''}
                               {s.lossRate != null ? ` · 损耗 ${Math.round(s.lossRate * 1000) / 10}%` : ''}
                             </span>
@@ -697,23 +738,29 @@ export default function ConfiguredQuote() {
                         className="mt-1 w-full border border-indigo-300 bg-indigo-50 text-indigo-900 rounded px-2.5 py-2 text-sm"
                       >
                         <option value="">— 不选 —</option>
-                        {['塑料原料', '压铸合金', '模具钢材', '辅助材料'].map((cat) => {
-                          const group = matList.filter((m) => m.category === cat);
+                        {/* 注塑件/压铸件只该选塑料或合金；钢材属于模具，不在这里出现 */}
+                        {['塑料原料', '压铸合金'].map((cat) => {
+                          const group = usableMaterials.filter((m) => m.category === cat);
                           if (!group.length) return null;
                           return (
                             <optgroup key={cat} label={cat}>
                               {group.map((m) => (
                                 <option key={m.id} value={m.code}>
-                                  {m.name}（¥{Number(m.currentPrice).toLocaleString('zh-CN')}/{m.unit}）
+                                  {m.name}（¥{Number(m.currentPrice).toLocaleString('zh-CN')}/{m.unit}
+                                  {m.lossRate != null ? ` · 损耗 ${Math.round(m.lossRate * 100)}%` : ''}）
                                 </option>
                               ))}
                             </optgroup>
                           );
                         })}
                       </select>
-                      {p.materialCode && matByCode.get(p.materialCode) && injectionPriceVar && (
+                      {p.materialCode && matByCode.get(p.materialCode) && injectionVars.priceVar && (
                         <div className="text-[12px] text-indigo-700 mt-1">
-                          {injectionPriceVar}：¥{matByCode.get(p.materialCode).currentPrice}/{matByCode.get(p.materialCode).unit}（材料库带入）
+                          {injectionVars.priceVar}：¥{pricePerKgOf(matByCode.get(p.materialCode)).toLocaleString('zh-CN', { maximumFractionDigits: 4 })}/kg
+                          {matByCode.get(p.materialCode).lossRate != null
+                            ? ` · 损耗 ${Math.round(matByCode.get(p.materialCode).lossRate * 100)}%`
+                            : ''}
+                          （材料库带入）
                         </div>
                       )}
                     </label>

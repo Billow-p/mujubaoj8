@@ -75,24 +75,96 @@ const PRESET_MATERIALS: {
 ];
 
 const MaterialSchema = z.object({
-  code: z.string().min(1).max(30),
-  name: z.string().min(1).max(50),
-  category: z.string().max(30).optional(), // 一级分类
-  subCategory: z.string().max(30).nullable().optional(), // 二级分类
-  unit: z.string().max(10).optional(),
-  density: z.number().nonnegative().optional(),
-  lossRate: z.number().min(0).max(1).optional(),
-  currentPrice: z.number().nonnegative().optional(),
+  // 编码可留空 —— 留空时由服务端按名称自动生成，避免用户被"必填"卡住
+  code: z.string().max(30, '材料编码最多 30 个字符').optional().default(''),
+  name: z
+    .string({ required_error: '请填写材料名称' })
+    .trim()
+    .min(1, '请填写材料名称')
+    .max(50, '材料名称最多 50 个字符'),
+  category: z.string().max(30, '一级分类最多 30 个字符').optional(), // 一级分类
+  subCategory: z.string().max(30, '二级分类最多 30 个字符').nullable().optional(), // 二级分类
+  unit: z.string().max(10, '单位最多 10 个字符').optional(),
+  density: z.number().nonnegative('密度不能为负').optional(),
+  lossRate: z.number().min(0, '损耗率不能小于 0').max(1, '损耗率不能大于 1').optional(),
+  currentPrice: z.number().nonnegative('单价不能为负').optional(),
   currency: z.string().max(10).optional(),
   priceRule: z.enum(['fixed', 'tiered']).optional(),
   priceTiers: z
-    .array(z.object({ minQty: z.number(), maxQty: z.number().nullable(), price: z.number() }))
+    .array(
+      z.object({
+        minQty: z.number().nonnegative(),
+        maxQty: z.number().nonnegative().nullable(),
+        price: z.number().nonnegative(),
+      }),
+    )
     .optional(),
-  remark: z.string().max(200).optional(),
+  remark: z.string().max(200, '备注最多 200 个字符').optional(),
   enabled: z.boolean().optional(),
 });
 
+// 更新：所有字段可选（partially），但校验规则沿用
 const UpdateSchema = MaterialSchema.partial();
+
+/**
+ * 材料编码生成规则：
+ *   1) 名称里的英文字母数字（ABS / 718H / P20）优先，最贴近行业习惯
+ *   2) 纯中文名称 → M0001 这类顺序码
+ * 只做一次，唯一性由 ensureUniqueCode 补齐后缀。
+ */
+function makeCodeFromName(name: string, seq: number): string {
+  const ascii = (name || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  if (ascii.length >= 2) return ascii.slice(0, 20);
+  return `M${String(seq).padStart(4, '0')}`;
+}
+
+/**
+ * 保证「全局材料库」（moldTypeId = null）内 code 唯一。
+ *
+ * 注意：Material 上的 @@unique([companyId, moldTypeId, code]) 在 moldTypeId 为 NULL 时
+ * **不生效**（PostgreSQL 认为 NULL 互不相等），所以这里必须自己兜住。
+ */
+async function ensureUniqueCode(companyId: string, desired: string): Promise<string> {
+  const base = (desired || '').trim() || 'MAT';
+  for (let i = 0; i < 200; i++) {
+    const candidate = i === 0 ? base : `${base}-${i + 1}`.slice(0, 30);
+    const hit = await prisma.material.findFirst({
+      where: { companyId, moldTypeId: null, code: candidate },
+      select: { id: true },
+    });
+    if (!hit) return candidate;
+  }
+  return `${base.slice(0, 24)}-${Date.now().toString(36)}`;
+}
+
+/** 全局库里已存在该 code 的材料 id（不含指定 id） */
+async function findGlobalCodeOwner(
+  companyId: string,
+  code: string,
+  exceptId?: string,
+): Promise<{ id: string; name: string } | null> {
+  return prisma.material.findFirst({
+    where: {
+      companyId,
+      moldTypeId: null,
+      code: code.trim(),
+      ...(exceptId ? { id: { not: exceptId } } : {}),
+    },
+    select: { id: true, name: true },
+  });
+}
+
+/**
+ * 材料单位 → kg 的换算系数（重量法算价用）。
+ * 返回 null 表示这个单位不适合重量法（个 / 件 / 米…），此时不应把它注入重量相关参数。
+ */
+export function toKgFactor(unit?: string | null): number | null {
+  const u = (unit || 'kg').trim().toLowerCase();
+  if (u === 'kg' || u === '千克' || u === '公斤') return 1;
+  if (u === 'g' || u === '克') return 0.001;
+  if (u === 't' || u === '吨') return 1000;
+  return null;
+}
 
 // 按数量取阶梯价
 export function resolvePrice(
@@ -182,13 +254,18 @@ export async function materialRoutes(app: FastifyInstance) {
   app.post('/api/materials', { preHandler: [app.authenticate] }, async (req, reply) => {
     const { companyId } = req.user as any;
     const body = MaterialSchema.parse(req.body);
-    const dup = await prisma.material.findFirst({ where: { companyId, code: body.code } });
-    if (dup) return reply.code(400).send({ error: `材料编码「${body.code}」已存在` });
+
+    // 编码留空 → 按名称自动生成；填了但重名 → 自动加后缀，不让用户卡在保存按钮上
+    const desired = body.code.trim() || makeCodeFromName(body.name, (await prisma.material.count({ where: { companyId } })) + 1);
+    const owner = await findGlobalCodeOwner(companyId, desired);
+    const code = owner ? await ensureUniqueCode(companyId, desired) : desired;
 
     const price = body.currentPrice ?? 0;
     return prisma.material.create({
       data: {
         ...body,
+        code,
+        name: body.name.trim(),
         priceTiers: body.priceTiers ? JSON.stringify(body.priceTiers) : null,
         companyId,
         isPreset: false,
@@ -206,6 +283,19 @@ export async function materialRoutes(app: FastifyInstance) {
     if (!m) return reply.code(404).send({ error: '材料不存在' });
 
     const data: any = { ...body };
+
+    // 改编码要做查重（原来是直接改，可能撞上别人）
+    if (body.code !== undefined) {
+      const next = body.code.trim();
+      if (!next) return reply.code(400).send({ error: '材料编码不能为空' });
+      const owner = await findGlobalCodeOwner(companyId, next, id);
+      if (owner) {
+        return reply.code(400).send({ error: `材料编码「${next}」已被「${owner.name}」占用` });
+      }
+      data.code = next;
+    }
+    if (body.name !== undefined) data.name = body.name.trim();
+
     if (body.priceTiers) data.priceTiers = JSON.stringify(body.priceTiers);
     if (body.currentPrice !== undefined && body.currentPrice !== m.currentPrice) {
       // 改价 → 生成新价格版本（PRD 3.7）
@@ -237,14 +327,46 @@ export async function materialRoutes(app: FastifyInstance) {
     });
   });
 
-  // 删除（仅允许删企业自建材料）
+  // 删除（仅允许删企业自建材料，且不能被报价单引用）
   app.delete('/api/materials/:id', { preHandler: [app.authenticate] }, async (req, reply) => {
     const { companyId } = req.user as any;
     const { id } = req.params as any;
     const m = await prisma.material.findFirst({ where: { id, companyId } });
     if (!m) return reply.code(404).send({ error: '材料不存在' });
-    if (m.isPreset) return reply.code(400).send({ error: '预置材料不允许删除，可停用' });
+    if (m.isPreset) return reply.code(400).send({ error: '预置材料不允许删除，可改为停用' });
+
+    // 被报价单引用过就不能删 —— 否则历史报价「按此版本重新报价」会取不到材料价
+    const used = await countMaterialReferences(m.code);
+    if (used > 0) {
+      return reply
+        .code(400)
+        .send({ error: `该材料已被 ${used} 个报价版本引用，不能删除；如需下架请改为「停用」` });
+    }
+
     await prisma.material.delete({ where: { id } });
     return { ok: true };
   });
+}
+
+/**
+ * 统计有多少个报价版本引用了该材料编码（项目报价：molds[].materialCode / parts[].materialCode）。
+ *
+ * 用 jsonb 包含判断而不是文本 LIKE，避免「ABS」误命中「ABS-H」这类子串。
+ * 查询失败不阻断删除（宁可不拦，也不要误拦）。
+ */
+async function countMaterialReferences(code: string): Promise<number> {
+  if (!code) return 0;
+  try {
+    const partPayload = JSON.stringify({ parts: [{ materialCode: code }] });
+    const moldPayload = JSON.stringify({ molds: [{ materialCode: code }] });
+    const rows = await prisma.$queryRaw<{ n: number }[]>`
+      SELECT count(*)::int AS n
+      FROM "QuoteVersion"
+      WHERE "paramsJson"::jsonb @> (${partPayload})::jsonb
+         OR "paramsJson"::jsonb @> (${moldPayload})::jsonb
+    `;
+    return Number(rows?.[0]?.n ?? 0);
+  } catch {
+    return 0;
+  }
 }

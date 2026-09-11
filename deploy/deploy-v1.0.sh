@@ -52,8 +52,10 @@ ssh -o StrictHostKeyChecking=no root@47.242.248.104 "
   npx prisma db push
   echo '==> [6.5/8] 回填参数作用域 scope（仅改作用域，不动数值）'
   node scripts/migrate-add-param-scope.mjs
-  echo '==> [6.6/8] 回填模具钢材材料化（加 densityVar/lossVar + 钢材损耗率参数，默认 0 不改算价）'
+  echo '==> [6.6/8] 回填材料驱动算价（加 densityVar/lossVar + 钢材/原料损耗率参数，默认值与旧固定值一致）'
   node scripts/migrate-add-steel-material.mjs
+  echo '==> [6.7/8] 确保全局材料库编码唯一索引（db push 可能清掉，每次重建）'
+  node scripts/migrate-add-material-unique.mjs
 "
 
 echo "==> [7/8] 更新 Nginx 配置并重启服务"

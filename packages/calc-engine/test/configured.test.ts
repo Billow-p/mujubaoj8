@@ -264,5 +264,28 @@ t('B 模走自己的 NAK80（60 元/kg）', pr.moldResults[1].subtotal, 15543);
 t('B 模带出钢材名称', pr.moldResults[1].materialName, 'NAK80 镜面预硬钢');
 t('模具小计 = 两者之和', pr.moldSubtotal, 6476.25 + 15543);
 
+console.log('=== 16. 注塑件损耗率也来自材料库（与钢材同一套规则） ===');
+const injItem = (cfg: any): QuoteItemDef => ({
+  name: '产品材料费',
+  category: '材料费',
+  scope: 'injection',
+  calcType: 'weight',
+  enabled: true,
+  perUnit: true,
+  sortOrder: 1,
+  calcConfig: cfg,
+});
+const injUnit = (cfg: any, p: Record<string, number>) =>
+  calculateConfigured([injItem(cfg)], p, {}).lines[0].unitPrice;
+
+const Pq: Record<string, number> = { 单件重量: 0.18, 原料单价: 12, 注塑数量: 5000 };
+const injOld = { wVar: '单件重量', priceVar: '原料单价', loss: 0.05 };
+const injNew = { ...injOld, lossVar: '原料损耗率' };
+
+t('未选材料：损耗回落配置里的 0.05 → 0.18×12×1.05 = 2.27', injUnit(injNew, Pq), 2.27);
+t('与老配置结果完全一致（零回归）', injUnit(injNew, Pq), injUnit(injOld, Pq));
+t('选 PEEK（损耗 8%）：0.18×12×1.08 = 2.33', injUnit(injNew, { ...Pq, 原料损耗率: 0.08 }), 2.33);
+t('单件成本随材料损耗率变化', injUnit(injNew, { ...Pq, 原料损耗率: 0.08 }) !== injUnit(injNew, Pq), true);
+
 console.log(`\n${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

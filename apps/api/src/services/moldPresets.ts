@@ -72,6 +72,8 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { code: 'steelDensity', name: '钢材密度', value: 7.85, unit: 'g/cm³', group: '材料', scope: 'common' },
       { code: 'steelLossRate', name: '钢材损耗率', value: 0.1, unit: '', group: '材料', scope: 'common' },
       { code: 'materialUnitPrice', name: '原料单价', value: 12, unit: '元/kg', group: '材料', scope: 'injection' },
+      // 原料损耗率：选了材料库材料时用该牌号的损耗率，未选则用这里的值（默认与旧固定值一致）
+      { code: 'materialLossRate', name: '原料损耗率', value: 0.05, unit: '', group: '材料', scope: 'injection' },
       { code: 'injectionQty', name: '注塑数量', value: 5000, unit: '件', group: '商务', scope: 'injection' },
       // 运输费要用到的量
       { code: 'moldWeightKg', name: '模具重量', value: 800, unit: 'kg', group: '运输', scope: 'mold' },
@@ -114,8 +116,9 @@ export const MOLD_PRESETS: PresetMoldType[] = [
         expression: '最大值 ( 模具重量, 运输箱长 * 运输箱宽 * 运输箱高 / 6000 ) * 运费单价 * 运输区域' },
 
       // ------- 注塑费用（按件计价：单件成本 × 注塑数量） -------
+      // 材料单价与损耗率都来自材料库（选了牌号就按牌号走，没选则用配置里的固定值）
       { name: '产品材料费', category: '注塑材料', scope: 'injection', calcType: 'weight', perUnit: true,
-        calcConfig: { wVar: '单件重量', priceVar: '原料单价', loss: 0.05 } },
+        calcConfig: { wVar: '单件重量', priceVar: '原料单价', loss: 0.05, lossVar: '原料损耗率' } },
       { name: '注塑加工费', category: '注塑加工', scope: 'injection', calcType: 'fixed', perUnit: true,
         calcConfig: { amount: 0.3 } },
       { name: '包装费', category: '注塑包装', scope: 'injection', calcType: 'fixed', perUnit: true,

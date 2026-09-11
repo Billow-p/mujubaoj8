@@ -13,7 +13,11 @@ const EMPTY = {
   currentPrice: '0',
   priceRule: 'fixed',
   remark: '',
+  enabled: true,
 };
+
+/** 重量法算价只认这几个单位（其它单位会被折算或忽略） */
+const WEIGHT_UNITS = ['kg', 'g', 't'];
 
 /**
  * 材料中心
@@ -30,6 +34,7 @@ export default function Materials() {
   const [isNew, setIsNew] = useState(false);
   const [priceHistory, setPriceHistory] = useState<any[] | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [formErr, setFormErr] = useState('');
 
   const load = () => {
     setLoading(true);
@@ -60,10 +65,38 @@ export default function Materials() {
     load();
   };
 
+  /** 保存前先在本地校验，不让用户被服务端的英文报错劝退 */
+  const validate = (): string => {
+    const name = String(editing.name ?? '').trim();
+    const code = String(editing.code ?? '').trim();
+    if (!name) return '请填写材料名称';
+    if (code && !/^[A-Za-z0-9._-]+$/.test(code))
+      return '材料编码只能用字母、数字、下划线、短横线、点（也可以留空自动生成）';
+    if (code.length > 30) return '材料编码最多 30 个字符';
+    if (name.length > 50) return '材料名称最多 50 个字符';
+    const price = Number(editing.currentPrice);
+    if (!Number.isFinite(price) || price < 0) return '单价要填一个不小于 0 的数字';
+    const loss = Number(editing.lossRate);
+    if (!Number.isFinite(loss) || loss < 0 || loss > 1) return '损耗率要填 0~1 之间的数字（如 0.05）';
+    if (editing.density !== '' && editing.density != null) {
+      const d = Number(editing.density);
+      if (!Number.isFinite(d) || d < 0) return '密度要填一个不小于 0 的数字';
+    }
+    return '';
+  };
+
   const save = async () => {
+    const bad = validate();
+    if (bad) {
+      setFormErr(bad);
+      return;
+    }
+    setFormErr('');
     const body: any = {
       ...editing,
-      density: editing.density === '' ? undefined : Number(editing.density),
+      code: String(editing.code ?? '').trim(),
+      name: String(editing.name ?? '').trim(),
+      density: editing.density === '' || editing.density == null ? undefined : Number(editing.density),
       lossRate: Number(editing.lossRate),
       currentPrice: Number(editing.currentPrice),
       subCategory: editing.subCategory || null,
@@ -74,7 +107,17 @@ export default function Materials() {
       setEditing(null);
       load();
     } catch (e: any) {
-      alert('保存失败：' + (e.response?.data?.error || e.message));
+      setFormErr(e.response?.data?.error || e.message || '保存失败');
+    }
+  };
+
+  /** 直接列表里启用 / 停用（原来只有状态标签，没法切换） */
+  const toggleEnabled = async (m: any) => {
+    try {
+      await materials.update(m.id, { enabled: !m.enabled });
+      load();
+    } catch (e: any) {
+      alert('操作失败：' + (e.response?.data?.error || e.message));
     }
   };
 
@@ -108,7 +151,7 @@ export default function Materials() {
             初始化预置材料
           </button>
           <button
-            onClick={() => { setIsNew(true); setEditing({ ...EMPTY }); }}
+            onClick={() => { setIsNew(true); setFormErr(''); setEditing({ ...EMPTY }); }}
             className="bg-gray-900 text-white px-4 py-2 rounded text-sm font-medium hover:bg-gray-800"
           >
             新增材料
@@ -199,13 +242,17 @@ export default function Materials() {
                           {Math.round(m.lossRate * 100)}%
                         </td>
                         <td className="px-3 py-2">
-                          <span
-                            className={`text-[11.5px] px-2 py-0.5 rounded ${
-                              m.enabled ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'
+                          <button
+                            onClick={() => toggleEnabled(m)}
+                            title={m.enabled ? '点击停用（报价页不再可选）' : '点击启用'}
+                            className={`text-[11.5px] px-2 py-0.5 rounded border transition ${
+                              m.enabled
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-200 hover:bg-emerald-200'
+                                : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'
                             }`}
                           >
                             {m.enabled ? '启用' : '停用'}
-                          </span>
+                          </button>
                           {m.isPreset && <span className="ml-1 text-[11.5px] text-gray-400">预置</span>}
                         </td>
                         <td className="px-4 py-2 text-right whitespace-nowrap">
@@ -213,14 +260,20 @@ export default function Materials() {
                             价格历史
                           </button>
                           <button
-                            onClick={() => { setIsNew(false); setEditing({ ...m }); }}
+                            onClick={() => { setIsNew(false); setFormErr(''); setEditing({ ...m }); }}
                             className="text-gray-600 hover:text-gray-900 text-xs px-2"
                           >
                             编辑
                           </button>
-                          <button onClick={() => remove(m)} className="text-red-600 hover:text-red-800 text-xs px-2">
-                            删除
-                          </button>
+                          {m.isPreset ? (
+                            <span className="text-gray-300 text-xs px-2" title="预置材料不能删除，可点状态列停用">
+                              删除
+                            </span>
+                          ) : (
+                            <button onClick={() => remove(m)} className="text-red-600 hover:text-red-800 text-xs px-2">
+                              删除
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -258,16 +311,21 @@ export default function Materials() {
             <div className="px-6 py-4 border-b border-gray-200">
               <h2 className="font-medium">{isNew ? '新增材料' : `编辑：${editing.name}`}</h2>
             </div>
+            {formErr && (
+              <div className="mx-6 mt-3 text-[12.5px] text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+                {formErr}
+              </div>
+            )}
             <div className="px-6 py-4 grid grid-cols-2 gap-3">
               <label className="text-sm">
-                <span className="text-gray-600">编码</span>
+                <span className="text-gray-600">编码（留空自动生成）</span>
                 <input value={editing.code} onChange={(e) => setEditing({ ...editing, code: e.target.value })}
-                  className="mt-1 w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono" placeholder="ABS" />
+                  className="mt-1 w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono" placeholder="留空按名称生成，如 ABS" />
               </label>
               <label className="text-sm">
-                <span className="text-gray-600">名称</span>
+                <span className="text-gray-600">名称 *</span>
                 <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })}
-                  className="mt-1 w-full border border-gray-300 rounded px-2 py-1.5 text-sm" />
+                  className="mt-1 w-full border border-gray-300 rounded px-2 py-1.5 text-sm" placeholder="如：ABS 或 冷作钢" />
               </label>
 
               {/* 分类：datalist 可选预置值也可自己填 */}
@@ -309,6 +367,11 @@ export default function Materials() {
                 <datalist id="mat-units">
                   {['kg', 'g', 't', '个', '件', '米'].map((u) => <option key={u} value={u} />)}
                 </datalist>
+                {!WEIGHT_UNITS.includes(String(editing.unit || '')) && (
+                  <span className="text-[11px] text-amber-700">
+                    非重量单位（如「个」）不会参与按重量计价的项目
+                  </span>
+                )}
               </label>
               <label className="text-sm">
                 <span className="text-gray-600">单价（元/{editing.unit}）</span>
@@ -328,7 +391,21 @@ export default function Materials() {
                   onChange={(e) => setEditing({ ...editing, density: e.target.value })}
                   className="mt-1 w-full border border-gray-300 rounded px-2 py-1.5 text-sm" />
               </label>
-              <label className="text-sm col-span-2">
+              <label className="text-sm">
+                <span className="text-gray-600">状态</span>
+                <button
+                  type="button"
+                  onClick={() => setEditing({ ...editing, enabled: editing.enabled === false })}
+                  className={`mt-1 w-full border rounded px-2 py-1.5 text-sm text-left ${
+                    editing.enabled === false
+                      ? 'border-gray-300 bg-gray-50 text-gray-600'
+                      : 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                  }`}
+                >
+                  {editing.enabled === false ? '停用（报价页不可选）' : '启用'}
+                </button>
+              </label>
+              <label className="text-sm">
                 <span className="text-gray-600">备注</span>
                 <input value={editing.remark ?? ''} onChange={(e) => setEditing({ ...editing, remark: e.target.value })}
                   className="mt-1 w-full border border-gray-300 rounded px-2 py-1.5 text-sm" />

@@ -8,6 +8,7 @@ import { prisma } from '../db.js';
 import { calculateQuote, validateQuoteInput, calculateConfigured, calculateQuoteProject } from '@mqs/calc-engine';
 import type { CalcQuoteRequest, QuoteItemDef, QuoteProjectInput, QuoteProjectResult, QuoteProjectMold, QuoteProjectPart } from '@mqs/shared';
 import { QTY_VAR_CANDIDATES } from '@mqs/shared';
+import { toKgFactor } from './materials.js';
 import { sendQuoteNotification } from '../services/email.js';
 import { buildQuoteExcel } from '../services/excel.js';
 import { toExcelModel } from '../services/quoteModel.js';
@@ -1018,13 +1019,15 @@ export async function quoteRoutes(app: FastifyInstance) {
       qtyVarName = QTY_VAR_CANDIDATES.find((c) => names.has(c)) ?? '注塑数量';
     }
 
-    // 注塑材料费项引用的「原料单价/合金单价」参数名（按重量项推导，跨模具类型通用）
-    const injectionPriceVar = (() => {
+    // 注塑材料费项引用的「原料单价/合金单价」+「损耗率」参数名（按重量项推导，跨模具类型通用）
+    const injectionVars = (() => {
       const w = items.find(
         (it) => (it.scope as string) === 'injection' && it.calcType === 'weight',
       );
-      return (w?.calcConfig as any)?.priceVar as string | undefined;
+      const c = (w?.calcConfig ?? {}) as any;
+      return { priceVar: c.priceVar as string | undefined, lossVar: c.lossVar as string | undefined };
     })();
+    const injectionPriceVar = injectionVars.priceVar;
 
     // 模具钢材费项引用的「单价 / 密度 / 损耗率」参数名（按尺寸项推导）
     const moldSteelVars = (() => {
@@ -1051,7 +1054,21 @@ export async function quoteRoutes(app: FastifyInstance) {
       unit: it.unit ?? undefined,
     }));
 
-    const materialsByCode = new Map(materials.map((m) => [m.code, m]));
+    // 全局材料库优先（材料中心维护的是全局那份），类型专属副本做兜底
+    const materialsByCode = new Map<string, (typeof materials)[number]>();
+    for (const m of materials) if (m.moldTypeId) materialsByCode.set(m.code, m);
+    for (const m of materials) if (!m.moldTypeId) materialsByCode.set(m.code, m);
+
+    // 引用的材料必须存在 —— 否则静默按「无材料」算，价格会悄悄错掉
+    const missingCodes = [
+      ...body.molds.map((m) => m.materialCode),
+      ...body.parts.map((p) => p.materialCode),
+    ].filter((c): c is string => !!c && !materialsByCode.has(c));
+    if (missingCodes.length > 0) {
+      return reply
+        .code(400)
+        .send({ error: `材料不存在或已被删除：${[...new Set(missingCodes)].join('、')}` });
+    }
 
     // 模具：scope=mold 的参数（模芯长/宽/高、腔数、模具重量…）
     // 若指定了钢材牌号：把材料库里的 单价 / 密度 / 损耗率 注入本套模具参数
@@ -1067,12 +1084,15 @@ export async function quoteRoutes(app: FastifyInstance) {
         const mat = materialsByCode.get(m.materialCode);
         if (mat) {
           moldMaterialNames.set(mi, mat.name);
+          // 单位换算：钢材公式按「元/kg」计价，材料库若按 g / t 维护要折算
+          const kg = toKgFactor(mat.unit);
+          const pricePerKg = kg ? Number(mat.currentPrice) / kg : null;
           const inject = (key: string | undefined, value: unknown) => {
             if (!key || params[key] != null) return;
             const n = Number(value);
             if (Number.isFinite(n)) params[key] = n;
           };
-          inject(moldSteelVars.priceVar, mat.currentPrice);
+          if (pricePerKg != null) inject(moldSteelVars.priceVar, pricePerKg);
           inject(moldSteelVars.densityVar, mat.density);
           inject(moldSteelVars.lossVar, mat.lossRate);
         }
@@ -1094,11 +1114,19 @@ export async function quoteRoutes(app: FastifyInstance) {
         const n = Number(v);
         if (Number.isFinite(n)) params[k] = n;
       }
-      // 决策#3：件材料来自材料库（全局唯一价格来源），把材料价注入到重量项的 priceVar
+      // 决策#3：件材料来自材料库（全局唯一价格来源）—— 单价与损耗率都按材料走
       if (p.materialCode) {
         const mat = materialsByCode.get(p.materialCode);
-        if (mat && injectionPriceVar && params[injectionPriceVar] == null) {
-          params[injectionPriceVar] = Number(mat.currentPrice) || 0;
+        if (mat) {
+          // 单件重量按 kg 输入，材料若按 g / t 维护要折算成「元/kg」
+          const kg = toKgFactor(mat.unit);
+          const pricePerKg = kg ? Number(mat.currentPrice) / kg : null;
+          if (pricePerKg != null && injectionVars.priceVar && params[injectionVars.priceVar] == null) {
+            params[injectionVars.priceVar] = pricePerKg;
+          }
+          if (injectionVars.lossVar && params[injectionVars.lossVar] == null && mat.lossRate != null) {
+            params[injectionVars.lossVar] = Number(mat.lossRate) || 0;
+          }
         }
       }
       return {
@@ -1175,14 +1203,19 @@ export async function quoteRoutes(app: FastifyInstance) {
               // 存计算时实际用的模具数组（含 materialName 与注入后的钢材价/密度/损耗），
               // 这样「按此版本重新报价」能原样复现
               molds,
-              parts: body.parts.map((p) => ({
-                ...p,
-                // 把材料库解析出的价格也存一份，前端核对用（计算仍以前端传入为准）
-                resolvedMaterialPrice:
-                  p.materialCode && injectionPriceVar
-                    ? Number(materialsByCode.get(p.materialCode)?.currentPrice) || 0
-                    : undefined,
-              })),
+              // 同 molds：存计算时实际用的注塑件数组（含注入后的材料单价/损耗率）
+              parts: parts.map((p, pi) => {
+                const mat = p.materialCode ? materialsByCode.get(p.materialCode) : undefined;
+                const kg = mat ? toKgFactor(mat.unit) : null;
+                return {
+                  ...body.parts[pi],
+                  params: p.params,
+                  materialName: mat?.name,
+                  resolvedMaterialPrice:
+                    mat && kg ? Math.round((Number(mat.currentPrice) / kg) * 10000) / 10000 : undefined,
+                  resolvedMaterialLossRate: mat?.lossRate ?? undefined,
+                };
+              }),
               items: defs,
             } as any,
             calcResultJson: result as any,
