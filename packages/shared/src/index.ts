@@ -261,13 +261,19 @@ export interface QuoteItemCalcConfig {
   l?: string;
   w?: string;
   h?: string;
+  /** 固定密度（g/cm³）。未选材料时使用 */
   density?: number;
+  /** 密度取自哪个参数（如「钢材密度」）；选了材料库材料时由前端注入该参数 */
+  densityVar?: string;
   priceVar?: string;
   priceFixed?: number;
   hours?: number;
   rate?: number;
   wVar?: string;
+  /** 固定损耗率。未选材料时使用 */
   loss?: number;
+  /** 损耗率取自哪个参数（如「钢材损耗率」）；选了材料库材料时由前端注入该参数 */
+  lossVar?: string;
   base?: string;
 }
 
@@ -324,6 +330,96 @@ export interface ConfigCalcResult {
   injectionQty?: number;
   /** 注塑单件成本合计（元/件） */
   unitCost?: number;
+}
+
+// ============================================================
+// 多注塑件报价（报价单元 / 项目）
+// ============================================================
+
+/** 参数作用域：决定参数该填在哪、被谁消费 */
+export type ParamScope = 'mold' | 'injection' | 'common';
+
+/** 一套模具（或一组并列的模具） */
+export interface QuoteProjectMold {
+  code?: string;
+  name: string;
+  /** 本套模具所用钢材编码（来自材料库，自动带出单价/密度/损耗） */
+  materialCode?: string;
+  /** 钢材名称（后端解析后回存，便于展示） */
+  materialName?: string;
+  /** 模具作用域参数（模芯长/宽/高、腔数…），name → 数值 */
+  params: Record<string, number>;
+  /** 手动填写金额的费用项（name → 金额） */
+  manualAmounts?: Record<string, number>;
+}
+
+/** 一个注塑件 */
+export interface QuoteProjectPart {
+  code?: string;
+  name: string;
+  /** 件所用材料编码（来自材料库，自动带出单价/损耗） */
+  materialCode?: string;
+  /** 本件数量 */
+  qty: number;
+  /** 注塑作用域参数（单件重量、原料单价、损耗率…） */
+  params: Record<string, number>;
+  manualAmounts?: Record<string, number>;
+}
+
+/** 公共参数（整单一份） */
+export interface QuoteProjectCommon {
+  profitRate?: number;
+  taxRate?: number;
+  /**
+   * 模具类型的数量参数名（注塑数量 / 压铸数量 / 成型数量）。
+   * 引擎把它注入到每件的计算上下文，作为 per-unit 乘法的数量。
+   */
+  qtyVarName?: string;
+  /** 公共参数（所有模具/件共享，如 钢材单价、运费单价、运输区域） */
+  params?: Record<string, number>;
+}
+
+export interface QuoteProjectInput {
+  /** 完整的费用项定义（mold + injection 两种 scope） */
+  items: QuoteItemDef[];
+  common: QuoteProjectCommon;
+  molds: QuoteProjectMold[];
+  parts: QuoteProjectPart[];
+}
+
+export interface QuoteProjectMoldResult {
+  code?: string;
+  name: string;
+  materialCode?: string;
+  materialName?: string;
+  subtotal: number;
+  lines: ConfigCalcLine[];
+}
+
+export interface QuoteProjectPartResult {
+  code?: string;
+  name: string;
+  materialCode?: string;
+  qty: number;
+  /** 单件成本（元/件） */
+  unitCost: number;
+  /** 本件小计（单件成本 × 数量） */
+  total: number;
+  lines: ConfigCalcLine[];
+}
+
+export interface QuoteProjectResult {
+  kind: 'project';
+  moldResults: QuoteProjectMoldResult[];
+  partResults: QuoteProjectPartResult[];
+  moldSubtotal: number;
+  injectionSubtotal: number;
+  subtotal: number;
+  profitRate: number;
+  profit: number;
+  taxRate: number;
+  tax: number;
+  total: number;
 }
 
 // 计算方式的中文说明（前后端共用）

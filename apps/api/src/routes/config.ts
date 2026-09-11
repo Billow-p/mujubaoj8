@@ -43,6 +43,7 @@ const ParamSchema = z.object({
   unit: z.string().max(10).nullable().optional(),
   defaultValue: z.union([z.string(), z.number()]).nullable().optional(),
   group: z.string().max(20).optional(),
+  scope: z.enum(['mold', 'injection', 'common']).optional(),
   type: z.string().max(20).optional(),
   options: z
     .array(z.object({ label: z.string().max(40), value: z.number() }))
@@ -224,6 +225,7 @@ export async function configRoutes(app: FastifyInstance) {
             unit: p.unit ?? null,
             defaultValue: p.defaultValue == null ? null : String(p.defaultValue),
             group: p.group ?? '通用',
+            scope: p.scope ?? 'common',
             type: p.type ?? 'decimal',
             options: p.options && p.options.length ? JSON.stringify(p.options) : null,
             sortOrder: i,
@@ -366,6 +368,7 @@ async function createPresetMoldType(companyId: string, p: (typeof MOLD_PRESETS)[
       unit: x.unit,
       defaultValue: String(x.value),
       group: x.group,
+      scope: x.scope ?? 'common',
       type: x.type ?? 'decimal',
       options: x.options ? JSON.stringify(x.options) : null,
       sortOrder: i,
@@ -418,7 +421,7 @@ async function copyConfig(companyId: string, fromId: string, toId: string) {
     await prisma.customParameter.createMany({
       data: params.map((x, i) => ({
         companyId, moldTypeId: toId, code: x.code, name: x.name, type: x.type,
-        unit: x.unit, defaultValue: x.defaultValue, group: x.group, options: x.options,
+        unit: x.unit, defaultValue: x.defaultValue, group: x.group, scope: x.scope, options: x.options,
         sortOrder: i, enabled: x.enabled,
       })),
     });

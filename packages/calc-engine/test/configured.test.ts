@@ -4,6 +4,8 @@ import {
   buildItemExpression,
   describeItem,
   calculateConfigured,
+  calculateQuoteProject,
+  normalizeItemVars,
 } from '../src/configured.js';
 
 let pass = 0;
@@ -38,7 +40,22 @@ t('工时×时薪', buildItemExpression(mk('hours', { hours: 96, rate: 400 })), 
 t(
   '按尺寸算材料',
   buildItemExpression(mk('size', { l: '模芯长', w: '模芯宽', h: '模芯高', density: 7.85, priceVar: '钢材单价' })),
-  '模芯长 * 模芯宽 * 模芯高 / 1000 * 7.85 / 1000 * 钢材单价',
+  '模芯长 * 模芯宽 * 模芯高 / 1000 * 7.85 / 1000 * 钢材单价 * ( 1 + 0 )',
+);
+t(
+  '按尺寸算材料（密度/损耗走参数）',
+  buildItemExpression(
+    mk('size', {
+      l: '模芯长',
+      w: '模芯宽',
+      h: '模芯高',
+      density: 7.85,
+      densityVar: '钢材密度',
+      priceVar: '钢材单价',
+      lossVar: '钢材损耗率',
+    }),
+  ),
+  '模芯长 * 模芯宽 * 模芯高 / 1000 * 钢材密度 / 1000 * 钢材单价 * ( 1 + 钢材损耗率 )',
 );
 t(
   '按重量算',
@@ -182,6 +199,70 @@ t(
   describeItem({ name: '设计费', scope: 'mold', calcType: 'fixed', enabled: true, calcConfig: { amount: 6000 } }),
   '固定金额 ¥6,000',
 );
+
+console.log('=== 13. 模具钢材来自材料库（方案 A） ===');
+/** 单件算价快捷方式 */
+const one = (cfg: any, p: Record<string, number>) =>
+  calculateConfigured(
+    [{ name: '模芯钢材费', category: '材料费', scope: 'mold', calcType: 'size', enabled: true, sortOrder: 1, calcConfig: cfg }],
+    p,
+    {},
+  ).mold;
+
+// 235.5kg = 500×400×150/1000×7.85/1000
+const Psteel: Record<string, number> = { 模芯长: 500, 模芯宽: 400, 模芯高: 150, 钢材单价: 25 };
+
+t('未选材料：密度写死 7.85、无损耗 → 235.5 × 25 = 5887.5', one({ l: '模芯长', w: '模芯宽', h: '模芯高', density: 7.85, priceVar: '钢材单价' }, Psteel), 5887.5);
+
+const steelVarCfg = {
+  l: '模芯长', w: '模芯宽', h: '模芯高',
+  density: 7.85, densityVar: '钢材密度',
+  priceVar: '钢材单价', lossVar: '钢材损耗率',
+};
+
+// 关键回归：声明了 densityVar/lossVar 但参数缺失时，必须回落到 calcConfig 固定值 → 与老配置完全一致
+const oldVal = one({ l: '模芯长', w: '模芯宽', h: '模芯高', density: 7.85, priceVar: '钢材单价' }, Psteel);
+t('变量缺失自动回填 → 结果与老配置一致', one(steelVarCfg, Psteel), oldVal);
+
+const filled = normalizeItemVars(
+  [{ name: '模芯钢材费', scope: 'mold', calcType: 'size', enabled: true, calcConfig: steelVarCfg as any }],
+  Psteel,
+);
+t('normalizeItemVars 补出 钢材密度', filled['钢材密度'], 7.85);
+t('normalizeItemVars 把缺失损耗补 0（避免未知变量导致整项归零）', filled['钢材损耗率'], 0);
+
+// 选了材料：NAK80（60 元/kg、7.85、损耗 10%）
+const Pnak = { ...Psteel, 钢材单价: 60, 钢材密度: 7.85, 钢材损耗率: 0.1 };
+t('选 NAK80：235.5 × 60 × 1.1 = 15543', one(steelVarCfg, Pnak), 15543);
+
+// 选了材料：Cr12MoV（38 元/kg、密度 7.7、损耗 10%）→ 231kg
+const Pcr = { ...Psteel, 钢材单价: 38, 钢材密度: 7.7, 钢材损耗率: 0.1 };
+t('选 Cr12MoV：231 × 38 × 1.1 = 9655.8（密度随牌号变）', one(steelVarCfg, Pcr), 9655.8);
+
+console.log('=== 14. 压铸模具：加变量声明后旧行为不变 ===');
+const dp = { 投影面积: 320, 平均壁厚: 2.5, 合金单价: 22 };
+const diecastOld = { l: '投影面积', w: '平均壁厚', h: '', density: 2.7, priceVar: '合金单价' };
+const diecastNew = { ...diecastOld, densityVar: '钢材密度', lossVar: '钢材损耗率' };
+t('压铸未选钢材密度参数 → 沿用配置里的 2.7，结果不变', one(diecastNew, dp), one(diecastOld, dp));
+t('压铸选了钢材（7.85 / 损耗12%）后按新材料算', one(diecastNew, { ...dp, 钢材密度: 7.85, 钢材损耗率: 0.12 }) > one(diecastOld, dp), true);
+
+console.log('=== 15. 一单多模具：各套钢材可不同（模具参数覆盖整单） ===');
+const projItems: QuoteItemDef[] = [
+  { name: '模芯钢材费', category: '材料费', scope: 'mold', calcType: 'size', enabled: true, sortOrder: 1, calcConfig: steelVarCfg },
+];
+const pr = calculateQuoteProject({
+  items: projItems,
+  common: { profitRate: 0, taxRate: 0, params: { 钢材单价: 25, 钢材密度: 7.85, 钢材损耗率: 0.1 } },
+  molds: [
+    { name: 'A模', params: { 模芯长: 500, 模芯宽: 400, 模芯高: 150 } },
+    { name: 'B模', materialCode: 'NAK80', materialName: 'NAK80 镜面预硬钢', params: { 模芯长: 500, 模芯宽: 400, 模芯高: 150, 钢材单价: 60 } },
+  ],
+  parts: [],
+});
+t('A 模走整单默认（25 元/kg）', pr.moldResults[0].subtotal, 6476.25);
+t('B 模走自己的 NAK80（60 元/kg）', pr.moldResults[1].subtotal, 15543);
+t('B 模带出钢材名称', pr.moldResults[1].materialName, 'NAK80 镜面预硬钢');
+t('模具小计 = 两者之和', pr.moldSubtotal, 6476.25 + 15543);
 
 console.log(`\n${pass} 通过 / ${fail} 失败`);
 process.exit(fail === 0 ? 0 : 1);

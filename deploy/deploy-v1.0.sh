@@ -17,8 +17,9 @@ STAMP=$(date +%Y%m%d-%H%M%S)
 echo "==> [1/8] 本地构建（前端产物 + 后端 dist）"
 pnpm -r build
 
-echo "==> [2/8] 打包（排除 node_modules / .git）"
-tar czf "$PKG" --exclude='node_modules' --exclude='.git' --exclude='*.log' --exclude='.tmp-pgdata' .
+echo "==> [2/8] 打包（排除 node_modules / .git / .env / 日志）"
+echo "    注意：.env 含生产密钥，禁止随包覆盖服务器，由步骤 [4/8] 单独备份、解压时保留"
+tar czf "$PKG" --exclude='node_modules' --exclude='.git' --exclude='*.log' --exclude='.tmp-pgdata' --exclude='.env' .
 ls -lh "$PKG"
 
 echo "==> [3/8] 上传到服务器"
@@ -29,6 +30,8 @@ ssh -o StrictHostKeyChecking=no root@47.242.248.104 "
   set -e
   mkdir -p /opt/backups
   cp -r $APP_DIR/apps/web/dist /opt/backups/web-dist-$STAMP
+  cp $APP_DIR/apps/api/.env /opt/backups/api-env-$STAMP.txt 2>/dev/null || true
+  echo "已备份服务端 .env（生产密钥）"
   PGPASSWORD=MqsPass_2026 pg_dump -h 127.0.0.1 -U mqs -d mold_quote > /opt/backups/mold_quote-$STAMP.sql
   gzip /opt/backups/mold_quote-$STAMP.sql
   ls -lh /opt/backups | tail -5
@@ -47,6 +50,10 @@ ssh -o StrictHostKeyChecking=no root@47.242.248.104 "
   cd $APP_DIR/apps/api
   npx prisma generate
   npx prisma db push
+  echo '==> [6.5/8] 回填参数作用域 scope（仅改作用域，不动数值）'
+  node scripts/migrate-add-param-scope.mjs
+  echo '==> [6.6/8] 回填模具钢材材料化（加 densityVar/lossVar + 钢材损耗率参数，默认 0 不改算价）'
+  node scripts/migrate-add-steel-material.mjs
 "
 
 echo "==> [7/8] 更新 Nginx 配置并重启服务"

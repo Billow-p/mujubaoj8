@@ -6,6 +6,10 @@ import type {
   ConfigCalcResult,
   QuoteItemDef,
   QuoteItemCalcConfig,
+  QuoteProjectInput,
+  QuoteProjectResult,
+  QuoteProjectMoldResult,
+  QuoteProjectPartResult,
 } from '@mqs/shared';
 import { QTY_VAR_CANDIDATES } from '@mqs/shared';
 import { evaluateExpression, type Scope } from './expression.js';
@@ -17,6 +21,57 @@ function pick(varName: string | undefined, fixed: number | undefined, fallback =
   if (varName && varName.trim()) return varName.trim();
   const f = Number(fixed);
   return Number.isFinite(f) ? String(f) : fallback;
+}
+
+/** 固定损耗位：优先取参数名，否则取固定数值（0/缺失 → 0） */
+function pickLoss(varName: string | undefined, fixed: number | undefined): string {
+  if (varName && varName.trim()) return varName.trim();
+  const f = Number(fixed);
+  return Number.isFinite(f) ? String(f) : '0';
+}
+
+/** 损耗的中文读法：优先显示参数名，否则显示固定数值；都没有则返回空 */
+function lossText(c: QuoteItemCalcConfig): string {
+  if (c.lossVar && c.lossVar.trim()) return `损耗 ${c.lossVar.trim()}`;
+  const f = Number(c.loss);
+  if (Number.isFinite(f) && f !== 0) return `损耗 ${f}`;
+  return '';
+}
+
+/**
+ * 变量缺省回填 —— 保证「没选材料库材料时，结果与老公式完全一致」。
+ *
+ * 计算项里如果声明了 densityVar / lossVar / priceVar / wVar，
+ * 但该参数在这次计算中根本没传（例如材料库还没接线的模具类型），
+ * 就用 calcConfig 里的固定值（density / loss / priceFixed）补上。
+ * 这样切换为「变量」写法不会改变任何旧配置的算价结果。
+ */
+export function normalizeItemVars(
+  items: QuoteItemDef[],
+  params: Record<string, number>,
+): Record<string, number> {
+  const out: Record<string, number> = { ...params };
+  const put = (key: string | undefined, value: unknown) => {
+    if (!key || !key.trim()) return;
+    if (out[key] != null && Number.isFinite(Number(out[key]))) return;
+    const n = Number(value);
+    if (Number.isFinite(n)) out[key] = n;
+  };
+  for (const it of items) {
+    const c: QuoteItemCalcConfig = it.calcConfig ?? {};
+    // 注意：只要声明了 *Var，就必须保证该变量一定有值，
+    // 否则表达式里会出现未知变量 → 整项算成 0。
+    // 所以这里的兜底是「必有」的：密度缺省 1，损耗缺省 0（等价于不算损耗）。
+    if (it.calcType === 'size') {
+      put(c.densityVar, c.density ?? 1);
+      put(c.lossVar, c.loss ?? 0);
+      put(c.priceVar, c.priceFixed);
+    } else if (it.calcType === 'weight') {
+      put(c.lossVar, c.loss ?? 0);
+      put(c.priceVar, c.priceFixed);
+    }
+  }
+  return out;
 }
 
 /** 由「计算方式 + 配置」生成表达式（中文变量名，求值器原生支持） */
@@ -32,9 +87,10 @@ export function buildItemExpression(item: QuoteItemDef): string {
     case 'size': {
       const dims = [c.l, c.w, c.h].filter((x) => x && String(x).trim()) as string[];
       if (!dims.length) return '0';
+      // 长×宽×高(mm³) ÷1000→cm³ ×密度(g/cm³) ÷1000→kg ×单价(元/kg) ×(1+损耗)
       return (
-        `${dims.join(' * ')} / 1000 * ${Number(c.density) || 1} / 1000 * ` +
-        `${pick(c.priceVar, c.priceFixed)}`
+        `${dims.join(' * ')} / 1000 * ${pick(c.densityVar, c.density, '1')} / 1000 * ` +
+        `${pick(c.priceVar, c.priceFixed)} * ( 1 + ${pickLoss(c.lossVar, c.loss)} )`
       );
     }
 
@@ -44,7 +100,7 @@ export function buildItemExpression(item: QuoteItemDef): string {
     case 'weight':
       return (
         `${pick(c.wVar, undefined, '0')} * ${pick(c.priceVar, c.priceFixed)} * ` +
-        `( 1 + ${Number(c.loss) || 0} )`
+        `( 1 + ${pickLoss(c.lossVar, c.loss)} )`
       );
 
     case 'percent':
@@ -75,12 +131,17 @@ export function describeItem(item: QuoteItemDef): string {
     }
     case 'size': {
       const dims = [c.l, c.w, c.h].filter((x) => x && String(x).trim());
-      return `${dims.join(' × ')} → 换算重量 × ${c.priceVar || (Number(c.priceFixed) || 0) + ' 元'}${tail}`;
+      const loss = lossText(c);
+      return `${dims.join(' × ')} → 换算重量 × ${c.priceVar || (Number(c.priceFixed) || 0) + ' 元'}${
+        loss ? ` × (1 + ${loss})` : ''
+      }${tail}`;
     }
     case 'hours':
       return `${Number(c.hours) || 0} 小时 × ${Number(c.rate) || 0} 元/小时${tail}`;
     case 'weight':
-      return `${c.wVar || '重量'} × ${c.priceVar || (Number(c.priceFixed) || 0) + ' 元'} × (1 + 损耗 ${Number(c.loss) || 0})${tail}`;
+      return `${c.wVar || '重量'} × ${c.priceVar || (Number(c.priceFixed) || 0) + ' 元'} × (1 + ${
+        lossText(c) || '损耗 0'
+      })${tail}`;
     case 'percent':
       return `${c.base || '模具小计'} × ${r2((Number(c.rate) || 0) * 100)}%`;
     case 'manual':
@@ -145,8 +206,11 @@ export function calculateConfigured(
   params: Record<string, number>,
   opts: ConfiguredOptions = {},
 ): ConfigCalcResult {
+  // 变量缺省回填：声明了 densityVar/lossVar/priceVar 但没传值的，用 calcConfig 固定值补上。
+  // 这一步保证「未选材料库材料」时算价与老配置完全一致。
+  const filled = normalizeItemVars(items, params ?? {});
   const scope: Scope = {};
-  for (const [k, v] of Object.entries(params)) {
+  for (const [k, v] of Object.entries(filled)) {
     const n = Number(v);
     if (Number.isFinite(n)) scope[k] = n;
   }
@@ -287,5 +351,93 @@ export function calculateConfigured(
     total: r2(beforeTax + tax),
     injectionQty: injectionQty || undefined,
     unitCost: unitCost || undefined,
+  };
+}
+
+// ============================================================
+// 多注塑件聚合：一张报价单 = 多套模具（并列）+ 多个注塑件（并列）
+// 不动单实例引擎，只在外面套一层聚合。
+// ============================================================
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+// 新引擎聚合层：一张报价单装多个可独立算价的对象
+export function calculateQuoteProject(input: QuoteProjectInput): QuoteProjectResult {
+  const moldItems = (input.items ?? []).filter((it) => (it.scope ?? 'mold') === 'mold');
+  const partItems = (input.items ?? []).filter((it) => it.scope === 'injection');
+  const profitRate = Number(input.common?.profitRate) || 0;
+  const taxRate = Number(input.common?.taxRate) || 0;
+  const qtyVarName = (input.common?.qtyVarName || '注塑数量').trim();
+  const commonParams = input.common?.params ?? {};
+
+  // 手动项转固定金额参与计算（与单实例路由一致）
+  const withManual = (
+    items: QuoteItemDef[],
+    manuals?: Record<string, number>,
+  ): QuoteItemDef[] =>
+    items.map((it) => {
+      if (it.calcType === 'manual' && manuals && manuals[it.name] != null) {
+        return { ...it, calcType: 'fixed', calcConfig: { amount: manuals[it.name] } };
+      }
+      return it;
+    });
+
+  const moldResults: QuoteProjectMoldResult[] = (input.molds ?? []).map((m) => {
+    const params: Record<string, number> = { ...commonParams, ...(m.params ?? {}) };
+    const res = calculateConfigured(withManual(moldItems, m.manualAmounts), params, {
+      profitRate,
+      taxRate,
+    });
+    return {
+      code: m.code,
+      name: m.name,
+      materialCode: m.materialCode,
+      materialName: m.materialName,
+      subtotal: round2(res.mold),
+      lines: res.lines,
+    };
+  });
+
+  const partResults: QuoteProjectPartResult[] = (input.parts ?? []).map((p) => {
+    const params: Record<string, number> = { ...commonParams, ...(p.params ?? {}) };
+    // 把本件数量注入到数量参数，per-unit 乘法才能拿到正确数量
+    params[qtyVarName] = Number(p.qty) || 0;
+    const res = calculateConfigured(withManual(partItems, p.manualAmounts), params, {
+      profitRate,
+      taxRate,
+      injectionQtyVar: qtyVarName,
+    });
+    const unitCost = round2(res.unitCost ?? 0);
+    const qty = Number(p.qty) || 0;
+    return {
+      code: p.code,
+      name: p.name,
+      materialCode: p.materialCode,
+      qty,
+      unitCost,
+      total: round2(unitCost * qty),
+      lines: res.lines,
+    };
+  });
+
+  const moldSubtotal = round2(moldResults.reduce((s, m) => s + m.subtotal, 0));
+  const injectionSubtotal = round2(partResults.reduce((s, p) => s + p.total, 0));
+  const subtotal = round2(moldSubtotal + injectionSubtotal);
+  const profit = Math.round(subtotal * profitRate);
+  const tax = Math.round((subtotal + profit) * taxRate);
+  const total = subtotal + profit + tax;
+
+  return {
+    kind: 'project',
+    moldResults,
+    partResults,
+    moldSubtotal,
+    injectionSubtotal,
+    subtotal,
+    profitRate,
+    profit,
+    taxRate,
+    tax,
+    total,
   };
 }

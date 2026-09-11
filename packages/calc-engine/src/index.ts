@@ -26,6 +26,8 @@ export {
   describeItem,
   friendlyCalcError,
   calculateConfigured,
+  calculateQuoteProject,
+  normalizeItemVars,
 } from './configured.js';
 export type { ConfiguredOptions } from './configured.js';
 import {

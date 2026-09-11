@@ -89,7 +89,16 @@ export async function authRoutes(app: FastifyInstance) {
     });
 
     const token = app.jwt.sign({ userId: user.id, companyId: user.companyId, role: user.role });
-    return { token, user: { id: user.id, email: user.email, name: user.name, role: user.role } };
+    return {
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        isSuperAdmin: user.isSuperAdmin,
+      },
+    };
   });
 
   // ---------------------------------------------------------------
@@ -107,7 +116,16 @@ export async function authRoutes(app: FastifyInstance) {
     await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
     const token = app.jwt.sign({ userId: user.id, companyId: user.companyId, role: user.role });
-    return { token, user: { id: user.id, email: user.email, name: user.name, role: user.role } };
+    return {
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        isSuperAdmin: user.isSuperAdmin,
+      },
+    };
   });
 
   // ---------------------------------------------------------------
@@ -146,6 +164,7 @@ export async function authRoutes(app: FastifyInstance) {
       role: user.role,
       companyId: user.companyId,
       emailVerified: user.emailVerified,
+      isSuperAdmin: user.isSuperAdmin,
     };
   });
 

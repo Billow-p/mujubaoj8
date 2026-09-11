@@ -45,8 +45,12 @@ const INJ_LABEL: Record<string, string> = {
 const money = (n: number) => '¥' + Number(n || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
 
 /** 版本快照里的含税总价 —— 兼容两代数据结构 */
-const verTotal = (c: any) =>
-  Array.isArray(c?.lines) ? Number(c.total) || 0 : Number(c?.summary?.grandTotalIncVat) || 0;
+const verTotal = (c: any) => {
+  if (!c) return 0;
+  if (c.kind === 'project') return Number(c.total) || 0;
+  if (Array.isArray(c?.lines)) return Number(c.total) || 0;
+  return Number(c?.summary?.grandTotalIncVat) || 0;
+};
 
 export default function QuoteDetail() {
   const { id } = useParams();
@@ -80,7 +84,9 @@ export default function QuoteDetail() {
   // 两代数据结构：
   //   老版 —— 固定 11 项模具模型，结果在 calc.summary / moldFeeItems
   //   新版 —— 配置驱动，结果是 calc.lines 数组（模具项 + 注塑项）
+  //   项目版 —— 多注塑件报价，结果是 calc.moldResults / calc.partResults（kind='project'）
   const isCfg = Array.isArray(calc.lines);
+  const isProject = calc.kind === 'project';
   const summary = calc.summary ?? {};
   const moldItems = calc.moldFeeItems ?? {};
   const injItems = calc.injectionItems ?? {};
@@ -90,17 +96,37 @@ export default function QuoteDetail() {
   const cfgMoldLines = cfgLines.filter((l) => l.scope === 'mold' && !l.skipped);
   const cfgInjLines = cfgLines.filter((l) => l.scope === 'injection' && !l.skipped);
 
+  // 项目版：注塑件总件数 / 综合单件成本
+  const projTotalQty: number = isProject
+    ? (calc.partResults ?? []).reduce((s: number, p: any) => s + (Number(p.qty) || 0), 0)
+    : 0;
+  const projAvgUnit: number = projTotalQty
+    ? Math.round((Number(calc.injectionSubtotal) / projTotalQty) * 100) / 100
+    : 0;
+
   /** 统一的展示口径（新版金额不含税，老版 summary 里是含税值） */
   const view = {
-    mold: isCfg ? Number(calc.mold) || 0 : Number(summary.moldIncVat) || 0,
-    injection: isCfg ? Number(calc.injection) || 0 : Number(summary.injectionIncVat) || 0,
-    unitCost: isCfg ? Number(calc.unitCost) || 0 : Number(summary.unitCostExVat) || 0,
-    total: isCfg ? Number(calc.total) || 0 : Number(summary.grandTotalIncVat) || 0,
-    injectionQty: isCfg ? Number(calc.injectionQty) || 0 : Number(input.firstOrderQty) || 0,
-    profit: isCfg ? Number(calc.profit) || 0 : Number(summary.moldManagementFee) || 0,
-    profitRate: isCfg ? Number(calc.profitRate) || 0 : Number(input.managementRate) || 0,
-    tax: isCfg ? Number(calc.tax) || 0 : Number(summary.grandTotalVat) || 0,
-    taxRate: isCfg ? Number(calc.taxRate) || 0 : Number(input.vatRate) || 0,
+    mold: isProject
+      ? Number(calc.moldSubtotal) || 0
+      : isCfg
+        ? Number(calc.mold) || 0
+        : Number(summary.moldIncVat) || 0,
+    injection: isProject
+      ? Number(calc.injectionSubtotal) || 0
+      : isCfg
+        ? Number(calc.injection) || 0
+        : Number(summary.injectionIncVat) || 0,
+    unitCost: isProject ? projAvgUnit : isCfg ? Number(calc.unitCost) || 0 : Number(summary.unitCostExVat) || 0,
+    total: isProject
+      ? Number(calc.total) || 0
+      : isCfg
+        ? Number(calc.total) || 0
+        : Number(summary.grandTotalIncVat) || 0,
+    injectionQty: isProject ? projTotalQty : isCfg ? Number(calc.injectionQty) || 0 : Number(input.firstOrderQty) || 0,
+    profit: isProject ? Number(calc.profit) || 0 : isCfg ? Number(calc.profit) || 0 : Number(summary.moldManagementFee) || 0,
+    profitRate: isProject ? Number(calc.profitRate) || 0 : isCfg ? Number(calc.profitRate) || 0 : Number(input.managementRate) || 0,
+    tax: isProject ? Number(calc.tax) || 0 : isCfg ? Number(calc.tax) || 0 : Number(summary.grandTotalVat) || 0,
+    taxRate: isProject ? Number(calc.taxRate) || 0 : isCfg ? Number(calc.taxRate) || 0 : Number(input.vatRate) || 0,
   };
 
   /** 参数值 → 显示文本（下拉参数显示选项文字） */
@@ -134,7 +160,11 @@ export default function QuoteDetail() {
   };
 
   const doDuplicate = async () => {
-    if (!confirm('复制此报价生成新的草稿报价单？原报价不变。')) return;
+    if (!confirm('按此版本重新报价？原报价不变，新报价单可继续修改。')) return;
+    if (isProject) {
+      navigate(`/quotes/new?copyFrom=${q.id}`);
+      return;
+    }
     const nq = await quotes.duplicate(q.id);
     navigate(`/quotes/${nq.id}`);
   };
@@ -183,7 +213,7 @@ export default function QuoteDetail() {
             发送邮件
           </button>
           <button onClick={doDuplicate} className="border border-gray-300 px-3 py-2 rounded text-sm hover:bg-gray-50">
-            复制为新报价
+            按此版本重新报价
           </button>
         </div>
       </div>
@@ -256,7 +286,25 @@ export default function QuoteDetail() {
                   <Field label="联系人" value={q.customer?.contactName} />
                   <Field label="电话" value={q.customer?.phone} />
                   <Field label="邮箱" value={q.customer?.email} />
-                  {isCfg ? (
+                  {isProject ? (
+                    <>
+                      <Field label="模具类型" value={input.moldTypeName} />
+                      <Field label="产品名称" value={input.productName} />
+                      {(input.molds ?? []).map((m: any, i: number) => (
+                        <Field key={`m${i}`} label={`模具 ${i + 1}`} value={m.name} />
+                      ))}
+                      {(input.parts ?? []).map((p: any, i: number) => (
+                        <Field
+                          key={`p${i}`}
+                          label={`注塑件 ${i + 1}`}
+                          value={`${p.name} ×${Number(p.qty || 0).toLocaleString('zh-CN')} 件`}
+                        />
+                      ))}
+                      {Object.entries((input.common as any)?.params ?? {}).map(([k, val]) => (
+                        <Field key={k} label={k} value={String(val)} />
+                      ))}
+                    </>
+                  ) : isCfg ? (
                     <>
                       <Field label="模具类型" value={input.moldTypeName} />
                       <Field label="产品名称" value={input.productName} />
@@ -293,7 +341,47 @@ export default function QuoteDetail() {
 
               <section>
                 <h3 className="text-sm font-medium mb-2">模具费用明细</h3>
-                {isCfg ? (
+                {isProject ? (
+                  <div className="space-y-4">
+                    {(calc.moldResults ?? []).map((m: any, mi: number) => (
+                      <div key={mi}>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-sm font-medium">
+                            {m.name}
+                            {m.materialName && (
+                              <span className="ml-2 text-[11.5px] text-gray-500 border border-gray-200 bg-gray-50 rounded px-1.5 py-0.5">
+                                钢材：{m.materialName}
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-sm font-semibold">{money(m.subtotal)}</span>
+                        </div>
+                        <table className="w-full text-sm">
+                          <thead className="text-xs text-gray-500">
+                            <tr>
+                              <th className="text-left py-1.5">项目</th>
+                              <th className="text-left py-1.5">计算说明</th>
+                              <th className="text-right py-1.5">金额</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-50">
+                            {(m.lines ?? []).filter((l: any) => !l.skipped).map((l: any, li: number) => (
+                              <tr key={li}>
+                                <td className="py-1.5">{l.name}</td>
+                                <td className="py-1.5 text-xs text-gray-500 font-mono">{l.readable}</td>
+                                <td className="py-1.5 text-right">{money(l.value)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ))}
+                    <div className="flex justify-between border-t border-gray-200 pt-2 text-sm font-medium">
+                      <span>模具合计</span>
+                      <span>{money(view.mold)}</span>
+                    </div>
+                  </div>
+                ) : isCfg ? (
                   <table className="w-full text-sm">
                     <thead className="text-xs text-gray-500">
                       <tr>
@@ -370,7 +458,55 @@ export default function QuoteDetail() {
 
               <section>
                 <h3 className="text-sm font-medium mb-2">注塑费用明细</h3>
-                {isCfg ? (
+                {isProject ? (
+                  <div className="space-y-4">
+                    {(calc.partResults ?? []).map((p: any, pi: number) => (
+                      <div key={pi}>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-sm font-medium">
+                            {p.name}
+                            <span className="text-xs text-gray-400 ml-2">
+                              × {Number(p.qty || 0).toLocaleString('zh-CN')} 件
+                              {p.materialCode ? ` · 材料 ${p.materialCode}` : ''}
+                            </span>
+                          </span>
+                          <span className="text-sm font-semibold">{money(p.total)}</span>
+                        </div>
+                        <table className="w-full text-sm">
+                          <thead className="text-xs text-gray-500">
+                            <tr>
+                              <th className="text-left py-1.5">项目</th>
+                              <th className="text-left py-1.5">计算说明</th>
+                              <th className="text-right py-1.5">单件成本</th>
+                              <th className="text-right py-1.5">金额</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-50">
+                            {(p.lines ?? []).filter((l: any) => !l.skipped).map((l: any, li: number) => (
+                              <tr key={li}>
+                                <td className="py-1.5">{l.name}</td>
+                                <td className="py-1.5 text-xs text-gray-500 font-mono">{l.readable}</td>
+                                <td className="py-1.5 text-right text-emerald-700">
+                                  {l.unitPrice != null ? money(l.unitPrice) : '—'}
+                                </td>
+                                <td className="py-1.5 text-right">{money(l.value)}</td>
+                              </tr>
+                            ))}
+                            <tr className="border-t border-gray-100">
+                              <td className="py-1.5 text-xs text-gray-500" colSpan={2}>单件成本小计</td>
+                              <td className="py-1.5 text-right text-emerald-700 font-medium">{money(p.unitCost)}</td>
+                              <td className="py-1.5 text-right font-medium">{money(p.total)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    ))}
+                    <div className="flex justify-between border-t border-gray-200 pt-2 text-sm font-medium">
+                      <span>注塑合计（{projTotalQty.toLocaleString('zh-CN')} 件）</span>
+                      <span>{money(view.injection)}</span>
+                    </div>
+                  </div>
+                ) : isCfg ? (
                   <table className="w-full text-sm">
                     <thead className="text-xs text-gray-500">
                       <tr>

@@ -10,6 +10,7 @@ import Materials from './pages/Materials';
 import ConfigCenter from './pages/ConfigCenter';
 import SharePage from './pages/SharePage';
 import Admin from './pages/Admin';
+import PlatformAdmin from './pages/PlatformAdmin';
 import Layout from './components/Layout';
 import { auth } from './api';
 import { useAuth } from './store';
@@ -42,6 +43,8 @@ export default function App() {
         <Route path="/settings/config" element={<ConfigCenter />} />
         <Route path="/settings/materials" element={<Materials />} />
         <Route path="/settings/team" element={<Admin />} />
+        {/* 平台管理：跨租户用户/企业（仅平台超管，后端二次校验） */}
+        <Route path="/platform" element={<PlatformAdmin />} />
 
         {/* 旧地址兼容，避免老书签失效 */}
         <Route path="/admin" element={<Navigate to="/settings/team" replace />} />

@@ -41,6 +41,8 @@ model User {
   name          String
   role          UserRole @default(quoter)
   emailVerified Boolean  @default(false)  // 邮箱是否已通过验证码验证
+  // 平台超管：可跨租户查看全部注册用户与公司（SaaS 运营方账号）
+  isSuperAdmin  Boolean  @default(false)
   createdAt     DateTime @default(now())
   lastLoginAt   DateTime?
 
@@ -343,6 +345,8 @@ model CustomParameter {
   min          Float?
   max          Float?
   group        String   @default("通用") // 模具参数 / 注塑参数 / 商务参数 / 通用
+  // 参数作用域：mold=模具专属 / injection=注塑件专属 / common=整单共享（多注塑件报价用）
+  scope        String   @default("common")
   sortOrder    Int      @default(0)
   enabled      Boolean  @default(true)
   remark       String?

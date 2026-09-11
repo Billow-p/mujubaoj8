@@ -6,6 +6,8 @@ type NavItem = {
   label: string;
   exact?: boolean;
   adminOnly?: boolean;
+  /** 仅平台超管可见（跨租户管理） */
+  superOnly?: boolean;
   /** 用前缀匹配高亮（「设置」要覆盖所有 /settings/*） */
   matchPrefix?: string;
 };
@@ -20,6 +22,7 @@ const NAV: NavItem[] = [
   { to: '/', label: '报价单', exact: true },
   { to: '/customers', label: '客户' },
   { to: '/settings/config', label: '设置', matchPrefix: '/settings' },
+  { to: '/platform', label: '平台管理', superOnly: true },
 ];
 
 /** 设置区的二级导航：低频的配置与管理都收在这里 */
@@ -41,6 +44,7 @@ export default function Layout() {
   const navigate = useNavigate();
 
   const isAdmin = user?.role === 'admin';
+  const isSuperAdmin = !!user?.isSuperAdmin;
   const inSettings = location.pathname.startsWith('/settings');
 
   const logout = () => {
@@ -54,7 +58,8 @@ export default function Layout() {
     return item.exact ? location.pathname === item.to : location.pathname.startsWith(item.to);
   };
 
-  const visible = (list: NavItem[]) => list.filter((i) => !i.adminOnly || isAdmin);
+  const visible = (list: NavItem[]) =>
+    list.filter((i) => (!i.adminOnly || isAdmin) && (!i.superOnly || isSuperAdmin));
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -84,6 +89,11 @@ export default function Layout() {
             <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
               {ROLE_LABEL[user?.role ?? ''] ?? user?.role}
             </span>
+            {isSuperAdmin && (
+              <span className="text-xs text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded">
+                平台超管
+              </span>
+            )}
             <button onClick={logout} className="text-xs text-gray-600 hover:text-gray-900">
               登出
             </button>

@@ -5,13 +5,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db.js';
-import { calculateQuote, validateQuoteInput } from '@mqs/calc-engine';
-import type { CalcQuoteRequest, QuoteItemDef } from '@mqs/shared';
+import { calculateQuote, validateQuoteInput, calculateConfigured, calculateQuoteProject } from '@mqs/calc-engine';
+import type { CalcQuoteRequest, QuoteItemDef, QuoteProjectInput, QuoteProjectResult, QuoteProjectMold, QuoteProjectPart } from '@mqs/shared';
+import { QTY_VAR_CANDIDATES } from '@mqs/shared';
 import { sendQuoteNotification } from '../services/email.js';
 import { buildQuoteExcel } from '../services/excel.js';
 import { toExcelModel } from '../services/quoteModel.js';
 import { calcTotal } from '../services/quoteTotal.js';
-import { calculateConfigured } from '@mqs/calc-engine';
 
 const CreateQuoteSchema = z.object({
   customerId: z.string().optional(),
@@ -61,6 +61,25 @@ function publicWebUrl(): string {
 function shareSummary(calc: any, params: any) {
   if (!calc) return null;
 
+  // 多注塑件报价（报价项目）：模具一次性费 + 注塑按件费，整单统一利润税
+  if (calc.kind === 'project') {
+    const partResults: any[] = calc.partResults ?? [];
+    const totalQty = partResults.reduce((s: number, p: any) => s + (Number(p.qty) || 0), 0);
+    const mold = Number(calc.moldSubtotal) || 0;
+    const injection = Number(calc.injectionSubtotal) || 0;
+    const profit = Number(calc.profit) || 0;
+    return {
+      moldExVat: mold,
+      injectionExVat: injection,
+      injectionQty: totalQty,
+      unitCost: totalQty ? Math.round((injection / totalQty) * 100) / 100 : 0,
+      netExVat: Math.round((mold + injection + profit) * 100) / 100,
+      taxRate: Number(calc.taxRate) || 0,
+      tax: Number(calc.tax) || 0,
+      totalIncVat: Number(calc.total) || 0,
+    };
+  }
+
   if (Array.isArray(calc.lines)) {
     const mold = Number(calc.mold) || 0;
     const injection = Number(calc.injection) || 0;
@@ -89,6 +108,47 @@ function shareSummary(calc: any, params: any) {
     taxRate: net > 0 ? Number((tax / net).toFixed(4)) : 0,
     tax,
     totalIncVat: Number(sm.grandTotalIncVat) || 0,
+  };
+}
+
+/**
+ * 邮件里要填的金额：兼容三代结构（多注塑件项目 / 配置驱动 / 老 11 项模型）。
+ * 统一把 calc 折算成 { 含税总计, 模具费不含税, 单件成本不含税, 数量 }。
+ */
+function mailTotals(calc: any): {
+  grandTotalIncVat: number;
+  moldTotalExVat: number;
+  unitCostExVat: number;
+  firstOrderQty: number;
+} {
+  if (!calc) {
+    return { grandTotalIncVat: 0, moldTotalExVat: 0, unitCostExVat: 0, firstOrderQty: 0 };
+  }
+  if (calc.kind === 'project') {
+    const partResults: any[] = calc.partResults ?? [];
+    const totalQty = partResults.reduce((s: number, p: any) => s + (Number(p.qty) || 0), 0);
+    const injection = Number(calc.injectionSubtotal) || 0;
+    return {
+      grandTotalIncVat: Number(calc.total) || 0,
+      moldTotalExVat: Number(calc.moldSubtotal) || 0,
+      unitCostExVat: totalQty ? Math.round((injection / totalQty) * 100) / 100 : 0,
+      firstOrderQty: totalQty,
+    };
+  }
+  if (Array.isArray(calc.lines)) {
+    return {
+      grandTotalIncVat: Number(calc.total) || 0,
+      moldTotalExVat: Number(calc.mold) || 0,
+      unitCostExVat: Number(calc.unitCost) || 0,
+      firstOrderQty: Number(calc.injectionQty) || 0,
+    };
+  }
+  const sm = calc.summary ?? {};
+  return {
+    grandTotalIncVat: Number(sm.grandTotalIncVat) || 0,
+    moldTotalExVat: Number(sm.moldTotalExVat) || 0,
+    unitCostExVat: Number(sm.unitCostExVat) || 0,
+    firstOrderQty: Number(calc.injectionQty) || 0,
   };
 }
 
@@ -520,7 +580,6 @@ export async function quoteRoutes(app: FastifyInstance) {
       const version = q.versions[0];
       const calc = version.calcResultJson as any;
       const params = version.paramsJson as any;
-      const summary = calc?.summary || {};
 
       const share = await prisma.quoteShare.create({
         data: {
@@ -548,8 +607,8 @@ export async function quoteRoutes(app: FastifyInstance) {
 
       const shareUrl = `${publicWebUrl()}/share/${share.shareToken}`;
 
-      // 邮件里的金额同样要兼容两代结构：配置驱动取 calc 顶层，老模型取 summary
-      const cfgMail = Array.isArray(calc?.lines);
+      // 邮件金额兼容三代结构（项目 / 配置驱动 / 老模型）
+      const mt = mailTotals(calc);
 
       let emailResult: { ok: boolean; error?: string } = { ok: false, error: '未发送' };
       if (body.sendEmail) {
@@ -558,12 +617,10 @@ export async function quoteRoutes(app: FastifyInstance) {
           customerName: q.customer?.name || '客户',
           quoteNo: q.quoteNo,
           productName: params?.productName || '产品',
-          grandTotalIncVat: cfgMail ? Number(calc.total) || 0 : summary.grandTotalIncVat || 0,
-          moldTotalExVat: cfgMail ? Number(calc.mold) || 0 : summary.moldTotalExVat || 0,
-          unitCostExVat: cfgMail ? Number(calc.unitCost) || 0 : summary.unitCostExVat || 0,
-          firstOrderQty: cfgMail
-            ? Number(calc.injectionQty) || 0
-            : Number(params?.values?.['首单数量'] ?? params?.firstOrderQty ?? 0) || 0,
+          grandTotalIncVat: mt.grandTotalIncVat,
+          moldTotalExVat: mt.moldTotalExVat,
+          unitCostExVat: mt.unitCostExVat,
+          firstOrderQty: mt.firstOrderQty,
           validUntil: q.expiresAt,
           shareUrl,
           senderName: q.createdBy?.name || '报价员',
@@ -622,21 +679,18 @@ export async function quoteRoutes(app: FastifyInstance) {
       const version = q.versions[0];
       const calc = version.calcResultJson as any;
       const params = version.paramsJson as any;
-      const summary = calc?.summary || {};
-      const cfgMail = Array.isArray(calc?.lines);
       const shareUrl = `${publicWebUrl()}/share/${share.shareToken}`;
+      const mt = mailTotals(calc);
 
       const result = await sendQuoteNotification({
         to: body.email,
         customerName: q.customer?.name || '客户',
         quoteNo: q.quoteNo,
         productName: params?.productName || '产品',
-        grandTotalIncVat: cfgMail ? Number(calc.total) || 0 : summary.grandTotalIncVat || 0,
-        moldTotalExVat: cfgMail ? Number(calc.mold) || 0 : summary.moldTotalExVat || 0,
-        unitCostExVat: cfgMail ? Number(calc.unitCost) || 0 : summary.unitCostExVat || 0,
-        firstOrderQty: cfgMail
-          ? Number(calc.injectionQty) || 0
-          : Number(params?.values?.['首单数量'] ?? params?.firstOrderQty ?? 0) || 0,
+        grandTotalIncVat: mt.grandTotalIncVat,
+        moldTotalExVat: mt.moldTotalExVat,
+        unitCostExVat: mt.unitCostExVat,
+        firstOrderQty: mt.firstOrderQty,
         validUntil: q.expiresAt,
         shareUrl,
         senderName: q.createdBy?.name || '报价员',
@@ -857,6 +911,296 @@ export async function quoteRoutes(app: FastifyInstance) {
         },
         logs: {
           create: { userId, action: 'created', detail: `按「${moldType.name}」配置创建报价单` },
+        },
+      },
+      include: { versions: true },
+    });
+
+    return quote;
+  });
+
+  // ================================================================
+  // 多注塑件报价（报价项目）：一套报价单 = 多套模具（并列）+ 多个注塑件（并列）
+  // 整单统一利润率 / 税率；每个注塑件带自己的数量与材料（材料来自材料库，全局唯一来源）
+  // ================================================================
+  app.post('/api/quotes/project', { preHandler: [app.authenticate] }, async (req, reply) => {
+    const { companyId, userId } = req.user as any;
+
+    const body = z
+      .object({
+        moldTypeId: z.string().min(1),
+        customerName: z.string().min(1).max(100),
+        customerPhone: z.string().max(30).optional().or(z.literal('')),
+        productName: z.string().max(100).optional(),
+        // 整单公共参数（利润/税/数量参数名 + common 作用域参数）
+        common: z
+          .object({
+            profitRate: z.number().optional(),
+            taxRate: z.number().optional(),
+            qtyVarName: z.string().optional(),
+            params: z.record(z.union([z.number(), z.string()])).optional().default({}),
+          })
+          .optional()
+          .default({}),
+        molds: z
+          .array(
+            z.object({
+              code: z.string().optional(),
+              name: z.string().min(1),
+              /** 本套模具所用钢材编码（来自材料库 → 自动带出单价/密度/损耗率） */
+              materialCode: z.string().optional(),
+              params: z.record(z.union([z.number(), z.string()])).optional().default({}),
+              manualAmounts: z.record(z.number()).optional(),
+            }),
+          )
+          .optional()
+          .default([]),
+        parts: z
+          .array(
+            z.object({
+              code: z.string().optional(),
+              name: z.string().min(1),
+              materialCode: z.string().optional(),
+              qty: z.number().min(0),
+              params: z.record(z.union([z.number(), z.string()])).optional().default({}),
+              manualAmounts: z.record(z.number()).optional(),
+            }),
+          )
+          .optional()
+          .default([]),
+      })
+      .parse(req.body);
+
+    if (body.molds.length === 0 && body.parts.length === 0) {
+      return reply.code(400).send({ error: '至少需要一套模具或一个注塑件' });
+    }
+
+    const moldType = await prisma.moldType.findFirst({ where: { id: body.moldTypeId, companyId } });
+    if (!moldType) return reply.code(404).send({ error: '模具类型不存在' });
+
+    const [parameters, items, materials, terms] = await Promise.all([
+      prisma.customParameter.findMany({
+        where: { companyId, moldTypeId: moldType.id },
+        orderBy: { sortOrder: 'asc' },
+      }),
+      prisma.quoteItem.findMany({
+        where: { companyId, moldTypeId: moldType.id },
+        orderBy: { sortOrder: 'asc' },
+      }),
+      // 材料：类型专属副本 + 全局材料库（材料中心维护的是全局那份，
+      // 前端下拉也是从全局选的，所以全局优先，保证价格一致）
+      prisma.material.findMany({
+        where: { companyId, OR: [{ moldTypeId: moldType.id }, { moldTypeId: null }] },
+      }),
+      prisma.businessTerm.findMany({
+        where: { companyId, moldTypeId: moldType.id, enabled: true },
+        orderBy: { sortOrder: 'asc' },
+      }),
+    ]);
+
+    // 公共参数：common 作用域的参数（钢材单价/运费单价/运输区域…），传入优先，否则用默认值
+    const commonParams: Record<string, number> = {};
+    for (const p of parameters) {
+      if ((p.scope as string) !== 'common') continue;
+      const raw = (body.common.params as any)?.[p.name];
+      const n = Number(raw !== undefined && raw !== '' ? raw : p.defaultValue);
+      if (Number.isFinite(n)) commonParams[p.name] = n;
+    }
+    for (const [k, v] of Object.entries(body.common.params ?? {})) {
+      const n = Number(v);
+      if (Number.isFinite(n) && !(k in commonParams)) commonParams[k] = n;
+    }
+
+    // 数量参数名：优先用传入的，否则按候选名自动查找
+    let qtyVarName = body.common.qtyVarName?.trim();
+    if (!qtyVarName) {
+      const names = new Set(parameters.map((p) => p.name));
+      qtyVarName = QTY_VAR_CANDIDATES.find((c) => names.has(c)) ?? '注塑数量';
+    }
+
+    // 注塑材料费项引用的「原料单价/合金单价」参数名（按重量项推导，跨模具类型通用）
+    const injectionPriceVar = (() => {
+      const w = items.find(
+        (it) => (it.scope as string) === 'injection' && it.calcType === 'weight',
+      );
+      return (w?.calcConfig as any)?.priceVar as string | undefined;
+    })();
+
+    // 模具钢材费项引用的「单价 / 密度 / 损耗率」参数名（按尺寸项推导）
+    const moldSteelVars = (() => {
+      const s = items.find((it) => (it.scope as string) === 'mold' && it.calcType === 'size');
+      const c = (s?.calcConfig ?? {}) as any;
+      return {
+        priceVar: c.priceVar as string | undefined,
+        densityVar: c.densityVar as string | undefined,
+        lossVar: c.lossVar as string | undefined,
+      };
+    })();
+
+    // 费用项定义（引擎消费）
+    const defs: QuoteItemDef[] = items.map((it, i) => ({
+      name: it.name,
+      category: it.category,
+      scope: (it.scope as 'mold' | 'injection') ?? 'mold',
+      calcType: it.calcType as any,
+      calcConfig: (it.calcConfig ?? {}) as any,
+      expression: it.expression ?? undefined,
+      enabled: it.enabled,
+      sortOrder: i,
+      perUnit: (it.scope as string) === 'injection' && (it as any).perUnit === true,
+      unit: it.unit ?? undefined,
+    }));
+
+    const materialsByCode = new Map(materials.map((m) => [m.code, m]));
+
+    // 模具：scope=mold 的参数（模芯长/宽/高、腔数、模具重量…）
+    // 若指定了钢材牌号：把材料库里的 单价 / 密度 / 损耗率 注入本套模具参数
+    // （模具参数会覆盖整单公共参数，所以一套单里各模具可以用不同钢材）
+    const moldMaterialNames = new Map<number, string>();
+    const molds: QuoteProjectMold[] = body.molds.map((m, mi) => {
+      const params: Record<string, number> = {};
+      for (const [k, v] of Object.entries(m.params ?? {})) {
+        const n = Number(v);
+        if (Number.isFinite(n)) params[k] = n;
+      }
+      if (m.materialCode) {
+        const mat = materialsByCode.get(m.materialCode);
+        if (mat) {
+          moldMaterialNames.set(mi, mat.name);
+          const inject = (key: string | undefined, value: unknown) => {
+            if (!key || params[key] != null) return;
+            const n = Number(value);
+            if (Number.isFinite(n)) params[key] = n;
+          };
+          inject(moldSteelVars.priceVar, mat.currentPrice);
+          inject(moldSteelVars.densityVar, mat.density);
+          inject(moldSteelVars.lossVar, mat.lossRate);
+        }
+      }
+      return {
+        code: m.code,
+        name: m.name,
+        materialCode: m.materialCode,
+        materialName: moldMaterialNames.get(mi),
+        params,
+        manualAmounts: m.manualAmounts,
+      };
+    });
+
+    // 注塑件：scope=injection 的参数（单件重量、原料单价、损耗…）+ 数量 + 材料库价格
+    const parts: QuoteProjectPart[] = body.parts.map((p) => {
+      const params: Record<string, number> = {};
+      for (const [k, v] of Object.entries(p.params ?? {})) {
+        const n = Number(v);
+        if (Number.isFinite(n)) params[k] = n;
+      }
+      // 决策#3：件材料来自材料库（全局唯一价格来源），把材料价注入到重量项的 priceVar
+      if (p.materialCode) {
+        const mat = materialsByCode.get(p.materialCode);
+        if (mat && injectionPriceVar && params[injectionPriceVar] == null) {
+          params[injectionPriceVar] = Number(mat.currentPrice) || 0;
+        }
+      }
+      return {
+        code: p.code,
+        name: p.name,
+        materialCode: p.materialCode,
+        qty: Number(p.qty) || 0,
+        params,
+        manualAmounts: p.manualAmounts,
+      };
+    });
+
+    const input: QuoteProjectInput = {
+      items: defs,
+      common: {
+        profitRate: body.common.profitRate ?? moldType.profitRate,
+        taxRate: body.common.taxRate ?? moldType.taxRate,
+        qtyVarName,
+        params: commonParams,
+      },
+      molds,
+      parts,
+    };
+
+    const result = calculateQuoteProject(input);
+
+    // 客户：有则复用，电话可更新
+    let customerId: string | undefined;
+    const existing = await prisma.customer.findFirst({ where: { companyId, name: body.customerName } });
+    if (existing) {
+      customerId = existing.id;
+      if (body.customerPhone && existing.phone !== body.customerPhone) {
+        await prisma.customer.update({ where: { id: existing.id }, data: { phone: body.customerPhone } });
+      }
+    } else {
+      const c = await prisma.customer.create({
+        data: { companyId, name: body.customerName, phone: body.customerPhone || null },
+      });
+      customerId = c.id;
+    }
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+
+    const quote = await prisma.quote.create({
+      data: {
+        companyId,
+        customerId,
+        moldTypeId: moldType.id,
+        createdById: userId,
+        quoteNo: genQuoteNo(),
+        status: 'draft',
+        expiresAt,
+        versions: {
+          create: {
+            versionNo: 1,
+            paramsJson: {
+              kind: 'project',
+              moldTypeId: moldType.id,
+              moldTypeName: moldType.name,
+              productName: body.productName ?? '',
+              customerName: body.customerName,
+              customerPhone: body.customerPhone ?? '',
+              // 带上参数定义（含 type/options/scope/group），前端展示下拉为文字、区分作用域
+              parameters: parameters.map((p) => ({
+                name: p.name,
+                unit: p.unit,
+                type: p.type,
+                options: parseParamOptions(p.options),
+                group: p.group,
+                scope: p.scope,
+              })),
+              common: input.common,
+              // 存计算时实际用的模具数组（含 materialName 与注入后的钢材价/密度/损耗），
+              // 这样「按此版本重新报价」能原样复现
+              molds,
+              parts: body.parts.map((p) => ({
+                ...p,
+                // 把材料库解析出的价格也存一份，前端核对用（计算仍以前端传入为准）
+                resolvedMaterialPrice:
+                  p.materialCode && injectionPriceVar
+                    ? Number(materialsByCode.get(p.materialCode)?.currentPrice) || 0
+                    : undefined,
+              })),
+              items: defs,
+            } as any,
+            calcResultJson: result as any,
+            businessTermsJson: terms.map((t, i) => ({
+              index: i + 1,
+              enabled: true,
+              text: t.text,
+            })) as any,
+            createdById: userId,
+            changeNote: '多注塑件报价（项目）',
+          },
+        },
+        logs: {
+          create: {
+            userId,
+            action: 'created',
+            detail: `创建多注塑件报价（${molds.length} 套模具 / ${parts.length} 个注塑件）`,
+          },
         },
       },
       include: { versions: true },

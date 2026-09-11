@@ -64,7 +64,79 @@ export function toExcelModel(quote: QuoteLike, version: VersionLike, moldTypeNam
     address: quote.customer?.address ?? null,
   };
 
-  // ---- 新结构：配置驱动 ----
+  // ---- 多注塑件报价（报价项目） ----
+  if (calc.kind === 'project') {
+    const moldResults: any[] = calc.moldResults ?? [];
+    const partResults: any[] = calc.partResults ?? [];
+
+    const moldLines: ExcelLine[] = moldResults.flatMap((m: any) =>
+      (m.lines ?? [])
+        .filter((l: any) => !l.skipped)
+        .map((l: any) => ({
+          name: `${m.name} · ${l.name}`,
+          readable: l.readable,
+          value: Number(l.value) || 0,
+          unitPrice: l.unitPrice != null ? Number(l.unitPrice) : undefined,
+          qty: l.qty != null ? Number(l.qty) : undefined,
+          perUnit: l.perUnit === true,
+        })),
+    );
+
+    const injectionLines: ExcelLine[] = partResults.flatMap((p: any) =>
+      (p.lines ?? [])
+        .filter((l: any) => !l.skipped)
+        .map((l: any) => ({
+          name: `${p.name} · ${l.name}`,
+          readable: l.readable,
+          value: Number(l.value) || 0,
+          unitPrice: l.unitPrice != null ? Number(l.unitPrice) : undefined,
+          qty: l.qty != null ? Number(l.qty) : undefined,
+          perUnit: l.perUnit === true,
+        })),
+    );
+
+    const project: { label: string; value: string }[] = [];
+    if (params.productName) project.push({ label: '产品名称', value: String(params.productName) });
+    if (params.moldTypeName) project.push({ label: '模具类型', value: String(params.moldTypeName) });
+    moldResults.forEach((m: any) =>
+      project.push({ label: `模具：${m.name}`, value: `¥${(Number(m.subtotal) || 0).toLocaleString('zh-CN')}` }),
+    );
+    partResults.forEach((p: any) =>
+      project.push({
+        label: `注塑件：${p.name} ×${Number(p.qty) || 0} 件`,
+        value: `¥${(Number(p.total) || 0).toLocaleString('zh-CN')}`,
+      }),
+    );
+
+    return {
+      company: params.company,
+      quoteNo: quote.quoteNo,
+      createdAt: quote.createdAt,
+      expiresAt: quote.expiresAt ?? null,
+      moldTypeName: moldTypeName ?? params.moldTypeName,
+      customer,
+      project: project.length ? project : [{ label: '产品', value: '—' }],
+      moldLines,
+      injectionLines,
+      summary: {
+        mold: Number(calc.moldSubtotal) || 0,
+        injection: Number(calc.injectionSubtotal) || 0,
+        profitRate: Number(calc.profitRate) || 0,
+        profit: Number(calc.profit) || 0,
+        taxRate: Number(calc.taxRate) || 0,
+        tax: Number(calc.tax) || 0,
+        total: Number(calc.total) || 0,
+        injectionQty: undefined,
+        unitCost: undefined,
+      },
+      terms: (version.businessTermsJson ?? [])
+        .filter((t: any) => t?.enabled !== false)
+        .map((t: any) => (typeof t === 'string' ? t : t.text)),
+      senderName: quote.createdBy?.name ?? undefined,
+    };
+  }
+
+  // ---- 新结构：配置驱动（单实例） ----
   if (Array.isArray(calc.lines)) {
     const moldLines = takeLines(calc.lines, 'mold');
     const injectionLines = takeLines(calc.lines, 'injection');

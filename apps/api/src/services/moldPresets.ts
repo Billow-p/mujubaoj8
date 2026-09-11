@@ -11,6 +11,8 @@ export interface PresetParam {
   type?: string;
   /** type='select' 时的选项，value 必须是数字（公式里按数值参与计算） */
   options?: { label: string; value: number }[];
+  /** 参数作用域：mold=模具专属 / injection=注塑件专属 / common=整单共享 */
+  scope?: 'mold' | 'injection' | 'common';
 }
 
 export interface PresetItem {
@@ -61,23 +63,24 @@ export const MOLD_PRESETS: PresetMoldType[] = [
     profitRate: 0.1,
     taxRate: 0.13,
     params: [
-      { code: 'cavityCount', name: '腔数', value: 2, unit: '穴', group: '产品' },
-      { code: 'singleWeightKg', name: '单件重量', value: 0.18, unit: 'kg', group: '产品' },
-      { code: 'coreLengthMm', name: '模芯长', value: 500, unit: 'mm', group: '模具' },
-      { code: 'coreWidthMm', name: '模芯宽', value: 400, unit: 'mm', group: '模具' },
-      { code: 'coreHeightMm', name: '模芯高', value: 150, unit: 'mm', group: '模具' },
-      { code: 'materialPrice', name: '钢材单价', value: 25, unit: '元/kg', group: '材料' },
-      { code: 'steelDensity', name: '钢材密度', value: 7.85, unit: 'g/cm³', group: '材料' },
-      { code: 'materialUnitPrice', name: '原料单价', value: 12, unit: '元/kg', group: '材料' },
-      { code: 'injectionQty', name: '注塑数量', value: 5000, unit: '件', group: '商务' },
+      { code: 'cavityCount', name: '腔数', value: 2, unit: '穴', group: '产品', scope: 'mold' },
+      { code: 'singleWeightKg', name: '单件重量', value: 0.18, unit: 'kg', group: '产品', scope: 'injection' },
+      { code: 'coreLengthMm', name: '模芯长', value: 500, unit: 'mm', group: '模具', scope: 'mold' },
+      { code: 'coreWidthMm', name: '模芯宽', value: 400, unit: 'mm', group: '模具', scope: 'mold' },
+      { code: 'coreHeightMm', name: '模芯高', value: 150, unit: 'mm', group: '模具', scope: 'mold' },
+      { code: 'materialPrice', name: '钢材单价', value: 25, unit: '元/kg', group: '材料', scope: 'common' },
+      { code: 'steelDensity', name: '钢材密度', value: 7.85, unit: 'g/cm³', group: '材料', scope: 'common' },
+      { code: 'steelLossRate', name: '钢材损耗率', value: 0.1, unit: '', group: '材料', scope: 'common' },
+      { code: 'materialUnitPrice', name: '原料单价', value: 12, unit: '元/kg', group: '材料', scope: 'injection' },
+      { code: 'injectionQty', name: '注塑数量', value: 5000, unit: '件', group: '商务', scope: 'injection' },
       // 运输费要用到的量
-      { code: 'moldWeightKg', name: '模具重量', value: 800, unit: 'kg', group: '运输' },
-      { code: 'packLengthCm', name: '运输箱长', value: 120, unit: 'cm', group: '运输' },
-      { code: 'packWidthCm', name: '运输箱宽', value: 100, unit: 'cm', group: '运输' },
-      { code: 'packHeightCm', name: '运输箱高', value: 80, unit: 'cm', group: '运输' },
-      { code: 'freightRate', name: '运费单价', value: 1.2, unit: '元/kg', group: '运输' },
+      { code: 'moldWeightKg', name: '模具重量', value: 800, unit: 'kg', group: '运输', scope: 'mold' },
+      { code: 'packLengthCm', name: '运输箱长', value: 120, unit: 'cm', group: '运输', scope: 'common' },
+      { code: 'packWidthCm', name: '运输箱宽', value: 100, unit: 'cm', group: '运输', scope: 'common' },
+      { code: 'packHeightCm', name: '运输箱高', value: 80, unit: 'cm', group: '运输', scope: 'common' },
+      { code: 'freightRate', name: '运费单价', value: 1.2, unit: '元/kg', group: '运输', scope: 'common' },
       {
-        code: 'freightZone', name: '运输区域', value: '1', unit: '', group: '运输', type: 'select',
+        code: 'freightZone', name: '运输区域', value: '1', unit: '', group: '运输', type: 'select', scope: 'common',
         options: [
           { label: '广东省内（免运费）', value: 0 },
           { label: '广东省外', value: 1 },
@@ -98,8 +101,10 @@ export const MOLD_PRESETS: PresetMoldType[] = [
     ],
     items: [
       // ------- 模具费用（一次性） -------
+      // 钢材来自材料库（方案 A）：选了牌号就按该牌号的单价/密度/损耗率算；
+      // 没选则回落到「钢材单价 / 钢材密度 / 钢材损耗率」这三个公共参数。
       { name: '模芯钢材费', category: '材料费', scope: 'mold', calcType: 'size',
-        calcConfig: { l: '模芯长', w: '模芯宽', h: '模芯高', density: 7.85, priceVar: '钢材单价' } },
+        calcConfig: { l: '模芯长', w: '模芯宽', h: '模芯高', density: 7.85, densityVar: '钢材密度', priceVar: '钢材单价', lossVar: '钢材损耗率' } },
       { name: 'CNC 加工费', category: 'CNC', scope: 'mold', calcType: 'hours', calcConfig: { hours: 96, rate: 400 } },
       { name: '设计费', category: '自定义', scope: 'mold', calcType: 'fixed', calcConfig: { amount: 6000 } },
       { name: '试模费', category: '试模', scope: 'mold', calcType: 'qty', calcConfig: { src: '腔数', price: 2500 } },
@@ -123,13 +128,13 @@ export const MOLD_PRESETS: PresetMoldType[] = [
     profitRate: 0.1,
     taxRate: 0.13,
     params: [
-      { code: 'projectionArea', name: '投影面积', value: 320, unit: 'cm²', group: '产品' },
-      { code: 'wallThickness', name: '平均壁厚', value: 2.5, unit: 'mm', group: '产品' },
-      { code: 'machineTonnage', name: '压铸机吨位', value: 800, unit: 'T', group: '设备' },
-      { code: 'singleWeightKg', name: '单件重量', value: 0.86, unit: 'kg', group: '产品' },
-      { code: 'dieLife', name: '模具寿命', value: 100000, unit: '模次', group: '模具' },
-      { code: 'alloyPrice', name: '合金单价', value: 22, unit: '元/kg', group: '材料' },
-      { code: 'castingQty', name: '压铸数量', value: 50000, unit: '件', group: '商务' },
+      { code: 'projectionArea', name: '投影面积', value: 320, unit: 'cm²', group: '产品', scope: 'mold' },
+      { code: 'wallThickness', name: '平均壁厚', value: 2.5, unit: 'mm', group: '产品', scope: 'mold' },
+      { code: 'machineTonnage', name: '压铸机吨位', value: 800, unit: 'T', group: '设备', scope: 'mold' },
+      { code: 'singleWeightKg', name: '单件重量', value: 0.86, unit: 'kg', group: '产品', scope: 'injection' },
+      { code: 'dieLife', name: '模具寿命', value: 100000, unit: '模次', group: '模具', scope: 'mold' },
+      { code: 'alloyPrice', name: '合金单价', value: 22, unit: '元/kg', group: '材料', scope: 'injection' },
+      { code: 'castingQty', name: '压铸数量', value: 50000, unit: '件', group: '商务', scope: 'injection' },
     ],
     materials: [
       { code: 'ADC12', name: 'ADC12 铝合金', category: '压铸合金', subCategory: '铝合金', unit: 'kg', price: 22, lossRate: 0.08, density: 2.7 },
@@ -141,8 +146,10 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       '试模 3 次以内不另计费，超出按每次 3000 元计。',
     ],
     items: [
+      // 压铸模芯用热作钢：同样支持从材料库选牌号（H13 / 8407 / DAC55…）。
+      // 注意 density/loss 仍保留原值作为「没选牌号时」的兜底，不改变老算法结果。
       { name: '模芯热作钢费', category: '材料费', scope: 'mold', calcType: 'size',
-        calcConfig: { l: '投影面积', w: '平均壁厚', h: '', density: 2.7, priceVar: '合金单价' } },
+        calcConfig: { l: '投影面积', w: '平均壁厚', h: '', density: 2.7, densityVar: '钢材密度', priceVar: '合金单价', lossVar: '钢材损耗率' } },
       { name: '强冷却回路', category: '自定义', scope: 'mold', calcType: 'qty', calcConfig: { src: '投影面积', price: 45 } },
       { name: '真空阀与管路', category: '自定义', scope: 'mold', calcType: 'fixed', calcConfig: { amount: 18000 } },
       { name: '压铸机加工费', category: 'CNC', scope: 'mold', calcType: 'hours', calcConfig: { hours: 120, rate: 420 } },
@@ -154,12 +161,12 @@ export const MOLD_PRESETS: PresetMoldType[] = [
     profitRate: 0.1,
     taxRate: 0.13,
     params: [
-      { code: 'cavityCount', name: '腔数', value: 2, unit: '穴', group: '产品' },
-      { code: 'coreLengthMm', name: '模芯长', value: 420, unit: 'mm', group: '模具' },
-      { code: 'coreWidthMm', name: '模芯宽', value: 320, unit: 'mm', group: '模具' },
-      { code: 'coreHeightMm', name: '模芯高', value: 180, unit: 'mm', group: '模具' },
-      { code: 'hotRunnerPoints', name: '热流道点数', value: 4, unit: '点', group: '模具' },
-      { code: 'moldingQty', name: '成型数量', value: 120000, unit: '件', group: '商务' },
+      { code: 'cavityCount', name: '腔数', value: 2, unit: '穴', group: '产品', scope: 'mold' },
+      { code: 'coreLengthMm', name: '模芯长', value: 420, unit: 'mm', group: '模具', scope: 'mold' },
+      { code: 'coreWidthMm', name: '模芯宽', value: 320, unit: 'mm', group: '模具', scope: 'mold' },
+      { code: 'coreHeightMm', name: '模芯高', value: 180, unit: 'mm', group: '模具', scope: 'mold' },
+      { code: 'hotRunnerPoints', name: '热流道点数', value: 4, unit: '点', group: '模具', scope: 'mold' },
+      { code: 'moldingQty', name: '成型数量', value: 120000, unit: '件', group: '商务', scope: 'injection' },
     ],
     materials: [
       { code: 'ABS-H', name: 'ABS 硬胶', category: '塑料原料', subCategory: '通用塑料', unit: 'kg', price: 12, lossRate: 0.05, density: 1.05 },

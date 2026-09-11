@@ -40,6 +40,17 @@ export const admin = {
   users: () => api.get('/admin/users').then((r) => r.data),
 };
 
+// 平台管理（SaaS 运营方超管，跨租户）
+export const platform = {
+  overview: () => api.get('/platform/overview').then((r) => r.data),
+  users: (params?: { keyword?: string; companyId?: string; role?: string; page?: number; pageSize?: number }) =>
+    api.get('/platform/users', { params }).then((r) => r.data),
+  companies: (params?: { keyword?: string }) =>
+    api.get('/platform/companies', { params }).then((r) => r.data),
+  updateUser: (id: string, body: { role?: string; isSuperAdmin?: boolean }) =>
+    api.patch(`/platform/users/${id}`, body).then((r) => r.data),
+};
+
 // 认证
 export const auth = {
   login: (email: string, password: string) => api.post('/auth/login', { email, password }).then((r) => r.data),
@@ -75,7 +86,7 @@ export const quotes = {
     input: any;
   }) => api.post('/quotes', body).then((r) => r.data),
 
-  // 按配置中心创建报价单
+  // 按配置中心创建报价单（单套模具 / 旧流程）
   createConfigured: (body: {
     moldTypeId: string;
     customerName: string;
@@ -84,6 +95,36 @@ export const quotes = {
     values: Record<string, any>;
     manualAmounts?: Record<string, number>;
   }) => api.post('/quotes/configured', body).then((r) => r.data),
+
+  // 多注塑件报价（报价项目）：多套模具 + 多个注塑件
+  createProject: (body: {
+    moldTypeId: string;
+    customerName: string;
+    customerPhone?: string;
+    productName?: string;
+    common: {
+      profitRate?: number;
+      taxRate?: number;
+      qtyVarName?: string;
+      params: Record<string, any>;
+    };
+    molds: {
+      code?: string;
+      name: string;
+      /** 本套模具所用钢材编码（来自材料库） */
+      materialCode?: string;
+      params: Record<string, any>;
+      manualAmounts?: Record<string, number>;
+    }[];
+    parts: {
+      code?: string;
+      name: string;
+      materialCode?: string;
+      qty: number;
+      params: Record<string, any>;
+      manualAmounts?: Record<string, number>;
+    }[];
+  }) => api.post('/quotes/project', body).then((r) => r.data),
 
   update: (id: string, versionNo: string, body: any) =>
     api.patch(`/quotes/${id}/versions/${versionNo}`, body).then((r) => r.data),

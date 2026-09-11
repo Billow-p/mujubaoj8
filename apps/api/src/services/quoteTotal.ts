@@ -9,6 +9,10 @@
  */
 export function calcTotal(calc: any): number {
   if (!calc) return 0;
+  // 多注塑件报价（报价项目）
+  if (calc.kind === 'project') return Number(calc.total) || 0;
+  // 配置驱动（单实例）
   if (Array.isArray(calc.lines)) return Number(calc.total) || 0;
+  // 老 11 项模型
   return Number(calc.summary?.grandTotalIncVat) || 0;
 }
