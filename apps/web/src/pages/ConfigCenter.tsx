@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { configApi } from '../api';
 import { calculateConfigured } from '@mqs/calc-engine';
 import { CALC_TYPE_META } from '@mqs/shared';
@@ -15,6 +14,31 @@ const emptyParam = () => ({
   code: '', name: '', unit: '', defaultValue: '', group: '产品',
   type: 'decimal', options: null, enabled: true,
 });
+/**
+ * 这一项的数字是从哪些参数来的。
+ * 配置页最难看懂的就是「公式里的名字从哪来」，这里直接列出来。
+ */
+const SOURCE_KEYS = ['l', 'w', 'h', 'src', 'base', 'wVar', 'priceVar', 'densityVar', 'lossVar'];
+const FUNC_WORDS = new Set([
+  '最大值', '最小值', '绝对值', '四舍五入', '取整', '向上取整', '向下取整', '如果',
+  'max', 'min', 'abs', 'round', 'floor', 'ceil', 'if',
+]);
+function sourceHint(it: any): string {
+  const c = it.calcConfig ?? {};
+  const names = new Set<string>();
+  for (const k of SOURCE_KEYS) {
+    const v = c[k];
+    if (typeof v === 'string' && v.trim()) names.add(v.trim());
+  }
+  if (it.calcType === 'formula' && it.expression) {
+    const tokens =
+      String(it.expression).match(/[\u4e00-\u9fa5A-Za-z_][\u4e00-\u9fa5A-Za-z0-9_]*/g) ?? [];
+    for (const t of tokens) if (!FUNC_WORDS.has(t)) names.add(t);
+  }
+  if (!names.size) return '';
+  return `数字来自：${[...names].join(' / ')}`;
+}
+
 const emptyTerm = () => ({ text: '', enabled: true });
 const emptyItem = (): any => ({
   name: '新费用',
@@ -34,7 +58,7 @@ export default function ConfigCenter() {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [openItem, setOpenItem] = useState<string | null>(null);
-  const [pane, setPane] = useState<'param' | 'mat' | 'term'>('param');
+  const [pane, setPane] = useState<'param' | 'term'>('param');
   const [folded, setFolded] = useState(false);
   const [advOpen, setAdvOpen] = useState<Record<string, boolean>>({});
   const [picking, setPicking] = useState(false);
@@ -345,7 +369,7 @@ export default function ConfigCenter() {
           </div>
           <div className="p-3.5">
             <div className="flex gap-0.5 bg-gray-100 p-0.5 rounded-lg mb-2.5">
-              {([['param', '产品数据'], ['mat', '材料'], ['term', '条款']] as const).map(([k, l]) => (
+              {([['param', '产品数据'], ['term', '条款']] as const).map(([k, l]) => (
                 <button
                   key={k}
                   onClick={() => setPane(k)}
@@ -453,26 +477,6 @@ export default function ConfigCenter() {
               </div>
             )}
 
-            {/* 材料：已统一到材料中心维护，这里只做指路 */}
-            {pane === 'mat' && (
-              <div className="px-1 py-3 space-y-2.5">
-                <p className="text-[12.5px] text-gray-600 leading-relaxed">
-                  材料已统一到<strong className="text-gray-900">材料中心</strong>维护，
-                  塑料 / 钢材 / 合金共一份，所有模具类型通用，改价一次全站生效。
-                </p>
-                <p className="text-[11.5px] text-gray-400 leading-relaxed">
-                  这里不再单独维护「本模具类型的材料」。以前两处各存一份价格，
-                  改了这边那边不生效，很容易算错。
-                </p>
-                <Link
-                  to="/settings/materials"
-                  className="inline-flex items-center gap-1 text-[12.5px] border border-gray-900 rounded px-3 py-1.5 hover:bg-gray-900 hover:text-white"
-                >
-                  去材料中心维护
-                  <span className="text-[11px]">→</span>
-                </Link>
-              </div>
-            )}
 
             {/* 条款 */}
             {pane === 'term' && (
@@ -517,15 +521,35 @@ export default function ConfigCenter() {
               <span className="font-semibold text-sm">要收哪些费用</span>
               <span className="text-[12px] text-gray-400">{items.length} 项</span>
             </div>
-            <button
-              onClick={() => patch((c) => { c.items.push(emptyItem()); })}
-              className="border border-gray-300 px-3 py-1 rounded text-[12.5px] hover:bg-gray-50"
-            >+ 加一项费用</button>
           </div>
           <div className="p-3.5">
-            {items.length === 0 && <p className="text-center text-gray-400 text-[13px] py-8">还没有费用项，点右上角「加一项费用」</p>}
-            <div className="space-y-2">
-              {items.map((it, i) => {
+            {items.length === 0 && <p className="text-center text-gray-400 text-[13px] py-8">还没有费用项，点每个分组右上角的「加一项」</p>}
+            {(
+              [
+                { k: 'mold' as const, t: '模具费（一次性）', d: '开模收一次，不随订单数量变' },
+                { k: 'injection' as const, t: '注塑费（按件）', d: '先算单件成本，再 × 数量' },
+              ] as const
+            ).map((g) => {
+              const group = items
+                .map((it, i) => ({ it, i }))
+                .filter((x) => (x.it.scope ?? 'mold') === g.k);
+              return (
+                <div key={g.k} className="mb-4 last:mb-0">
+                  <div className="flex items-center gap-2 mb-2 pb-1.5 border-b border-gray-100">
+                    <span className="text-[13px] font-medium text-gray-900">{g.t}</span>
+                    <span className="text-[11.5px] text-gray-400">{g.d}</span>
+                    <div className="flex-1" />
+                    <span className="text-[11.5px] text-gray-400 tabular-nums">{group.length} 项</span>
+                    <button
+                      onClick={() => patch((c) => { c.items.push({ ...emptyItem(), scope: g.k }); })}
+                      className="border border-gray-300 px-2 py-0.5 rounded text-[11.5px] hover:bg-gray-50"
+                    >+ 加一项</button>
+                  </div>
+                  {group.length === 0 && (
+                    <p className="text-[12px] text-gray-400 py-1.5">这一类还没有费用项</p>
+                  )}
+                  <div className="space-y-2">
+                    {group.map(({ it, i }) => {
                 const line = lineOf(it.name);
                 const open = openItem === (it.id ?? String(i));
                 const key = it.id ?? String(i);
@@ -620,6 +644,9 @@ export default function ConfigCenter() {
                             {line?.readable}　=　<b>{money(line?.value ?? 0)}</b>
                           </div>
                         )}
+                        {sourceHint(it) && (
+                          <div className="mt-1.5 text-[11.5px] text-gray-500">{sourceHint(it)}</div>
+                        )}
 
                         <div className="flex items-center gap-3 mt-2.5">
                           <button
@@ -653,8 +680,11 @@ export default function ConfigCenter() {
                     )}
                   </div>
                 );
-              })}
-            </div>
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -671,8 +701,14 @@ export default function ConfigCenter() {
                 <div className="flex items-center gap-2">
                   <span className="w-5 h-5 rounded-full bg-gray-900 text-white text-[11px] flex items-center justify-center">3</span>
                   <span className="font-semibold text-sm">实时算价</span>
+                  <span className="text-[11.5px] text-gray-500 border border-gray-200 rounded px-1.5 py-0.5">
+                    用默认值预览
+                  </span>
                 </div>
                 <button onClick={() => setFolded(true)} className="border border-gray-300 rounded px-2 py-0.5 text-[11.5px] text-gray-500">折叠</button>
+              </div>
+              <div className="px-3.5 pt-2 pb-1 text-[11.5px] text-gray-400">
+                下面用的是「产品数据」里的默认值，只用来检查价格逻辑；实际报价以报价页填的数为准。
               </div>
               <div className="p-3.5 max-h-[520px] overflow-y-auto">
                 {(calcResult?.lines ?? []).map((l, i) => (

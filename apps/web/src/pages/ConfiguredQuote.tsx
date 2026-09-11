@@ -107,12 +107,31 @@ export default function ConfiguredQuote() {
             if ((p.scope as string) === 'common') v[p.name] = p.defaultValue ?? '';
           }
           setCommonParams(v);
+          // 注意：这里不能直接用 qtyVarName / qtyDefault 这两个 useMemo ——
+          // 它们是从 cfg 派生的，而 setCfg(data) 要等下一次渲染才生效，
+          // 此刻拿到的还是旧值（首次加载时是空），会把注塑件数量填成 0。
+          // 所以和 prefillFromSource 一样，从 data 里现算。
+          const qv = resolveQtyVar(data);
+          const qd = qtyDefaultOf(data, qv);
           setMolds([seedMold(data, 1)]);
-          setParts([seedPart(data, 1)]);
+          setParts([seedPart(data, 1, qd, qv)]);
         }
       })
       .finally(() => setLoading(false));
   }, [activeId]);
+
+  /** 从配置里找出「数量」参数的名称（注塑数量 / 压铸数量 / 成型数量 …） */
+  const resolveQtyVar = (data: any): string => {
+    const list: any[] = (data?.parameters ?? []).filter((p: any) => p.enabled !== false);
+    const hit = list.find((p) => QTY_VAR_CANDIDATES.includes(p.name));
+    return hit?.name ?? '注塑数量';
+  };
+
+  /** 该数量参数的默认值 */
+  const qtyDefaultOf = (data: any, qv: string): any => {
+    const p = (data?.parameters ?? []).find((x: any) => x.name === qv);
+    return p?.defaultValue ?? 0;
+  };
 
   const params: any[] = (cfg?.parameters ?? []).filter((p: any) => p.enabled !== false);
   const commonDefs = useMemo(() => params.filter((p) => (p.scope as string) === 'common'), [cfg]);
@@ -233,7 +252,7 @@ export default function ConfiguredQuote() {
 
   function prefillFromSource(data: any, paramsJson: any) {
     const srcCommon = paramsJson.common ?? {};
-    const qv = srcCommon.qtyVarName || qtyVarName;
+    const qv = srcCommon.qtyVarName || resolveQtyVar(data);
     const qd = (data.parameters ?? []).find((x: any) => x.name === qv)?.defaultValue ?? 0;
 
     setCustomer({

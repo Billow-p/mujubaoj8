@@ -27,7 +27,7 @@ const NAV: NavItem[] = [
 
 /** 设置区的二级导航：低频的配置与管理都收在这里 */
 const SETTINGS_TABS: NavItem[] = [
-  { to: '/settings/config', label: '报价配置' },
+  { to: '/settings/config', label: '计价规则' },
   { to: '/settings/materials', label: '材料库' },
   { to: '/settings/team', label: '团队与数据', adminOnly: true },
 ];

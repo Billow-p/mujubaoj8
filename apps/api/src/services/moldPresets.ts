@@ -63,11 +63,29 @@ export const MOLD_PRESETS: PresetMoldType[] = [
     profitRate: 0.1,
     taxRate: 0.13,
     params: [
-      { code: 'cavityCount', name: '腔数', value: 2, unit: '穴', group: '产品', scope: 'mold' },
+      { code: 'cavityCount', name: '腔数', value: 2, unit: '穴', group: '产品', scope: 'common' },
       { code: 'singleWeightKg', name: '单件重量', value: 0.18, unit: 'kg', group: '产品', scope: 'injection' },
       { code: 'coreLengthMm', name: '模芯长', value: 500, unit: 'mm', group: '模具', scope: 'mold' },
       { code: 'coreWidthMm', name: '模芯宽', value: 400, unit: 'mm', group: '模具', scope: 'mold' },
       { code: 'coreHeightMm', name: '模芯高', value: 150, unit: 'mm', group: '模具', scope: 'mold' },
+      // ↓ 新增项：默认都是 0，不填就不计钱（不会改变已有报价的金额）
+      { code: 'moldBaseSpec', name: '模架规格', value: '0', unit: '', group: '模具', type: 'select', scope: 'mold',
+        options: [
+          { label: '不另计模架费', value: 0 },
+          { label: '3030 标准模架', value: 3500 },
+          { label: '3035 标准模架', value: 4200 },
+          { label: '3535 标准模架', value: 5600 },
+          { label: '3540 标准模架', value: 6500 },
+          { label: '4040 标准模架', value: 8600 },
+          { label: '4050 标准模架', value: 9800 },
+          { label: '4550 标准模架', value: 12500 },
+          { label: '5050 标准模架', value: 15600 },
+        ] },
+      { code: 'hotRunnerPoints', name: '热流道点数', value: 0, unit: '点', group: '模具', scope: 'mold' },
+      // 注意：参数名里**不要有空格** —— 公式求值器按标识符解析，带空格会被拆开导致算不出值
+      { code: 'edmHours', name: 'EDM工时', value: 0, unit: '小时', group: '模具', scope: 'mold' },
+      { code: 'wireCutLength', name: '线切割长度', value: 0, unit: 'mm', group: '模具', scope: 'mold' },
+      { code: 'polishHours', name: '抛光工时', value: 0, unit: '小时', group: '模具', scope: 'mold' },
       { code: 'materialPrice', name: '钢材单价', value: 25, unit: '元/kg', group: '材料', scope: 'common' },
       { code: 'steelDensity', name: '钢材密度', value: 7.85, unit: 'g/cm³', group: '材料', scope: 'common' },
       { code: 'steelLossRate', name: '钢材损耗率', value: 0.1, unit: '', group: '材料', scope: 'common' },
@@ -75,6 +93,9 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       // 原料损耗率：选了材料库材料时用该牌号的损耗率，未选则用这里的值（默认与旧固定值一致）
       { code: 'materialLossRate', name: '原料损耗率', value: 0.05, unit: '', group: '材料', scope: 'injection' },
       { code: 'injectionQty', name: '注塑数量', value: 5000, unit: '件', group: '商务', scope: 'injection' },
+      // 机台费 = 机台时薪 × 成型周期 ÷ 3600 ÷ 腔数（单件成本）
+      { code: 'machineHourlyRate', name: '机台时薪', value: 130, unit: '元/小时', group: '注塑', scope: 'injection' },
+      { code: 'cycleTime', name: '成型周期', value: 30, unit: '秒', group: '注塑', scope: 'injection' },
       // 运输费要用到的量
       { code: 'moldWeightKg', name: '模具重量', value: 800, unit: 'kg', group: '运输', scope: 'mold' },
       { code: 'packLengthCm', name: '运输箱长', value: 120, unit: 'cm', group: '运输', scope: 'common' },
@@ -110,6 +131,18 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { name: 'CNC 加工费', category: 'CNC', scope: 'mold', calcType: 'hours', calcConfig: { hours: 96, rate: 400 } },
       { name: '设计费', category: '自定义', scope: 'mold', calcType: 'fixed', calcConfig: { amount: 6000 } },
       { name: '试模费', category: '试模', scope: 'mold', calcType: 'qty', calcConfig: { src: '腔数', price: 2500 } },
+      // ------- 下面这批默认都是 0，报价时不填就不计钱 -------
+      // 模架（模胚）：标准模架按规格选，选「不另计模架费」就是 0
+      { name: '模架费', category: '模架', scope: 'mold', calcType: 'qty', calcConfig: { src: '模架规格', price: 1 } },
+      { name: '热流道费', category: '热流道', scope: 'mold', calcType: 'qty', calcConfig: { src: '热流道点数', price: 8000 } },
+      { name: 'EDM放电费', category: 'CNC', scope: 'mold', calcType: 'qty', calcConfig: { src: 'EDM工时', price: 220 } },
+      { name: '线切割费', category: 'CNC', scope: 'mold', calcType: 'qty', calcConfig: { src: '线切割长度', price: 8 } },
+      { name: '抛光省模费', category: '表面处理', scope: 'mold', calcType: 'qty', calcConfig: { src: '抛光工时', price: 120 } },
+      // 这几项没有客观计量，报价时手填金额，不填就是 0
+      { name: '标准件费', category: '标准件', scope: 'mold', calcType: 'manual' },
+      { name: '滑块斜顶镶件', category: '自定义', scope: 'mold', calcType: 'manual' },
+      { name: '热处理费', category: '热处理', scope: 'mold', calcType: 'manual' },
+      { name: '表面处理费', category: '表面处理', scope: 'mold', calcType: 'manual' },
       // 运输费：广东省内免运费（区域系数 0）；省外按「实际重量与体积重量取大者 × 单价」
       // 体积重量 = 长 × 宽 × 高 ÷ 6000（物流行业通用材积系数，单位 kg）
       { name: '运输费', category: '运输', scope: 'mold', calcType: 'formula',
@@ -119,8 +152,11 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       // 材料单价与损耗率都来自材料库（选了牌号就按牌号走，没选则用配置里的固定值）
       { name: '产品材料费', category: '注塑材料', scope: 'injection', calcType: 'weight', perUnit: true,
         calcConfig: { wVar: '单件重量', priceVar: '原料单价', loss: 0.05, lossVar: '原料损耗率' } },
-      { name: '注塑加工费', category: '注塑加工', scope: 'injection', calcType: 'fixed', perUnit: true,
-        calcConfig: { amount: 0.3 } },
+      // 机台费：主流算法 —— 时薪 ÷ 每小时产出。周期越短、腔数越多，单件越便宜
+      { name: '机台费', category: '注塑加工', scope: 'injection', calcType: 'formula', perUnit: true,
+        expression: '机台时薪 * 成型周期 / 3600 / 腔数' },
+      { name: '后加工费', category: '后加工', scope: 'injection', calcType: 'manual', perUnit: true },
+      { name: '模具分摊费', category: '模具分摊', scope: 'injection', calcType: 'manual', perUnit: true },
       { name: '包装费', category: '注塑包装', scope: 'injection', calcType: 'fixed', perUnit: true,
         calcConfig: { amount: 0.05 } },
     ],
