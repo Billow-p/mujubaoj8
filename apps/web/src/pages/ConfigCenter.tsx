@@ -10,10 +10,24 @@ const money2 = (n: number) =>
   '¥ ' + (Number(n) || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const num = (n: any) => (n === '' || n == null ? '' : String(n));
 
-const emptyParam = () => ({
-  code: '', name: '', unit: '', defaultValue: '', group: '产品',
-  type: 'decimal', options: null, enabled: true,
+const emptyParam = (scope: 'mold' | 'injection' | 'common' = 'common') => ({
+  code: '',
+  name: '',
+  unit: '',
+  defaultValue: '',
+  group: scope === 'mold' ? '模具' : scope === 'injection' ? '注塑' : '产品',
+  scope,
+  type: 'decimal',
+  options: null,
+  enabled: true,
 });
+
+/** 组内排序：产品/模具/注塑 在前，材料其次，运输这类放最后 */
+const GROUP_ORDER = ['产品', '模具', '注塑', '材料', '标准件', '商务', '运输'];
+const groupRank = (g?: string | null) => {
+  const i = GROUP_ORDER.indexOf(String(g ?? '').trim());
+  return i < 0 ? 50 : i;
+};
 /**
  * 这一项的数字是从哪些参数来的。
  * 配置页最难看懂的就是「公式里的名字从哪来」，这里直接列出来。
@@ -178,6 +192,94 @@ export default function ConfigCenter() {
       c.parameters[idx].options.splice(oi, 1);
     });
 
+  /** 单个参数的编辑卡片（名称 / 类型 / 默认值 / 下拉选项） */
+  const renderParam = (p: any, i: number) => {
+    const isSel = p.type === 'select';
+    const opts: any[] = Array.isArray(p.options) ? p.options : [];
+    return (
+      <div key={p.id ?? i} className="px-2 py-1.5 rounded hover:bg-gray-50 group">
+        <div className="flex items-center gap-1 min-w-0">
+          <input
+            value={p.name}
+            onChange={(e) => patch((c) => { c.parameters[i].name = e.target.value; })}
+            className="flex-1 min-w-0 text-[13px] bg-transparent border border-transparent hover:border-gray-200 focus:border-gray-400 rounded px-1 py-0.5"
+          />
+          <select
+            value={p.type ?? 'decimal'}
+            onChange={(e) => setParamType(i, e.target.value)}
+            className="w-[52px] shrink-0 border border-gray-300 rounded px-0.5 py-0.5 text-[11px] text-gray-500"
+          >
+            <option value="decimal">数字</option>
+            <option value="select">下拉</option>
+          </select>
+          <button
+            onClick={() => patch((c) => { c.parameters.splice(i, 1); })}
+            className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 text-sm leading-none shrink-0"
+          >×</button>
+        </div>
+
+        {/* 默认值单独一行 —— 挤在同一行会把参数名压成看不见 */}
+        <div className="flex items-center gap-1.5 mt-1 pl-1 min-w-0">
+          <span className="text-[11px] text-gray-400 shrink-0">默认</span>
+          {isSel ? (
+            <select
+              value={num(p.defaultValue)}
+              onChange={(e) => patch((c) => { c.parameters[i].defaultValue = e.target.value; })}
+              className="flex-1 min-w-0 border border-emerald-300 rounded px-1 py-0.5 text-[11.5px] bg-emerald-50 text-emerald-900"
+            >
+              {opts.map((o, oi) => (
+                <option key={oi} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="number"
+              value={num(p.defaultValue)}
+              onChange={(e) => patch((c) => { c.parameters[i].defaultValue = e.target.value; })}
+              className="flex-1 min-w-0 border border-gray-300 rounded px-1.5 py-0.5 text-[12px] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+          )}
+          <span className="text-[11px] text-gray-400 truncate shrink-0 max-w-[64px]" title={p.unit || ''}>
+            {p.unit || ''}
+          </span>
+        </div>
+
+        {isSel && (
+          <div className="mt-1.5 border-l-2 border-emerald-200 pl-1.5 space-y-1 min-w-0">
+            {opts.map((o, oi) => (
+              <div key={oi} className="flex items-center gap-1 min-w-0">
+                <input
+                  value={o.label}
+                  onChange={(e) => setParamOption(i, oi, 'label', e.target.value)}
+                  className="flex-1 min-w-0 border border-gray-200 rounded px-1 py-0.5 text-[11.5px]"
+                  placeholder="选项文字"
+                />
+                <input
+                  type="number"
+                  value={o.value}
+                  onChange={(e) => setParamOption(i, oi, 'value', e.target.value)}
+                  className="w-[72px] shrink-0 border border-gray-200 rounded px-1 py-0.5 text-[11.5px] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  title="公式里参与计算的数值"
+                />
+                <button
+                  onClick={() => removeParamOption(i, oi)}
+                  className="text-gray-300 hover:text-red-500 text-[12px] leading-none shrink-0"
+                >×</button>
+              </div>
+            ))}
+            <button
+              onClick={() => addParamOption(i)}
+              className="text-[11px] text-gray-400 hover:text-gray-900"
+            >+ 加选项</button>
+            <p className="text-[11px] text-gray-400 leading-snug">
+              右边的数字参与公式计算，如「省外 = 1、省内 = 0」
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const setCalcType = (idx: number, t: MoldCalcType) =>
     patch((c) => {
       const params: any[] = c.parameters ?? [];
@@ -299,7 +401,7 @@ export default function ConfigCenter() {
   const params: any[] = cfg?.parameters ?? [];
   const terms: any[] = cfg?.terms ?? [];
   const items: any[] = cfg?.items ?? [];
-  const gridCols = folded ? '290px minmax(0,1fr) 48px' : '290px minmax(0,1fr) 340px';
+  const gridCols = folded ? '330px minmax(0,1fr) 48px' : '330px minmax(0,1fr) 330px';
 
   return (
     <div className="max-w-[1600px] mx-auto p-5">
@@ -380,100 +482,46 @@ export default function ConfigCenter() {
               ))}
             </div>
 
-            {/* 参数 */}
+            {/* 参数：按 模具 / 注塑 / 公共 分组，组内重要靠前 */}
             {pane === 'param' && (
-              <div className="space-y-0.5">
-                {params.map((p, i) => {
-                  const isSel = p.type === 'select';
-                  const opts: any[] = Array.isArray(p.options) ? p.options : [];
+              <div className="space-y-3">
+                {(
+                  [
+                    { k: 'mold', t: '模具参数', d: '每套模具单独填' },
+                    { k: 'injection', t: '注塑参数', d: '每个注塑件单独填' },
+                    { k: 'common', t: '公共参数', d: '整单共享一份' },
+                  ] as const
+                ).map((g) => {
+                  const list = params
+                    .map((p, i) => ({ p, i }))
+                    .filter((x) => (x.p.scope ?? 'common') === g.k)
+                    .sort(
+                      (a, b) =>
+                        groupRank(a.p.group) - groupRank(b.p.group) ||
+                        (a.p.sortOrder ?? 0) - (b.p.sortOrder ?? 0),
+                    );
                   return (
-                    <div key={p.id ?? i} className="px-2 py-1.5 rounded hover:bg-gray-50 group">
-                      <div className="flex items-center gap-1">
-                        <input
-                          value={p.name}
-                          onChange={(e) => patch((c) => { c.parameters[i].name = e.target.value; })}
-                          className="flex-1 min-w-0 text-[13px] bg-transparent border border-transparent hover:border-gray-200 focus:border-gray-400 rounded px-1 py-0.5"
-                        />
-                        <select
-                          value={p.type ?? 'decimal'}
-                          onChange={(e) => setParamType(i, e.target.value)}
-                          className="w-[52px] shrink-0 border border-gray-300 rounded px-0.5 py-0.5 text-[11px] text-gray-500"
-                        >
-                          <option value="decimal">数字</option>
-                          <option value="select">下拉</option>
-                        </select>
+                    <div key={g.k}>
+                      <div className="flex items-center gap-2 pt-1 pb-1.5 border-b border-gray-100">
+                        <span className="text-[12.5px] font-medium text-gray-900">{g.t}</span>
+                        <span className="text-[11px] text-gray-400">{g.d}</span>
+                        <div className="flex-1" />
+                        <span className="text-[11px] text-gray-400 tabular-nums">{list.length}</span>
                         <button
-                          onClick={() => patch((c) => { c.parameters.splice(i, 1); })}
-                          className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 text-sm leading-none shrink-0"
-                        >×</button>
+                          onClick={() => patch((c) => { c.parameters.push(emptyParam(g.k)); })}
+                          className="border border-gray-300 px-2 py-0.5 rounded text-[11.5px] hover:bg-gray-50"
+                        >+ 加一项</button>
                       </div>
-
-                      {/* 默认值单独一行 —— 挤在同一行会把参数名压成看不见 */}
-                      <div className="flex items-center gap-1.5 mt-1 pl-1">
-                        <span className="text-[11px] text-gray-400 shrink-0">默认</span>
-                        {isSel ? (
-                          <select
-                            value={num(p.defaultValue)}
-                            onChange={(e) => patch((c) => { c.parameters[i].defaultValue = e.target.value; })}
-                            className="flex-1 min-w-0 border border-emerald-300 rounded px-1 py-0.5 text-[11.5px] bg-emerald-50 text-emerald-900"
-                          >
-                            {opts.map((o, oi) => (
-                              <option key={oi} value={o.value}>{o.label}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <input
-                            type="number"
-                            value={num(p.defaultValue)}
-                            onChange={(e) => patch((c) => { c.parameters[i].defaultValue = e.target.value; })}
-                            className="w-[104px] border border-gray-300 rounded px-1.5 py-0.5 text-[12px] text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                          />
-                        )}
-                        <span className="text-[11px] text-gray-400 truncate" title={p.unit || ''}>
-                          {p.unit || ''}
-                        </span>
-                      </div>
-
-                      {isSel && (
-                        <div className="mt-1.5 ml-0.5 pl-2 border-l-2 border-emerald-200 space-y-1">
-                          {opts.map((o, oi) => (
-                            <div key={oi} className="flex items-center gap-1">
-                              <input
-                                value={o.label}
-                                onChange={(e) => setParamOption(i, oi, 'label', e.target.value)}
-                                className="flex-1 min-w-0 border border-gray-200 rounded px-1 py-0.5 text-[11.5px]"
-                                placeholder="选项文字"
-                              />
-                              <input
-                                type="number"
-                                value={o.value}
-                                onChange={(e) => setParamOption(i, oi, 'value', e.target.value)}
-                                className="w-[44px] border border-gray-200 rounded px-1 py-0.5 text-[11.5px] text-right"
-                                title="公式里参与计算的数值"
-                              />
-                              <button
-                                onClick={() => removeParamOption(i, oi)}
-                                className="text-gray-300 hover:text-red-500 text-[12px] leading-none shrink-0"
-                              >×</button>
-                            </div>
-                          ))}
-                          <button
-                            onClick={() => addParamOption(i)}
-                            className="text-[11px] text-gray-400 hover:text-gray-900"
-                          >+ 加选项</button>
-                          <p className="text-[11px] text-gray-400 leading-snug">
-                            右边的数字参与公式计算，如「省外 = 1、省内 = 0」
-                          </p>
-                        </div>
+                      {list.length === 0 && (
+                        <p className="text-[12px] text-gray-400 py-1.5">这一类还没有参数</p>
                       )}
+                      <div className="space-y-0.5">
+                        {list.map(({ p, i }) => renderParam(p, i))}
+                      </div>
                     </div>
                   );
                 })}
-                <button
-                  onClick={() => patch((c) => { c.parameters.push(emptyParam()); })}
-                  className="w-full mt-2 py-1.5 border border-dashed border-gray-300 rounded text-[12.5px] text-gray-500 hover:border-gray-900 hover:text-gray-900"
-                >+ 加一项数据</button>
-                <p className="text-[11.5px] text-gray-400 pt-2">这些是报价时填的数字，改这里右边立刻重算</p>
+                <p className="text-[11.5px] text-gray-400 pt-1">这些是报价时填的数字，改这里右边立刻重算</p>
               </div>
             )}
 

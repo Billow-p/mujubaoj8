@@ -15,7 +15,17 @@ PKG=/tmp/mqs-v10.tar.gz
 STAMP=$(date +%Y%m%d-%H%M%S)
 
 echo "==> [1/8] 本地构建（前端产物 + 后端 dist）"
-pnpm -r build
+# 优先用 PATH 里的 pnpm；没有就回退到 WorkBuddy 托管 Node 自带的 corepack
+if command -v pnpm >/dev/null 2>&1; then
+  pnpm -r build
+elif [ -f "C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-3/node_modules/corepack/dist/pnpm.js" ]; then
+  echo "    本地 PATH 里没有 pnpm，改用托管 Node 的 corepack"
+  "C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-3/node.exe" \
+    "C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-3/node_modules/corepack/dist/pnpm.js" -r build
+else
+  echo "✗ 找不到 pnpm（也未找到托管 Node 的 corepack），无法构建" >&2
+  exit 1
+fi
 
 echo "==> [2/8] 打包（排除 node_modules / .git / .env / 日志）"
 echo "    注意：.env 含生产密钥，禁止随包覆盖服务器，由步骤 [4/8] 单独备份、解压时保留"
