@@ -196,6 +196,20 @@ function parseParamOptions(raw: string | null | undefined): { label: string; val
 }
 
 /**
+ * 报价项目（多注塑件）的分享页「产品规格」来源：
+ * 参数定义挂在 params.parameters，但实际值分散在 common.params / 各模具 / 各注塑件，
+ * 这里把值合并成 shareSpecs 期望的 { parameters, values } 结构，
+ * 否则项目型报价单的客户分享页会拿不到 values，整块「产品规格」消失。
+ */
+function projectSpecParams(params: any): any {
+  const vals: Record<string, number> = {};
+  if (params?.common?.params) Object.assign(vals, params.common.params);
+  for (const m of params?.molds ?? []) if (m?.params) Object.assign(vals, m.params);
+  for (const p of params?.parts ?? []) if (p?.params) Object.assign(vals, p.params);
+  return { ...params, values: vals };
+}
+
+/**
  * 由「按尺寸算」的配置 + 已知参数，估算该费用项的材料用量（kg）。
  *
  * 与引擎里 size 的算法保持一致：长×宽×高 /1000 ×密度 /1000，单位 kg。
@@ -1521,7 +1535,7 @@ export async function quoteRoutes(app: FastifyInstance) {
     return {
       ...base,
       summary: shareSummary(calc, params),
-      specs: shareSpecs(params),
+      specs: shareSpecs(calc.kind === 'project' ? projectSpecParams(params) : params),
     };
   });
 

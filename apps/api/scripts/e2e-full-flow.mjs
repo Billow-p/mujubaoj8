@@ -4,6 +4,23 @@
 
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// 加载同目录 .env（服务器 / 本地均可独立运行，不依赖外部注入 DATABASE_URL）
+const __here = path.dirname(fileURLToPath(import.meta.url));
+const __envPath = path.join(__here, '.env');
+if (fs.existsSync(__envPath)) {
+  for (const line of fs.readFileSync(__envPath, 'utf8').split(/\r?\n/)) {
+    const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
+    if (m) {
+      const k = m[1];
+      const v = m[2].replace(/^["']|["']$/g, '');
+      if (!(k in process.env)) process.env[k] = v;
+    }
+  }
+}
 
 const prisma = new PrismaClient();
 const COMPANY = 'default-company';
@@ -170,7 +187,7 @@ try {
     const j7 = await r7.json().catch(() => null);
     check('场景7 客户端查看 200', r7.status === 200, 'status=' + r7.status);
     check('场景7 返回汇总（含税总计）', isFiniteNum(j7?.summary?.totalIncVat), 'total=' + j7?.summary?.totalIncVat);
-    check('场景7 返回产品规格', Array.isArray(j7?.specs), 'specs=' + (j7?.specs?.length ?? 0));
+    check('场景7 返回产品规格', Array.isArray(j7?.specs) && j7.specs.length > 0, 'specs=' + (j7?.specs?.length ?? 0));
   }
 
   // ===== 场景 8：旧模型 /api/calc/quote 缺必填 → 中文校验（400，非 500） =====
