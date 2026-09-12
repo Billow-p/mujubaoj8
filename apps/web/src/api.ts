@@ -191,6 +191,24 @@ export const customers = {
   create: (body: any) => api.post('/customers', body).then((r) => r.data),
   update: (id: string, body: any) =>
     api.patch(`/customers/${id}`, body).then((r) => r.data),
+
+  // 一键导出全部客户数据（Sheet1 报价明细 + Sheet2 客户汇总）
+  exportAll: async (): Promise<void> => {
+    const resp = await api.get('/customers/export-all', { responseType: 'blob' });
+    const blob = new Blob([resp.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const disposition = resp.headers['content-disposition'] || '';
+    const m = /filename="?([^"]+)"?/.exec(disposition as string);
+    a.download = m ? decodeURIComponent(m[1]) : '客户数据.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
 };
 
 // 报价项中心（公式 / 条件 / 测试发布）

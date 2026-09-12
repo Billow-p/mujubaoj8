@@ -8,6 +8,18 @@ export default function Customers() {
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<any | null>(null);
   const [quotes, setQuotes] = useState<any[]>([]);
+  const [exporting, setExporting] = useState(false);
+
+  const exportAll = async () => {
+    setExporting(true);
+    try {
+      await customers.exportAll();
+    } catch (e: any) {
+      alert('导出失败：' + (e.response?.data?.error || e.message));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const load = (kw?: string) => {
     setLoading(true);
@@ -39,6 +51,17 @@ export default function Customers() {
           />
           <button onClick={() => load(keyword)} className="border border-gray-300 px-4 py-2 rounded text-sm hover:bg-gray-50">
             搜索
+          </button>
+          <button
+            onClick={exportAll}
+            disabled={exporting}
+            className={`px-4 py-2 rounded text-sm ${
+              exporting
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'bg-gray-900 text-white hover:bg-gray-800'
+            }`}
+          >
+            {exporting ? '导出中…' : '导出全部 Excel'}
           </button>
         </div>
       </div>

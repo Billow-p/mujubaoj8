@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { calcTotal } from '../services/quoteTotal.js';
+import { buildCustomersExcel } from '../services/customersExcel.js';
 import { QTY_VAR_CANDIDATES } from '@mqs/shared';
 
 /** 从报价单参数里取「数量」—— 各模具类型叫法不同，与计算引擎共用同一份候选列表 */
@@ -28,6 +29,19 @@ const CreateCustomerSchema = z.object({
 });
 
 export async function customerRoutes(app: FastifyInstance) {
+  // 一键导出全部客户数据（Sheet1 报价明细 + Sheet2 客户汇总）
+  // 注意要挂在 :id 路由之前，避免 "export-all" 被当成 id
+  app.get('/api/customers/export-all', { preHandler: [app.authenticate] }, async (req, reply) => {
+    const { companyId } = req.user as any;
+    const buf = await buildCustomersExcel(companyId);
+    const today = new Date();
+    const stamp = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+    reply
+      .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('Content-Disposition', `attachment; filename="${encodeURIComponent(`客户数据_${stamp}.xlsx`)}"`)
+      .send(buf);
+  });
+
   // 列表（含报价统计，PRD 6.1 / 6.2）
   app.get('/api/customers', { preHandler: [app.authenticate] }, async (req) => {
     const { companyId } = req.user as any;
