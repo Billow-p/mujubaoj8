@@ -211,7 +211,9 @@ export const quoteItems = {
 // 材料中心
 export const materials = {
   list: () => api.get('/materials').then((r) => r.data),
-  seedPreset: () => api.post('/materials/seed-preset').then((r) => r.data),
+  // moldTypeCodes 传空数组/不传 = 全部同步；传编码数组 = 只同步该类型相关材料
+  seedPreset: (moldTypeCodes?: string[]) =>
+    api.post('/materials/seed-preset', moldTypeCodes && moldTypeCodes.length ? { moldTypeCodes } : {}).then((r) => r.data),
   create: (body: any) => api.post('/materials', body).then((r) => r.data),
   update: (id: string, body: any) => api.patch(`/materials/${id}`, body).then((r) => r.data),
   prices: (id: string) => api.get(`/materials/${id}/prices`).then((r) => r.data),
@@ -238,7 +240,9 @@ export const templates = {
 // 配置中心（模具类型 + 整体配置读写）
 export const configApi = {
   moldTypes: () => api.get('/mold-types').then((r) => r.data),
-  initPreset: () => api.post('/mold-types/init-preset').then((r) => r.data),
+  // code 传空 = 全部类型（统一同步）；传编码 = 只同步这一套（补缺失 + 从材料库补空价）
+  initPreset: (body?: { code?: string; syncPrices?: boolean }) =>
+    api.post('/mold-types/init-preset', body ?? {}).then((r) => r.data),
   createMoldType: (body: { name: string; code?: string; copyFromId?: string }) =>
     api.post('/mold-types', body).then((r) => r.data),
   updateMoldType: (id: string, body: any) => api.patch(`/mold-types/${id}`, body).then((r) => r.data),

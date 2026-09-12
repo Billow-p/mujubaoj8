@@ -354,7 +354,34 @@ export default function ConfigCenter() {
     const r = await configApi.initPreset();
     const id = await loadTypes();
     if (id) await loadConfig(id);
-    alert(`已初始化 ${r.created} 套预置模具类型（已存在的跳过）`);
+    alert(
+      `已初始化 ${r.created} 套、增量补齐 ${r.filled} 套（补参数 ${r.addedParams} 个、费用项 ${r.addedItems} 个，从材料库补价 ${r.filledPrices} 个；已有配置不覆盖）`,
+    );
+  };
+
+  /** 分类同步：只同步当前激活的这一套（补缺失参数/费用项 + 从材料库补空价），不覆盖已有 */
+  const syncCurrentPreset = async () => {
+    const t = types.find((x) => x.id === activeId);
+    if (!t) return;
+    if (
+      !confirm(
+        `把「${t.name}」与官方预置配置对齐？\n\n· 缺的参数 / 费用项 / 条款会补上\n· 空着的价格会从材料库自动补价\n· 你已改过的配置和价格一律不动\n\n确定继续吗？`,
+      )
+    )
+      return;
+    try {
+      const r = await configApi.initPreset({ code: t.code });
+      await loadTypes(activeId!);
+      await loadConfig(activeId!);
+      const parts: string[] = [];
+      if (r.created) parts.push(`新建了这套配置`);
+      if (r.addedParams) parts.push(`补参数 ${r.addedParams} 个`);
+      if (r.addedItems) parts.push(`补费用项 ${r.addedItems} 个`);
+      if (r.filledPrices) parts.push(`从材料库补价 ${r.filledPrices} 个`);
+      alert(parts.length ? `同步完成：${parts.join('，')}。已有配置未覆盖。` : '配置已是最全状态，无需补充。');
+    } catch (e: any) {
+      alert('同步失败：' + (e.response?.data?.error || e.message));
+    }
   };
 
   const addType = async () => {
@@ -401,7 +428,7 @@ export default function ConfigCenter() {
       <div className="max-w-3xl mx-auto p-10 text-center">
         <h1 className="text-lg font-semibold mb-2">还没有模具类型</h1>
         <p className="text-sm text-gray-500 mb-6">
-          一键初始化注塑、压铸、双色三套预置配置，之后可随意增删改
+          一键初始化注塑、压铸、双色、橡胶四套预置配置，之后可随意增删改
         </p>
         <button onClick={initPreset} className="bg-gray-900 text-white px-5 py-2.5 rounded text-sm">
           初始化预置模具类型
@@ -443,6 +470,13 @@ export default function ConfigCenter() {
 
         {activeId && (
           <>
+            <button
+              onClick={syncCurrentPreset}
+              className="text-xs text-gray-500 hover:text-gray-900 px-2 border border-gray-200 rounded py-1 hover:border-gray-400"
+              title="把当前类型与官方预置对齐：只补缺失项与空价格，不覆盖已有配置"
+            >
+              同步预置配置
+            </button>
             <button onClick={renameType} className="text-xs text-gray-500 hover:text-gray-900 px-2">重命名</button>
             <button onClick={delType} className="text-xs text-gray-500 hover:text-red-600 px-2">删除类型</button>
           </>

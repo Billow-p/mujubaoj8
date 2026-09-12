@@ -9,10 +9,10 @@ import { prisma } from '../db.js';
 // 预置材料（单价为行业参考值，企业可改）
 //
 // 分类按行业主流分两级：
-//   一级 = 用途场景（模具钢材 / 塑料原料 / 压铸合金 / 辅助材料）
+//   一级 = 用途场景（模具钢材 / 塑料原料 / 压铸合金 / 橡胶原料 / 辅助材料）
 //   二级 = 材质体系（热作模具钢 / 工程塑料 / 铝合金 …）
 // 详见 packages/shared 的 MATERIAL_GROUPS / MATERIAL_SUB_CATEGORIES
-const PRESET_MATERIALS: {
+export const PRESET_MATERIALS: {
   code: string;
   name: string;
   category: string; // 一级分类
@@ -68,12 +68,30 @@ const PRESET_MATERIALS: {
   { code: 'ZAMAK5', name: '锌合金 5#', category: '压铸合金', subCategory: '锌合金', unit: 'kg', density: 6.6, lossRate: 0.08, price: 20 },
   { code: 'AZ91D', name: 'AZ91D 镁合金', category: '压铸合金', subCategory: '镁合金', unit: 'kg', density: 1.81, lossRate: 0.1, price: 28 },
 
+  // ---------- 橡胶原料 ----------
+  { code: 'SILICONE-R', name: '硅胶（橡胶级）', category: '橡胶原料', subCategory: '硅橡胶', unit: 'kg', density: 1.15, lossRate: 0.08, price: 45 },
+  { code: 'NR', name: '天然橡胶 NR', category: '橡胶原料', subCategory: '通用橡胶', unit: 'kg', density: 0.92, lossRate: 0.08, price: 18 },
+  { code: 'SBR', name: '丁苯橡胶 SBR', category: '橡胶原料', subCategory: '通用橡胶', unit: 'kg', density: 0.94, lossRate: 0.08, price: 16 },
+  { code: 'FKM', name: '氟橡胶 FKM', category: '橡胶原料', subCategory: '特种橡胶', unit: 'kg', density: 1.8, lossRate: 0.1, price: 120 },
+
   // ---------- 辅助材料 ----------
   { code: 'PAINT', name: '喷涂粉末', category: '辅助材料', subCategory: '表面处理', unit: 'kg', density: 1.5, lossRate: 0.15, price: 35 },
   { code: 'CARTON', name: '纸箱', category: '辅助材料', subCategory: '包装材料', unit: '个', lossRate: 0.02, price: 3 },
   { code: 'WOODBOX', name: '木箱（出口包装）', category: '辅助材料', subCategory: '包装材料', unit: '个', lossRate: 0.02, price: 150 },
   { code: 'RELEASE', name: '脱模剂', category: '辅助材料', subCategory: '模具辅料', unit: 'kg', density: 0.85, lossRate: 0.05, price: 25 },
 ];
+
+/**
+ * 「初始化预置材料」按模具类型分类同步的口径：
+ * 选了某类型 → 只把该类型用得上的材料分类灌进全局库；不选 → 全部。
+ * 这样用户只要压铸模具，就不用把塑料/橡胶材料一并拉进来。
+ */
+export const TYPE_MATERIAL_CATEGORIES: Record<string, string[]> = {
+  injection: ['模具钢材', '塑料原料', '辅助材料'],
+  diecast: ['模具钢材', '压铸合金', '辅助材料'],
+  twocolor: ['模具钢材', '塑料原料', '辅助材料'],
+  rubber: ['模具钢材', '橡胶原料', '辅助材料'],
+};
 
 const MaterialSchema = z.object({
   // 编码可留空 —— 留空时由服务端按名称自动生成，避免用户被"必填"卡住
@@ -184,8 +202,26 @@ export async function materialRoutes(app: FastifyInstance) {
   });
 
   // 初始化预置材料（只补不存在的，不覆盖企业已改价格）
+  // 支持按模具类型分类同步：传 moldTypeCodes 只同步该类型相关的材料分类；不传则全部。
   app.post('/api/materials/seed-preset', { preHandler: [app.authenticate] }, async (req) => {
     const { companyId } = req.user as any;
+    const body = z
+      .object({ moldTypeCodes: z.array(z.string()).max(10).optional() })
+      .parse(req.body ?? {});
+
+    // 反查出要同步的材料一级分类（类型→分类映射；类型识别不到则回退到全部）
+    let wantCategories: Set<string> | null = null;
+    if (body.moldTypeCodes && body.moldTypeCodes.length) {
+      const cats = new Set<string>();
+      for (const code of body.moldTypeCodes) {
+        for (const c of TYPE_MATERIAL_CATEGORIES[code] ?? []) cats.add(c);
+      }
+      if (cats.size) wantCategories = cats;
+    }
+    const list = wantCategories
+      ? PRESET_MATERIALS.filter((m) => wantCategories!.has(m.category))
+      : PRESET_MATERIALS;
+
     const existing = await prisma.material.findMany({
       // 只看全局材料。否则模具类型自己的副本（同样是 code=P20）会被误判为
       // "已存在"，导致全局材料库里根本建不出这条记录。
@@ -195,7 +231,7 @@ export async function materialRoutes(app: FastifyInstance) {
     const byCode = new Map(existing.map((m) => [m.code, m]));
     let created = 0;
     let classified = 0;
-    for (const m of PRESET_MATERIALS) {
+    for (const m of list) {
       const old = byCode.get(m.code);
       if (old) {
         // 老数据（本次分类升级前建的）没有二级分类 —— 只补分类，
@@ -229,7 +265,7 @@ export async function materialRoutes(app: FastifyInstance) {
       });
       created += 1;
     }
-    return { ok: true, created, classified, total: PRESET_MATERIALS.length };
+    return { ok: true, created, classified, total: list.length, scope: body.moldTypeCodes ?? 'all' };
   });
 
   // 新建自定义材料

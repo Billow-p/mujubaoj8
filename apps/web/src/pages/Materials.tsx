@@ -45,6 +45,14 @@ const parseTiers = (raw: any): TierRow[] => {
   }));
 };
 
+/** 初始化预置材料可按模具类型分类同步 —— 口径与后端 TYPE_MATERIAL_CATEGORIES 一致 */
+const SEED_OPTIONS = [
+  { code: 'injection', label: '注塑模具', desc: '模具钢材 + 塑料原料 + 辅助材料' },
+  { code: 'diecast', label: '压铸模具', desc: '模具钢材 + 压铸合金 + 辅助材料' },
+  { code: 'twocolor', label: '双色模具', desc: '模具钢材 + 塑料原料（硬胶/软胶）+ 辅助材料' },
+  { code: 'rubber', label: '橡胶模具', desc: '模具钢材 + 橡胶原料 + 辅助材料' },
+];
+
 const emptyTier = (): TierRow => ({ minQty: '', maxQty: '', price: '' });
 
 /**
@@ -63,6 +71,9 @@ export default function Materials() {
   const [priceHistory, setPriceHistory] = useState<any[] | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [formErr, setFormErr] = useState('');
+  const [seedOpen, setSeedOpen] = useState(false);
+  const [seedSel, setSeedSel] = useState<Record<string, boolean>>({});
+  const [seeding, setSeeding] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -86,11 +97,27 @@ export default function Materials() {
     return [...map.entries()].sort((a, b) => idx(a[0]) - idx(b[0]) || a[0].localeCompare(b[0]));
   }, [list]);
 
-  const seed = async () => {
-    const r = await materials.seedPreset();
-    const extra = r.classified ? `，并为 ${r.classified} 个已有材料补全了分类` : '';
-    alert(`已补充 ${r.created} 个预置材料${extra}（共 ${r.total} 个，已存在的不覆盖价格）`);
-    load();
+  const seed = async (codes?: string[]) => {
+    setSeeding(true);
+    try {
+      const r = await materials.seedPreset(codes);
+      const extra = r.classified ? `，并为 ${r.classified} 个已有材料补全了分类` : '';
+      const scope = codes && codes.length ? '所选类型相关材料' : '全部材料';
+      alert(`已补充 ${r.created} 个预置材料（${scope}，共 ${r.total} 个，已存在的不覆盖价格）${extra}`);
+      setSeedOpen(false);
+      load();
+    } catch (e: any) {
+      alert('初始化失败：' + (e.response?.data?.error || e.message));
+    } finally {
+      setSeeding(false);
+    }
+  };
+
+  const confirmSeed = () => {
+    const codes = SEED_OPTIONS.filter((o) => seedSel[o.code]).map((o) => o.code);
+    const all = SEED_OPTIONS.every((o) => seedSel[o.code]);
+    if (!codes.length) return; // 按钮已禁用，双保险
+    seed(all ? undefined : codes);
   };
 
   /** 保存前先在本地校验，不让用户被服务端的英文报错劝退 */
@@ -214,7 +241,10 @@ export default function Materials() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button onClick={seed} className="border border-gray-300 px-4 py-2 rounded text-sm hover:bg-gray-50">
+          <button
+            onClick={() => { setSeedSel({}); setSeedOpen(true); }}
+            className="border border-gray-300 px-4 py-2 rounded text-sm hover:bg-gray-50"
+          >
             初始化预置材料
           </button>
           <button
@@ -361,6 +391,62 @@ export default function Materials() {
             </div>
           );
         })}
+
+      {/* 初始化预置材料：按模具类型分类同步 */}
+      {seedOpen && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-6 z-50">
+          <div className="bg-white rounded-lg w-full max-w-md shadow-xl">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="font-medium">初始化预置材料</h2>
+              <p className="text-[12.5px] text-gray-500 mt-1">
+                选择要同步哪类模具的材料；已存在的材料不会覆盖你改过的价格。
+              </p>
+            </div>
+            <div className="p-6 space-y-2">
+              <label className="flex items-center gap-2.5 border border-gray-200 rounded px-3 py-2.5 cursor-pointer hover:bg-gray-50">
+                <input
+                  type="checkbox"
+                  checked={SEED_OPTIONS.every((o) => seedSel[o.code])}
+                  onChange={(e) =>
+                    setSeedSel(Object.fromEntries(SEED_OPTIONS.map((o) => [o.code, e.target.checked])))
+                  }
+                  className="w-4 h-4"
+                />
+                <span className="text-sm font-medium">全部同步</span>
+                <span className="text-[11.5px] text-gray-400">四类模具的材料都灌入</span>
+              </label>
+              {SEED_OPTIONS.map((o) => (
+                <label key={o.code} className="flex items-center gap-2.5 border border-gray-200 rounded px-3 py-2.5 cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={!!seedSel[o.code]}
+                    onChange={(e) => setSeedSel((s) => ({ ...s, [o.code]: e.target.checked }))}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm w-[70px] shrink-0">{o.label}</span>
+                  <span className="text-[11.5px] text-gray-400">{o.desc}</span>
+                </label>
+              ))}
+            </div>
+            <div className="px-6 py-3 border-t border-gray-200 flex justify-end gap-2">
+              <button onClick={() => setSeedOpen(false)} className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50">
+                取消
+              </button>
+              <button
+                onClick={confirmSeed}
+                disabled={seeding || !SEED_OPTIONS.some((o) => seedSel[o.code])}
+                className={`px-4 py-2 text-sm rounded ${
+                  seeding || !SEED_OPTIONS.some((o) => seedSel[o.code])
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-gray-900 text-white hover:bg-gray-800'
+                }`}
+              >
+                {seeding ? '同步中…' : '开始同步'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 价格历史 */}
       {priceHistory && (

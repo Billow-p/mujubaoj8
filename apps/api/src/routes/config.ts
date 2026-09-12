@@ -7,6 +7,7 @@ import { prisma } from '../db.js';
 import { calculateConfigured } from '@mqs/calc-engine';
 import type { QuoteItemDef } from '@mqs/shared';
 import { MOLD_PRESETS } from '../services/moldPresets.js';
+import { PRESET_MATERIALS } from './materials.js';
 
 const CALC_TYPES = ['fixed', 'qty', 'size', 'hours', 'weight', 'percent', 'manual', 'formula'] as const;
 
@@ -102,17 +103,47 @@ export async function configRoutes(app: FastifyInstance) {
     }));
   });
 
-  // 一键初始化三套预置类型（已存在的同名类型跳过）
+  // 初始化 / 同步预置模具类型
+  //   不传 code → 全部类型（统一同步）；传 code → 只同步这一套（分类同步）。
+  //   已存在的类型做「补缺失」：缺的参数/费用项/条款补上，已存在的一律不动；
+  //   价格参数按 materialCode 绑定从材料库取价，同样只补空/0，不覆盖已设值。
   app.post('/api/mold-types/init-preset', { preHandler: [app.authenticate] }, async (req) => {
     const { companyId } = req.user as any;
+    const body = z
+      .object({ code: z.string().max(40).optional(), syncPrices: z.boolean().optional() })
+      .parse(req.body ?? {});
+    const syncPrices = body.syncPrices !== false;
+
     let created = 0;
+    let filled = 0;
+    let addedParams = 0;
+    let addedItems = 0;
+    let filledPrices = 0;
     for (const [idx, p] of MOLD_PRESETS.entries()) {
+      if (body.code && p.code !== body.code) continue;
       const exists = await prisma.moldType.findFirst({ where: { companyId, code: p.code } });
-      if (exists) continue;
-      await createPresetMoldType(companyId, p, idx);
-      created += 1;
+      if (!exists) {
+        const mt = await createPresetMoldType(companyId, p, idx);
+        created += 1;
+        if (syncPrices) filledPrices += await syncPricesFromLibrary(companyId, mt.id, p);
+      } else {
+        const r = await incrementalFill(companyId, exists.id, p, syncPrices);
+        filled += 1;
+        addedParams += r.addedParams;
+        addedItems += r.addedItems;
+        filledPrices += r.filledPrices;
+      }
     }
-    return { ok: true, created, total: MOLD_PRESETS.length };
+    return {
+      ok: true,
+      created,
+      filled,
+      addedParams,
+      addedItems,
+      filledPrices,
+      scope: body.code ?? 'all',
+      total: MOLD_PRESETS.length,
+    };
   });
 
   // 新建（可选从现有类型复制）
@@ -330,8 +361,17 @@ export async function configRoutes(app: FastifyInstance) {
   });
 }
 
-/** 用预置模板创建一整套模具类型配置 */
+/** 用预置模板创建一整套模具类型配置（价格参数优先取材料库当前价，库没有才用预置参考值） */
 async function createPresetMoldType(companyId: string, p: (typeof MOLD_PRESETS)[number], sortOrder: number) {
+  const boundCodes = p.params.map((x) => x.materialCode).filter(Boolean) as string[];
+  const libPrices = new Map<string, number>();
+  if (boundCodes.length) {
+    const mats = await prisma.material.findMany({
+      where: { companyId, moldTypeId: null, code: { in: boundCodes } },
+      select: { code: true, currentPrice: true },
+    });
+    for (const m of mats) libPrices.set(m.code, Number(m.currentPrice));
+  }
   const moldType = await prisma.moldType.create({
     data: {
       companyId,
@@ -350,7 +390,7 @@ async function createPresetMoldType(companyId: string, p: (typeof MOLD_PRESETS)[
       code: x.code,
       name: x.name,
       unit: x.unit,
-      defaultValue: String(x.value),
+      defaultValue: String(x.materialCode && libPrices.has(x.materialCode) ? libPrices.get(x.materialCode)! : x.value),
       group: x.group,
       scope: x.scope ?? 'common',
       type: x.type ?? 'decimal',
@@ -378,6 +418,148 @@ async function createPresetMoldType(companyId: string, p: (typeof MOLD_PRESETS)[
     })),
   });
   return moldType;
+}
+
+/**
+ * 增量补齐已有类型：只补「预置里有、库里没有」的参数/费用项/条款，
+ * 已存在的一律不动（用户改过的配置、价格绝不覆盖）。
+ */
+async function incrementalFill(
+  companyId: string,
+  moldTypeId: string,
+  p: (typeof MOLD_PRESETS)[number],
+  syncPrices: boolean,
+): Promise<{ addedParams: number; addedItems: number; filledPrices: number }> {
+  const [params, items, terms] = await Promise.all([
+    prisma.customParameter.findMany({ where: { companyId, moldTypeId }, select: { code: true } }),
+    prisma.quoteItem.findMany({ where: { companyId, moldTypeId }, select: { name: true } }),
+    prisma.businessTerm.findMany({ where: { companyId, moldTypeId }, select: { text: true } }),
+  ]);
+  const paramCodes = new Set(params.map((x) => x.code));
+  const itemNames = new Set(items.map((x) => x.name));
+  const termTexts = new Set(terms.map((x) => x.text));
+
+  let addedParams = 0;
+  const missingParams = p.params.filter((x) => !paramCodes.has(x.code));
+  if (missingParams.length) {
+    await prisma.customParameter.createMany({
+      data: missingParams.map((x, i) => ({
+        companyId,
+        moldTypeId,
+        code: x.code,
+        name: x.name,
+        unit: x.unit,
+        defaultValue: String(x.value),
+        group: x.group,
+        scope: x.scope ?? 'common',
+        type: x.type ?? 'decimal',
+        options: x.options ? JSON.stringify(x.options) : null,
+        sortOrder: params.length + i,
+      })),
+    });
+    addedParams = missingParams.length;
+  }
+
+  let addedItems = 0;
+  const missingItems = p.items.filter((x) => !itemNames.has(x.name));
+  if (missingItems.length) {
+    await prisma.quoteItem.createMany({
+      data: missingItems.map((it, i) => ({
+        companyId,
+        moldTypeId,
+        name: it.name,
+        category: it.category,
+        scope: it.scope,
+        calcType: it.calcType,
+        calcConfig: it.calcConfig as any,
+        expression: it.expression ?? null,
+        perUnit: it.perUnit === true,
+        sortOrder: items.length + i,
+      })),
+    });
+    addedItems = missingItems.length;
+  }
+
+  const missingTerms = p.terms.filter((t) => !termTexts.has(t));
+  if (missingTerms.length) {
+    await prisma.businessTerm.createMany({
+      data: missingTerms.map((t, i) => ({ companyId, moldTypeId, text: t, enabled: true, sortOrder: terms.length + i })),
+    });
+  }
+
+  let filledPrices = 0;
+  if (syncPrices) filledPrices = await syncPricesFromLibrary(companyId, moldTypeId, p);
+  return { addedParams, addedItems, filledPrices };
+}
+
+/**
+ * 从材料库同步价格到配置中心默认值 —— 稳定安全规则：
+ *   · 只处理预置里绑定 materialCode 的价格参数；
+ *   · 只给「当前为空 / 0 / 非数字」的参数填价，已设值一律不动；
+ *   · 取价来源 = 全局材料库该编码材料的当前价；库中缺失时按主预置库自动补建（同样不动已有）。
+ */
+async function syncPricesFromLibrary(
+  companyId: string,
+  moldTypeId: string,
+  p: (typeof MOLD_PRESETS)[number],
+): Promise<number> {
+  const bound = p.params.filter((x) => x.materialCode);
+  if (!bound.length) return 0;
+  const codes = [...new Set(bound.map((x) => x.materialCode!))];
+
+  const mats = await prisma.material.findMany({
+    where: { companyId, moldTypeId: null, code: { in: codes } },
+  });
+  const lib = new Map(mats.map((m) => [m.code, m]));
+
+  // 库里缺的材料从主预置库补建（只补缺，已有不动）
+  for (const code of codes) {
+    if (lib.has(code)) continue;
+    const src = PRESET_MATERIALS.find((m) => m.code === code);
+    if (!src) continue;
+    const created = await prisma.material.create({
+      data: {
+        companyId,
+        code: src.code,
+        name: src.name,
+        category: src.category,
+        subCategory: src.subCategory,
+        unit: src.unit,
+        density: src.density,
+        lossRate: src.lossRate,
+        currentPrice: src.price,
+        priceRule: 'fixed',
+        isPreset: true,
+        enabled: true,
+        remark: src.remark,
+        prices: { create: [{ version: 1, price: src.price, note: '预置初始价' }] },
+      },
+    });
+    lib.set(code, created);
+  }
+
+  const cfgParams = await prisma.customParameter.findMany({
+    where: { companyId, moldTypeId },
+    select: { id: true, code: true, defaultValue: true },
+  });
+  const byCode = new Map(cfgParams.map((x) => [x.code, x]));
+
+  let filled = 0;
+  for (const x of bound) {
+    const mat = lib.get(x.materialCode!);
+    const cp = byCode.get(x.code);
+    if (!mat || !cp) continue;
+    const cur = cp.defaultValue;
+    const n = Number(cur);
+    const missing = cur == null || cur === '' || !Number.isFinite(n) || n === 0;
+    if (!missing) continue;
+    await prisma.customParameter.update({
+      where: { id: cp.id },
+      data: { defaultValue: String(mat.currentPrice) },
+    });
+    filled += 1;
+  }
+  return filled;
 }
 
 /** 复制一套配置到新类型 */

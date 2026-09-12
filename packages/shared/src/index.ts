@@ -255,7 +255,7 @@ export function resolveMaterialPrice(
   return base;
 }
 
-export const MATERIAL_GROUPS = ['模具钢材', '塑料原料', '压铸合金', '辅助材料'] as const;
+export const MATERIAL_GROUPS = ['模具钢材', '塑料原料', '压铸合金', '橡胶原料', '辅助材料'] as const;
 
 export type MaterialGroup = (typeof MATERIAL_GROUPS)[number];
 
@@ -264,6 +264,7 @@ export const MATERIAL_SUB_CATEGORIES: Record<string, string[]> = {
   模具钢材: ['预硬塑胶模具钢', '镜面耐腐蚀钢', '热作模具钢', '冷作模具钢'],
   塑料原料: ['通用塑料', '工程塑料', '特种工程塑料', '弹性体软胶'],
   压铸合金: ['铝合金', '锌合金', '镁合金'],
+  橡胶原料: ['通用橡胶', '硅橡胶', '特种橡胶'],
   辅助材料: ['表面处理', '包装材料', '模具辅料'],
 };
 
@@ -278,6 +279,7 @@ export const QTY_VAR_CANDIDATES = [
   '注塑数量',
   '压铸数量',
   '成型数量',
+  '硫化数量',
   '订单数量',
   '本次数量',
   '生产数量',
