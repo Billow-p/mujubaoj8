@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useEffect } from 'react';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import Landing from './pages/Landing';
 import NewQuote from './pages/NewQuote';
 import ConfiguredQuote from './pages/ConfiguredQuote';
 import QuoteDetail from './pages/QuoteDetail';
@@ -28,11 +29,13 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      {/* 公开首页（营销 + 登录入口） */}
+      <Route path="/" element={<Landing />} />
       {/* 客户查看报价单：免登录，独立于后台布局 */}
       <Route path="/share/:token" element={<SharePage />} />
       <Route element={<Layout />}>
         {/* 业务 */}
-        <Route path="/" element={<Dashboard />} />
+        <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/quotes/new" element={<ConfiguredQuote />} />
         <Route path="/quotes/new/advanced" element={<NewQuote />} />
         <Route path="/quotes/:id" element={<QuoteDetail />} />

@@ -73,7 +73,7 @@ export default function Login() {
         const data = await auth.login(email, password);
         localStorage.setItem('mqs_token', data.token);
         setUser(data.user);
-        navigate('/');
+        navigate('/dashboard');
       } else if (mode === 'register') {
         const data = await auth.register({
           email,
@@ -84,7 +84,7 @@ export default function Login() {
         });
         localStorage.setItem('mqs_token', data.token);
         setUser(data.user);
-        navigate('/');
+        navigate('/dashboard');
       } else {
         // 找回密码
         const res = await auth.resetPassword(email, code, password);

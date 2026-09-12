@@ -19,7 +19,7 @@ type NavItem = {
  * 配置类（报价配置 / 材料库 / 条款 / 团队）全部收进「设置」，进去后是二级导航。
  */
 const NAV: NavItem[] = [
-  { to: '/', label: '报价单', exact: true },
+  { to: '/dashboard', label: '报价单', exact: true },
   { to: '/customers', label: '客户' },
   { to: '/settings/config', label: '设置', matchPrefix: '/settings' },
   { to: '/platform', label: '平台管理', superOnly: true },
@@ -66,7 +66,7 @@ export default function Layout() {
       <header className="border-b border-gray-200 bg-white">
         <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-8">
-            <Link to="/" className="flex items-center gap-2">
+            <Link to="/dashboard" className="flex items-center gap-2">
               <div className="w-7 h-7 rounded bg-gray-900 text-white flex items-center justify-center text-xs font-bold">M</div>
               <span className="font-semibold text-sm">模具注塑报价系统</span>
             </Link>
