@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { materials } from '../api';
 import { MATERIAL_GROUPS, MATERIAL_SUB_CATEGORIES } from '@mqs/shared';
 
@@ -233,14 +234,29 @@ export default function Materials() {
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl font-semibold">材料中心</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            全局材料库（所有模具类型共用）· 按用途分四类（模具钢材 / 塑料原料 / 压铸合金 / 辅助材料），每类再按材质细分 · 改价自动生成新价格版本
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-semibold">材料中心</h1>
+            <span className="text-[11px] bg-blue-50 border border-blue-200 text-blue-700 rounded px-2 py-0.5">
+              第 1 步 · 共 4 步
+            </span>
+          </div>
+          <p className="text-[12.5px] text-gray-600 mt-1.5 leading-5 max-w-2xl">
+            这里是<strong>全系统唯一的价格来源</strong>。钢材、原料价格都在这里维护：
+            这里改价 → 到配置中心点「同步」→ 报价自动用新价，中间不需要改任何公式。
+          </p>
+          <p className="text-[11px] text-gray-400 mt-1">
+            改完价别忘了第 2 步：去配置中心点同步，价格才会生效到报价
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Link
+            to="/settings/config"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm whitespace-nowrap"
+          >
+            下一步：去配置中心同步 →
+          </Link>
           <button
             onClick={() => { setSeedSel({}); setSeedOpen(true); }}
             className="border border-gray-300 px-4 py-2 rounded text-sm hover:bg-gray-50"

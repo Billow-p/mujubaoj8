@@ -531,6 +531,14 @@ export default function ConfiguredQuote() {
         </div>
       </div>
 
+      {/* 价格从哪来 —— 三级取价顺序，一眼看懂 */}
+      <div className="bg-slate-50 border border-gray-200 rounded-lg px-4 py-2.5 mb-4 text-[12px] text-gray-600 leading-5">
+        <b className="text-gray-800">价格从哪来（自动按顺序取）：</b>
+        ① 选了材料牌号 → 按材料库该牌号现价　
+        ② 没选 → 按配置中心同步价　
+        ③ 都没有 → 该项按 0 计入并<b className="text-red-700">中文提醒你补价</b>，不会默默出错
+      </div>
+
       {/* 模具类型 */}
       <div className="bg-white border border-gray-200 rounded-lg px-4 py-3 mb-4 flex items-center gap-3 flex-wrap">
         <span className="text-sm text-gray-500">模具类型</span>

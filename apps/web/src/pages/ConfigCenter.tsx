@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { configApi, materials } from '../api';
 import { calculateConfigured } from '@mqs/calc-engine';
 import { CALC_TYPE_META } from '@mqs/shared';
@@ -86,6 +87,8 @@ export default function ConfigCenter() {
       return next;
     });
   const [picking, setPicking] = useState(false);
+  /** 四步引导展开/收起（默认展开） */
+  const [guideOpen, setGuideOpen] = useState(true);
   /** 材料库索引（code → 材料），用于价格参数显示绑定材料的现价 */
   const [matMap, setMatMap] = useState<Record<string, any>>({});
   const [togglingPriceMode, setTogglingPriceMode] = useState(false);
@@ -578,14 +581,105 @@ export default function ConfigCenter() {
         </button>
       </div>
 
-      {/* 引导条 */}
-      <div className={`text-[12.5px] px-3.5 py-2 rounded-lg mb-3 border ${
-        dirty ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
-      }`}>
-        {dirty
-          ? '有改动还没保存 · 点右上角「保存」后才会生效'
-          : '左边是报价时要填的数据；中间是要收哪些费用，选计算方式、填数字就行，不用写公式；右边立刻出价'}
-      </div>
+      {/* 四步引导：材料库 → 同步 → 配算法 → 报价（状态感知，缺哪步亮哪步） */}
+      {(() => {
+        const bound = (cfg?.parameters ?? []).filter((p: any) => p.materialCode);
+        const missingPrice = bound.filter(
+          (p: any) => p.defaultValue === '' || p.defaultValue == null || Number(p.defaultValue) === 0,
+        ).length;
+        const matCount = Object.keys(matMap).length;
+        const modeB = cfg?.moldType?.priceFromLibrary === true;
+        const itemDone = (cfg?.items ?? []).length > 0;
+        return (
+          <div className="bg-white border border-gray-200 rounded-lg mb-3 overflow-hidden">
+            <div className="px-4 py-2.5 flex items-center gap-2.5 flex-wrap">
+              <span className="text-[12.5px] font-medium shrink-0">使用四步曲</span>
+              <span className="text-[11.5px] text-gray-400 hidden md:inline truncate">
+                价格逻辑只有一条：材料库改价 → 这里点同步 → 报价即用新价
+              </span>
+              <div className="flex-1" />
+              {dirty && (
+                <span className="text-[11.5px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-0.5">
+                  有改动未保存 · 点右上角「保存」生效
+                </span>
+              )}
+              <button
+                onClick={() => setGuideOpen(!guideOpen)}
+                className="text-[11.5px] text-gray-500 border border-gray-200 rounded px-2 py-0.5 hover:border-gray-400 shrink-0"
+              >
+                {guideOpen ? '收起引导' : '展开引导'}
+              </button>
+            </div>
+            {guideOpen && (
+              <div className="px-3.5 pb-3 flex gap-1.5 items-stretch flex-wrap xl:flex-nowrap">
+                {/* ① 材料库备价 */}
+                <div className={`flex-1 min-w-[185px] rounded-lg border p-2.5 ${matCount > 0 ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-300 bg-amber-50'}`}>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`w-4.5 h-4.5 w-[18px] h-[18px] rounded-full text-[10.5px] grid place-items-center shrink-0 ${matCount > 0 ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-white'}`}>
+                      {matCount > 0 ? '✓' : '1'}
+                    </span>
+                    <span className="text-[12px] font-medium">材料库备价</span>
+                    <span className="text-[10.5px] text-gray-400">第 1 步</span>
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-1 leading-4">
+                    {matCount > 0 ? `已备 ${matCount} 种材料，改价只改材料库` : '还没有材料，先去初始化预置材料'}
+                  </div>
+                  <Link to="/settings/materials" className="inline-block text-[11px] text-blue-700 mt-1 hover:underline">
+                    打开材料库 →
+                  </Link>
+                </div>
+                {/* ② 同步到配置中心 */}
+                <div className={`flex-1 min-w-[210px] rounded-lg border p-2.5 ${missingPrice > 0 ? 'border-blue-400 bg-blue-50/50 ring-1 ring-blue-100' : 'border-gray-200 bg-white'}`}>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`w-[18px] h-[18px] rounded-full text-[10.5px] grid place-items-center shrink-0 ${missingPrice > 0 ? 'bg-blue-600 text-white' : 'bg-emerald-600 text-white'}`}>
+                      {missingPrice > 0 ? '2' : '✓'}
+                    </span>
+                    <span className="text-[12px] font-medium">同步到配置中心</span>
+                    {missingPrice > 0 ? (
+                      <span className="text-[10px] bg-blue-600 text-white rounded px-1.5 py-0.5">待同步</span>
+                    ) : (
+                      <span className="text-[10px] text-emerald-700">无缺价</span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-1 leading-4">
+                    绑定材料 {bound.length} 个
+                    {modeB ? ' · 模式B：同步即全量刷新' : ''}
+                    {missingPrice > 0 ? ` · 缺价 ${missingPrice} 个` : ''}
+                  </div>
+                  <button onClick={syncCurrentPreset} className="inline-block text-[11px] bg-blue-600 hover:bg-blue-700 text-white rounded px-2 py-0.5 mt-1">
+                    一键同步
+                  </button>
+                </div>
+                {/* ③ 定费用与算法 */}
+                <div className={`flex-1 min-w-[185px] rounded-lg border p-2.5 ${itemDone ? 'border-gray-200 bg-white' : 'border-amber-300 bg-amber-50'}`}>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`w-[18px] h-[18px] rounded-full text-[10.5px] grid place-items-center shrink-0 ${itemDone ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-white'}`}>
+                      {itemDone ? '✓' : '3'}
+                    </span>
+                    <span className="text-[12px] font-medium">定费用与算法</span>
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-1 leading-4">
+                    中间栏选计算方式填数字，右侧实时出价，不用写公式
+                  </div>
+                </div>
+                {/* ④ 报价计算 */}
+                <div className="flex-1 min-w-[185px] rounded-lg border border-gray-200 bg-white p-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-[18px] h-[18px] rounded-full bg-blue-600 text-white text-[10.5px] grid place-items-center shrink-0">4</span>
+                    <span className="text-[12px] font-medium">报价计算</span>
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-1 leading-4">
+                    建报价单填数量自动算，缺价会中文提醒补什么
+                  </div>
+                  <Link to="/quotes/new" className="inline-block text-[11px] text-blue-700 mt-1 hover:underline">
+                    去建报价单 →
+                  </Link>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* 三栏 */}
       <div className="grid gap-3.5 items-start" style={{ gridTemplateColumns: gridCols }}>
