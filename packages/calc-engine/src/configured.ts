@@ -178,6 +178,29 @@ export function friendlyCalcError(e: unknown): string {
 /** 内部：缺少注塑数量的哨兵错误 */
 const NO_QTY = '__NO_INJECTION_QTY__';
 
+/**
+ * 价格/密度缺失的中文提醒（非致命）。
+ * 场景：「按尺寸算」的钢材费、「按重量算」的材料费，若单价/密度没填
+ * （或被填成 0），该项会静默算成 0，用户以为是算错了（幻觉）。
+ * 这里明确提示「XXX 未设置，暂按 0 计算——请补充价格」，让用户知道原因。
+ */
+function priceWarning(it: QuoteItemDef, scope: Scope): string | undefined {
+  const c: QuoteItemCalcConfig = it.calcConfig ?? {};
+  if (it.calcType === 'size' || it.calcType === 'weight') {
+    const pv = c.priceVar as string | undefined;
+    if (pv && (scope[pv] == null || !Number.isFinite(Number(scope[pv])) || Number(scope[pv]) === 0)) {
+      return `「${pv}」未设置或为空，此项暂按 0 计算——请到材料库/参数补充价格`;
+    }
+    if (it.calcType === 'size') {
+      const dv = c.densityVar as string | undefined;
+      if (dv && (scope[dv] == null || !Number.isFinite(Number(scope[dv])) || Number(scope[dv]) === 0)) {
+        return `「${dv}」未设置或为空，钢材重量算不出，此项暂按 0 计算——请补充密度`;
+      }
+    }
+  }
+  return undefined;
+}
+
 export interface ConfiguredOptions {
   profitRate?: number;
   taxRate?: number;
@@ -284,6 +307,7 @@ export function calculateConfigured(
         perUnit: perUnit || undefined,
         unitPrice,
         qty,
+        warning: priceWarning(it, scope),
       };
     } catch (e) {
       lines[idx] = {

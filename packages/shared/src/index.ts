@@ -363,6 +363,8 @@ export interface ConfigCalcLine {
   skipped?: boolean;
   manual?: boolean;
   error?: string;
+  /** 价格/关键数据缺失或为空时的中文提示（非致命，仍按 0 计入，但提醒用户去补充） */
+  warning?: string;
   /** 按件计价：该项结果是单件成本 */
   perUnit?: boolean;
   /** 单件成本（元/件）——注塑项才有 */

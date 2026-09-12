@@ -900,11 +900,16 @@ export default function ConfiguredQuote() {
                     {(m.lines ?? [])
                       .filter((l: any) => !l.skipped)
                       .map((l: any, li: number) => (
-                        <div key={li} className="flex justify-between text-[11.5px] text-gray-500 gap-2">
-                          <span className="truncate">{l.name}</span>
-                          <span className="tabular-nums shrink-0">
-                            {l.error ? '—' : l.manual ? '报价时填' : money(l.value)}
-                          </span>
+                        <div key={li} className="space-y-0.5">
+                          <div className="flex justify-between text-[11.5px] text-gray-500 gap-2">
+                            <span className="truncate">{l.name}</span>
+                            <span className="tabular-nums shrink-0">
+                              {l.error ? '—' : l.manual ? '报价时填' : money(l.value)}
+                            </span>
+                          </div>
+                          {l.warning && (
+                            <div className="text-[11px] text-amber-600 leading-snug">⚠ {l.warning}</div>
+                          )}
                         </div>
                       ))}
                   </div>
@@ -936,11 +941,16 @@ export default function ConfiguredQuote() {
                     {(p.lines ?? [])
                       .filter((l: any) => !l.skipped)
                       .map((l: any, li: number) => (
-                        <div key={li} className="flex justify-between text-[11.5px] text-gray-500 gap-2">
-                          <span className="truncate">{l.name}</span>
-                          <span className="tabular-nums shrink-0">
-                            {l.error ? '—' : l.manual ? '报价时填' : money(l.value)}
-                          </span>
+                        <div key={li} className="space-y-0.5">
+                          <div className="flex justify-between text-[11.5px] text-gray-500 gap-2">
+                            <span className="truncate">{l.name}</span>
+                            <span className="tabular-nums shrink-0">
+                              {l.error ? '—' : l.manual ? '报价时填' : money(l.value)}
+                            </span>
+                          </div>
+                          {l.warning && (
+                            <div className="text-[11px] text-amber-600 leading-snug">⚠ {l.warning}</div>
+                          )}
                         </div>
                       ))}
                   </div>
@@ -953,6 +963,13 @@ export default function ConfiguredQuote() {
               (m.lines ?? []).some((l: any) => l.error),
             ) && (
               <div className="text-[12.5px] text-red-600 mt-2">部分费用项缺参数，请检查标红项</div>
+            )}
+            {((result?.moldResults ?? []).some((m: any) =>
+              (m.lines ?? []).some((l: any) => l.warning),
+            ) || (result?.partResults ?? []).some((p: any) =>
+              (p.lines ?? []).some((l: any) => l.warning),
+            )) && (
+              <div className="text-[12.5px] text-amber-600 mt-1">部分费用项价格/数据为空（已按 0 计入），请补充后重新计算</div>
             )}
           </div>
           <div className="bg-gray-50 border-t border-gray-200 px-3.5 py-3">

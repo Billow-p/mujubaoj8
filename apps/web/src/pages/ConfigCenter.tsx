@@ -718,6 +718,11 @@ export default function ConfigCenter() {
                         {sourceHint(it) && (
                           <div className="mt-1.5 text-[11.5px] text-gray-500">{sourceHint(it)}</div>
                         )}
+                        {line?.warning && (
+                          <div className="mt-1.5 text-[12.5px] bg-amber-50 border border-amber-200 text-amber-800 rounded px-2.5 py-2">
+                            ⚠ {line.warning}
+                          </div>
+                        )}
 
                         <div className="flex items-center gap-3 mt-2.5">
                           <button
