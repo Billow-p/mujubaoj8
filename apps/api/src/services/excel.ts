@@ -92,8 +92,9 @@ export async function buildQuoteExcel(model: ExcelQuoteModel): Promise<Buffer> {
 }
 
 // 列布局（两段费用共用）
-// A 序号(6) | B 费用项目(24) | C 计算说明(34) | D 单价(13) | E 数量(13) | F 金额(16)
-const COLS = [{ width: 6 }, { width: 24 }, { width: 34 }, { width: 14 }, { width: 13 }, { width: 16 }];
+// A 序号/标签(10) | B 费用项目(28) | C 计算说明(42) | D 单价/标签(22) | E 数量(16) | F 金额(18)
+// 2026-09-12 加宽：解决「注塑件：注塑件 1 ×50 件」等项目标签被截断、金额列太窄的问题
+const COLS = [{ width: 10 }, { width: 28 }, { width: 42 }, { width: 22 }, { width: 16 }, { width: 18 }];
 const LAST = 6;
 
 function buildMainSheet(wb: ExcelJS.Workbook, m: ExcelQuoteModel) {
@@ -197,14 +198,14 @@ function buildMainSheet(wb: ExcelJS.Workbook, m: ExcelQuoteModel) {
     lk.value = customerRows[i]?.[0] ?? (i === 0 ? '客户名称' : '');
     lk.font = { size: 10.5, color: { argb: C.muted }, name: '微软雅黑' };
     lk.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.groupBg } };
-    lk.alignment = { horizontal: 'center', vertical: 'middle' };
+    lk.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
     lk.border = box;
 
     ws.mergeCells(r, 2, r, 3);
     const lv = ws.getCell(r, 2);
     lv.value = customerRows[i]?.[1] ?? '';
     lv.font = { size: 11, color: { argb: C.text }, name: '微软雅黑' };
-    lv.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+    lv.alignment = { horizontal: 'left', vertical: 'middle', indent: 1, wrapText: true };
     lv.border = box;
 
     // 右：项目（标签 D，值 E:F）
@@ -212,14 +213,14 @@ function buildMainSheet(wb: ExcelJS.Workbook, m: ExcelQuoteModel) {
     rk.value = projectRows[i]?.[0] ?? '';
     rk.font = { size: 10.5, color: { argb: C.muted }, name: '微软雅黑' };
     rk.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.groupBg } };
-    rk.alignment = { horizontal: 'center', vertical: 'middle' };
+    rk.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
     rk.border = box;
 
     ws.mergeCells(r, 5, r, LAST);
     const rv = ws.getCell(r, 5);
     rv.value = projectRows[i]?.[1] ?? '';
     rv.font = { size: 11, color: { argb: C.text }, name: '微软雅黑' };
-    rv.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+    rv.alignment = { horizontal: 'left', vertical: 'middle', indent: 1, wrapText: true };
     rv.border = box;
 
     r++;
