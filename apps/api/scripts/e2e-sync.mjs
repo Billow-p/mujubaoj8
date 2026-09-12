@@ -75,12 +75,13 @@ try {
   const seedAll = await api('POST', '/api/materials/seed-preset', {}, token);
   check('全部初始化（兼容旧行为）', seedAll.status === 200 && seedAll.j?.ok === true, `total=${seedAll.j?.total}`);
 
-  // ========== 2. 配置中心：rubber 增量同步（已存在 → 只补缺失） ==========
+  // ========== 2. 配置中心：rubber 同步（不存在→新建，已存在→只补缺失） ==========
   console.log('\n[2] 配置中心按类型同步（rubber）');
-  const rubber = await prisma.moldType.findFirst({ where: { companyId: CO, code: 'rubber' } });
   const initRubber = await api('POST', '/api/mold-types/init-preset', { code: 'rubber' }, token);
   check('rubber 单套同步成功', initRubber.status === 200 && (initRubber.j?.created + initRubber.j?.filled) === 1,
     `created=${initRubber.j?.created} filled=${initRubber.j?.filled} addedParams=${initRubber.j?.addedParams} addedItems=${initRubber.j?.addedItems}`);
+  const rubber = await prisma.moldType.findFirst({ where: { companyId: CO, code: 'rubber' } });
+  check('rubber 类型存在', !!rubber);
   const rubParams = await prisma.customParameter.count({ where: { companyId: CO, moldTypeId: rubber.id } });
   const rubItems = await prisma.quoteItem.count({ where: { companyId: CO, moldTypeId: rubber.id } });
   check('rubber 参数 24 个', rubParams === 24, `params=${rubParams}`);

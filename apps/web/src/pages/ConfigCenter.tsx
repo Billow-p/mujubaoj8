@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { configApi } from '../api';
+import { configApi, materials } from '../api';
 import { calculateConfigured } from '@mqs/calc-engine';
 import { CALC_TYPE_META } from '@mqs/shared';
 import type { MoldCalcType, QuoteItemDef } from '@mqs/shared';
@@ -86,6 +86,17 @@ export default function ConfigCenter() {
       return next;
     });
   const [picking, setPicking] = useState(false);
+  /** 材料库索引（code → 材料），用于价格参数显示绑定材料的现价 */
+  const [matMap, setMatMap] = useState<Record<string, any>>({});
+  const [togglingPriceMode, setTogglingPriceMode] = useState(false);
+
+  useEffect(() => {
+    materials.list().then((list: any[]) => {
+      const map: Record<string, any> = {};
+      for (const m of list) map[m.code] = m;
+      setMatMap(map);
+    }).catch(() => {});
+  }, []);
 
   // ---------- 加载 ----------
   const loadTypes = async (keepId?: string) => {
@@ -206,6 +217,8 @@ export default function ConfigCenter() {
   const renderParam = (p: any, i: number) => {
     const isSel = p.type === 'select';
     const opts: any[] = Array.isArray(p.options) ? p.options : [];
+    const priceMode = cfg?.moldType?.priceFromLibrary === true;
+    const boundMat = p.materialCode ? matMap[p.materialCode] : null;
     return (
       <div key={p.id ?? i} className="px-2 py-1.5 rounded hover:bg-gray-50 group">
         <div className="flex items-center gap-1 min-w-0">
@@ -214,6 +227,14 @@ export default function ConfigCenter() {
             onChange={(e) => patch((c) => { c.parameters[i].name = e.target.value; })}
             className="flex-1 min-w-0 text-[13px] bg-transparent border border-transparent hover:border-gray-200 focus:border-gray-400 rounded px-1 py-0.5"
           />
+          {p.materialCode && (
+            <span
+              className="shrink-0 text-[10.5px] bg-blue-50 border border-blue-200 text-blue-700 rounded px-1 py-0.5"
+              title={`绑定材料「${boundMat?.name ?? p.materialCode}」，价格来自材料库`}
+            >
+              {p.materialCode}
+            </span>
+          )}
           <select
             value={p.type ?? 'decimal'}
             onChange={(e) => setParamType(i, e.target.value)}
@@ -241,6 +262,16 @@ export default function ConfigCenter() {
                 <option key={oi} value={o.value}>{o.label}</option>
               ))}
             </select>
+          ) : p.materialCode && priceMode ? (
+            // 材料库价格模式：绑定参数的价格由同步灌入，只读展示
+            <div
+              className="flex-1 min-w-0 border border-blue-200 bg-blue-50 rounded px-1.5 py-0.5 text-[12px] text-blue-900 text-right tabular-nums"
+              title="材料库价格模式已开启：该价格由「同步预置配置」按材料库现价刷新"
+            >
+              {p.defaultValue === '' || p.defaultValue == null
+                ? <span className="text-blue-400">待同步（材料库未设价）</span>
+                : p.defaultValue}
+            </div>
           ) : (
             <input
               type="number"
@@ -253,6 +284,15 @@ export default function ConfigCenter() {
             {p.unit || ''}
           </span>
         </div>
+
+        {/* 绑定材料提示行：显示材料库现价与同步语义 */}
+        {p.materialCode && (
+          <p className="text-[10.5px] text-blue-600 mt-0.5 pl-1 leading-snug">
+            绑定材料「{boundMat?.name ?? p.materialCode}」
+            {boundMat != null && <> · 材料库现价 ¥{Number(boundMat.currentPrice).toFixed(2)}/{boundMat.unit || 'kg'}</>}
+            {priceMode ? ' · 点「同步预置配置」全量刷新' : ' · 同步时只补空价'}
+          </p>
+        )}
 
         {isSel && (
           <div className="mt-1.5 border-l-2 border-emerald-200 pl-1.5 space-y-1 min-w-0">
@@ -323,6 +363,7 @@ export default function ConfigCenter() {
         defaultValue: String(p.defaultValue ?? ''),
         group: p.group || '通用',
         type: p.type || 'decimal',
+        materialCode: p.materialCode || null,
         options: p.type === 'select' && Array.isArray(p.options) ? p.options : null,
         enabled: p.enabled !== false,
       })),
@@ -363,9 +404,12 @@ export default function ConfigCenter() {
   const syncCurrentPreset = async () => {
     const t = types.find((x) => x.id === activeId);
     if (!t) return;
+    const modeB = cfg?.moldType?.priceFromLibrary === true;
     if (
       !confirm(
-        `把「${t.name}」与官方预置配置对齐？\n\n· 缺的参数 / 费用项 / 条款会补上\n· 空着的价格会从材料库自动补价\n· 你已改过的配置和价格一律不动\n\n确定继续吗？`,
+        modeB
+          ? `把「${t.name}」与官方预置配置对齐？\n\n· 缺的参数 / 费用项 / 条款会补上\n· 材料库价格模式已开启：绑定材料的价格将按材料库现价全量刷新\n· 其余已有配置不动\n\n确定继续吗？`
+          : `把「${t.name}」与官方预置配置对齐？\n\n· 缺的参数 / 费用项 / 条款会补上\n· 空着的价格会从材料库自动补价\n· 你已改过的配置和价格一律不动\n\n确定继续吗？`,
       )
     )
       return;
@@ -381,6 +425,33 @@ export default function ConfigCenter() {
       alert(parts.length ? `同步完成：${parts.join('，')}。已有配置未覆盖。` : '配置已是最全状态，无需补充。');
     } catch (e: any) {
       alert('同步失败：' + (e.response?.data?.error || e.message));
+    }
+  };
+
+  /** 材料库价格模式：开启后绑定材料的价格默认值由材料库全量刷新（库是唯一真源） */
+  const togglePriceMode = async () => {
+    if (!cfg || togglingPriceMode) return;
+    const cur = cfg.moldType?.priceFromLibrary === true;
+    if (!cur) {
+      const n = (cfg.parameters ?? []).filter((p: any) => p.materialCode).length;
+      if (
+        !confirm(
+          `开启「材料库价格模式」？\n\n· 绑定了材料的 ${n} 个价格参数，默认值将立即按材料库现价刷新（覆盖）\n· 之后点「同步预置配置」也会全量刷新这些价格\n· 库改价 → 同步 → 这里生效，逻辑只有一条\n\n确定开启吗？`,
+        )
+      )
+        return;
+    } else if (
+      !confirm('关闭「材料库价格模式」？\n\n关闭后价格参数可手动编辑，同步只补空价、不再覆盖。')
+    )
+      return;
+    setTogglingPriceMode(true);
+    try {
+      await configApi.updateMoldType(activeId!, { priceFromLibrary: !cur });
+      await loadConfig(activeId!);
+    } catch (e: any) {
+      alert('操作失败：' + (e.response?.data?.error || e.message));
+    } finally {
+      setTogglingPriceMode(false);
     }
   };
 
@@ -470,6 +541,18 @@ export default function ConfigCenter() {
 
         {activeId && (
           <>
+            <button
+              onClick={togglePriceMode}
+              disabled={togglingPriceMode}
+              title="开启后：绑定材料的价格默认值由材料库同步刷新，库是唯一价格真源"
+              className={`text-xs px-2 border rounded py-1 transition ${
+                cfg?.moldType?.priceFromLibrary === true
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100'
+                  : 'text-gray-500 border-gray-200 hover:border-gray-400 hover:text-gray-900'
+              }`}
+            >
+              材料库价格模式：{cfg?.moldType?.priceFromLibrary === true ? '开' : '关'}
+            </button>
             <button
               onClick={syncCurrentPreset}
               className="text-xs text-gray-500 hover:text-gray-900 px-2 border border-gray-200 rounded py-1 hover:border-gray-400"

@@ -46,6 +46,8 @@ const ParamSchema = z.object({
   group: z.string().max(20).optional(),
   scope: z.enum(['mold', 'injection', 'common']).optional(),
   type: z.string().max(20).optional(),
+  // 价格参数绑定的默认材料编码（材料库价格模式的价格来源）
+  materialCode: z.string().max(30).nullable().optional(),
   options: z
     .array(z.object({ label: z.string().max(40), value: z.number() }))
     .max(30)
@@ -196,11 +198,22 @@ export async function configRoutes(app: FastifyInstance) {
         enabled: z.boolean().optional(),
         profitRate: z.number().min(0).max(1).optional(),
         taxRate: z.number().min(0).max(1).optional(),
+        // 开启 = 材料库价格模式（价格参数默认值改由材料库同步、立即全量刷新）
+        priceFromLibrary: z.boolean().optional(),
       })
       .parse(req.body);
     const mt = await prisma.moldType.findFirst({ where: { id, companyId } });
     if (!mt) return reply.code(404).send({ error: '模具类型不存在' });
-    return prisma.moldType.update({ where: { id }, data: body });
+
+    const updated = await prisma.moldType.update({ where: { id }, data: body });
+
+    // 开启材料库价格模式 → 立即按绑定材料把价格参数刷成材料库现价
+    let filledPrices = 0;
+    if (body.priceFromLibrary === true) {
+      const preset = MOLD_PRESETS.find((p) => p.code === mt.code) ?? null;
+      filledPrices = await syncPricesFromLibrary(companyId, id, preset);
+    }
+    return { ...updated, filledPrices };
   });
 
   app.delete('/api/mold-types/:id', { preHandler: [app.authenticate] }, async (req, reply) => {
@@ -257,6 +270,7 @@ export async function configRoutes(app: FastifyInstance) {
             group: p.group ?? '通用',
             scope: p.scope ?? 'common',
             type: p.type ?? 'decimal',
+            materialCode: p.materialCode?.trim() || null,
             options: p.options && p.options.length ? JSON.stringify(p.options) : null,
             sortOrder: i,
             enabled: p.enabled !== false,
@@ -361,17 +375,8 @@ export async function configRoutes(app: FastifyInstance) {
   });
 }
 
-/** 用预置模板创建一整套模具类型配置（价格参数优先取材料库当前价，库没有才用预置参考值） */
+/** 用预置模板创建一整套模具类型配置（材料库价格模式：价格默认值为空，由材料库同步灌入） */
 async function createPresetMoldType(companyId: string, p: (typeof MOLD_PRESETS)[number], sortOrder: number) {
-  const boundCodes = p.params.map((x) => x.materialCode).filter(Boolean) as string[];
-  const libPrices = new Map<string, number>();
-  if (boundCodes.length) {
-    const mats = await prisma.material.findMany({
-      where: { companyId, moldTypeId: null, code: { in: boundCodes } },
-      select: { code: true, currentPrice: true },
-    });
-    for (const m of mats) libPrices.set(m.code, Number(m.currentPrice));
-  }
   const moldType = await prisma.moldType.create({
     data: {
       companyId,
@@ -381,6 +386,7 @@ async function createPresetMoldType(companyId: string, p: (typeof MOLD_PRESETS)[
       isPreset: true,
       profitRate: p.profitRate,
       taxRate: p.taxRate,
+      priceFromLibrary: true, // 模式B：新建类型即启用，价格唯一来源=材料库
     },
   });
   await prisma.customParameter.createMany({
@@ -390,10 +396,12 @@ async function createPresetMoldType(companyId: string, p: (typeof MOLD_PRESETS)[
       code: x.code,
       name: x.name,
       unit: x.unit,
-      defaultValue: String(x.materialCode && libPrices.has(x.materialCode) ? libPrices.get(x.materialCode)! : x.value),
+      // 绑定材料的价格参数：默认值留空，由「材料库 → 同步」灌入（库没有就保持空，报价时中文提醒）
+      defaultValue: x.materialCode ? '' : String(x.value),
       group: x.group,
       scope: x.scope ?? 'common',
       type: x.type ?? 'decimal',
+      materialCode: x.materialCode ?? null,
       options: x.options ? JSON.stringify(x.options) : null,
       sortOrder: i,
     })),
@@ -430,11 +438,13 @@ async function incrementalFill(
   p: (typeof MOLD_PRESETS)[number],
   syncPrices: boolean,
 ): Promise<{ addedParams: number; addedItems: number; filledPrices: number }> {
-  const [params, items, terms] = await Promise.all([
-    prisma.customParameter.findMany({ where: { companyId, moldTypeId }, select: { code: true } }),
+  const [moldType, params, items, terms] = await Promise.all([
+    prisma.moldType.findUnique({ where: { id: moldTypeId }, select: { priceFromLibrary: true } }),
+    prisma.customParameter.findMany({ where: { companyId, moldTypeId }, select: { id: true, code: true, materialCode: true } }),
     prisma.quoteItem.findMany({ where: { companyId, moldTypeId }, select: { name: true } }),
     prisma.businessTerm.findMany({ where: { companyId, moldTypeId }, select: { text: true } }),
   ]);
+  const modeB = moldType?.priceFromLibrary === true;
   const paramCodes = new Set(params.map((x) => x.code));
   const itemNames = new Set(items.map((x) => x.name));
   const termTexts = new Set(terms.map((x) => x.text));
@@ -449,15 +459,28 @@ async function incrementalFill(
         code: x.code,
         name: x.name,
         unit: x.unit,
-        defaultValue: String(x.value),
+        // 模式B：价格参数默认值留空等同步；旧模式：沿用预置参考值
+        defaultValue: x.materialCode && modeB ? '' : String(x.value),
         group: x.group,
         scope: x.scope ?? 'common',
         type: x.type ?? 'decimal',
+        materialCode: x.materialCode ?? null,
         options: x.options ? JSON.stringify(x.options) : null,
         sortOrder: params.length + i,
       })),
     });
     addedParams = missingParams.length;
+  }
+
+  // 给已有参数回填绑定元数据（只补空绑定，不动用户数据）
+  const presetByCode = new Map(p.params.map((x) => [x.code, x]));
+  for (const row of params) {
+    if (!row.materialCode && presetByCode.get(row.code)?.materialCode) {
+      await prisma.customParameter.update({
+        where: { id: row.id },
+        data: { materialCode: presetByCode.get(row.code)!.materialCode! },
+      });
+    }
   }
 
   let addedItems = 0;
@@ -493,26 +516,45 @@ async function incrementalFill(
 }
 
 /**
- * 从材料库同步价格到配置中心默认值 —— 稳定安全规则：
- *   · 只处理预置里绑定 materialCode 的价格参数；
- *   · 只给「当前为空 / 0 / 非数字」的参数填价，已设值一律不动；
- *   · 取价来源 = 全局材料库该编码材料的当前价；库中缺失时按主预置库自动补建（同样不动已有）。
+ * 从材料库同步价格到配置中心默认值。
+ *   · 绑定来源：CustomParameter.materialCode（自建类型也可在配置页自己绑），预置绑定只做回填；
+ *   · 模式B（moldType.priceFromLibrary=true）：绑定参数默认值**全量刷新**为材料库现价 —— 库是唯一真源；
+ *   · 旧模式：只给「空 / 0 / 非数字」的参数补价，已设值一律不动；
+ *   · 库中缺失的材料按主预置库自动补建（只补缺，已有不动）。
  */
 async function syncPricesFromLibrary(
   companyId: string,
   moldTypeId: string,
-  p: (typeof MOLD_PRESETS)[number],
+  p: (typeof MOLD_PRESETS)[number] | null,
 ): Promise<number> {
-  const bound = p.params.filter((x) => x.materialCode);
-  if (!bound.length) return 0;
-  const codes = [...new Set(bound.map((x) => x.materialCode!))];
+  const [moldType, cfgParams] = await Promise.all([
+    prisma.moldType.findUnique({ where: { id: moldTypeId }, select: { priceFromLibrary: true } }),
+    prisma.customParameter.findMany({
+      where: { companyId, moldTypeId },
+      select: { id: true, code: true, defaultValue: true, materialCode: true },
+    }),
+  ]);
+  const overwrite = moldType?.priceFromLibrary === true;
 
+  // 绑定解析：DB 优先，预置按 code 回填（元数据，不影响用户数据）
+  const presetByCode = new Map((p?.params ?? []).map((x) => [x.code, x]));
+  const bound: { id: string; defaultValue: string | null; materialCode: string }[] = [];
+  for (const row of cfgParams) {
+    let mc = row.materialCode;
+    if (!mc && presetByCode.get(row.code)?.materialCode) {
+      mc = presetByCode.get(row.code)!.materialCode!;
+      await prisma.customParameter.update({ where: { id: row.id }, data: { materialCode: mc } });
+    }
+    if (mc) bound.push({ id: row.id, defaultValue: row.defaultValue, materialCode: mc });
+  }
+  if (!bound.length) return 0;
+
+  const codes = [...new Set(bound.map((b) => b.materialCode))];
   const mats = await prisma.material.findMany({
     where: { companyId, moldTypeId: null, code: { in: codes } },
   });
   const lib = new Map(mats.map((m) => [m.code, m]));
 
-  // 库里缺的材料从主预置库补建（只补缺，已有不动）
   for (const code of codes) {
     if (lib.has(code)) continue;
     const src = PRESET_MATERIALS.find((m) => m.code === code);
@@ -538,24 +580,21 @@ async function syncPricesFromLibrary(
     lib.set(code, created);
   }
 
-  const cfgParams = await prisma.customParameter.findMany({
-    where: { companyId, moldTypeId },
-    select: { id: true, code: true, defaultValue: true },
-  });
-  const byCode = new Map(cfgParams.map((x) => [x.code, x]));
-
   let filled = 0;
-  for (const x of bound) {
-    const mat = lib.get(x.materialCode!);
-    const cp = byCode.get(x.code);
-    if (!mat || !cp) continue;
-    const cur = cp.defaultValue;
-    const n = Number(cur);
-    const missing = cur == null || cur === '' || !Number.isFinite(n) || n === 0;
-    if (!missing) continue;
+  for (const b of bound) {
+    const mat = lib.get(b.materialCode);
+    if (!mat) continue;
+    const next = String(mat.currentPrice);
+    if (b.defaultValue === next) continue;
+    if (!overwrite) {
+      const cur = b.defaultValue;
+      const n = Number(cur);
+      const missing = cur == null || cur === '' || !Number.isFinite(n) || n === 0;
+      if (!missing) continue;
+    }
     await prisma.customParameter.update({
-      where: { id: cp.id },
-      data: { defaultValue: String(mat.currentPrice) },
+      where: { id: b.id },
+      data: { defaultValue: next },
     });
     filled += 1;
   }

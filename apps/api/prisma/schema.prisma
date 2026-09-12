@@ -342,6 +342,8 @@ model CustomParameter {
   defaultValue String?
   required     Boolean  @default(false)
   options      String?  // JSON 数组，用于 select / multiselect
+  // 价格参数绑定默认材料编码（材料库价格模式下，价格从该材料同步）
+  materialCode String?
   min          Float?
   max          Float?
   group        String   @default("通用") // 模具参数 / 注塑参数 / 商务参数 / 通用
@@ -406,6 +408,8 @@ model MoldType {
   isPreset  Boolean  @default(false)
   profitRate Float   @default(0.10)  // 利润率
   taxRate    Float   @default(0.13)  // 税率
+  // 材料库价格模式：开启后绑定材料的价格参数默认值由材料库同步刷新（价格唯一真源=材料库）
+  priceFromLibrary Boolean @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
