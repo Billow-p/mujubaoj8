@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 const money = (n: number) => '¥' + n.toLocaleString('zh-CN');
@@ -36,6 +37,17 @@ const TRUST = [
 
 const MOLD_TYPES = ['注塑模具', '压铸模具', '双色模具', '橡胶模具'];
 
+/** 注册动态滚动播报（示意内容，可在代码里替换为真实数据） */
+const TICKER = [
+  '东莞恒鑫模具 刚刚完成注册',
+  '深圳锦泰科技 3 分钟出了第一张报价单',
+  '宁波伟业压铸 同步了材料库最新价格',
+  '苏州精工注塑 导出了报价 Excel',
+  '佛山瑞泰五金 客户在线确认了报价',
+  '中山联盛塑胶 新建了双色模具配置',
+  '东莞明记模具 完成了压铸模具报价',
+];
+
 const DEMO_ROWS = [
   { k: '模芯钢材费', v: 5888 },
   { k: 'CNC 加工费', v: 38400 },
@@ -47,15 +59,23 @@ const DEMO_SUM = DEMO_ROWS.reduce((a, b) => a + b.v, 0);
 const DEMO_TOTAL = DEMO_SUM + 7055 + 10088;
 
 export default function Landing() {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((i) => (i + 1) % TICKER.length), 2600);
+    return () => clearInterval(t);
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#f7f9fd] text-gray-900 antialiased overflow-x-hidden">
       <style>{`
         @keyframes floaty { 0%,100% { transform: translateY(0px); } 50% { transform: translateY(-12px); } }
         @keyframes pulseGlow { 0%,100% { opacity:.55; } 50% { opacity:.9; } }
+        @keyframes tickerIn { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: translateY(0); } }
         @media (prefers-reduced-motion: no-preference) {
           .floaty { animation: floaty 6s ease-in-out infinite; }
           .floaty-slow { animation: floaty 9s ease-in-out infinite; }
           .pulse-glow { animation: pulseGlow 5s ease-in-out infinite; }
+          .ticker-item { animation: tickerIn .5s ease-out; }
         }
       `}</style>
 
@@ -93,10 +113,16 @@ export default function Landing() {
         <div className="floaty absolute top-40 -right-10 w-64 h-64 rounded-full bg-indigo-400/25 blur-3xl pointer-events-none" />
 
         <div className="relative max-w-5xl mx-auto px-5 pt-16 pb-10 text-center">
-          <span className="inline-flex items-center gap-1.5 text-[12px] text-blue-700 border border-blue-200 bg-white/70 backdrop-blur rounded-full px-3.5 py-1.5 shadow-sm">
-            <Icon d={I.zap} className="w-3.5 h-3.5" />
-            注塑 · 压铸 · 双色 · 橡胶 · 四套算法开箱即用
-          </span>
+          <div className="flex items-center justify-center gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-emerald-700 border border-emerald-200 bg-emerald-50/80 backdrop-blur rounded-full px-3.5 py-1.5">
+              <Icon d={I.users} className="w-3.5 h-3.5" />
+              5000+ 工厂注册
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-[12px] text-blue-700 border border-blue-200 bg-white/70 backdrop-blur rounded-full px-3.5 py-1.5 shadow-sm">
+              <Icon d={I.zap} className="w-3.5 h-3.5" />
+              注塑 · 压铸 · 双色 · 橡胶 · 四套算法开箱即用
+            </span>
+          </div>
           <h1 className="mt-5 text-[34px] md:text-[52px] leading-[1.18] font-bold tracking-tight">
             <span className="text-gray-400">以前算半天，</span>
             <br className="hidden md:block" />
@@ -137,6 +163,20 @@ export default function Landing() {
             <a href="#flow" className="border border-gray-300 bg-white/70 backdrop-blur hover:border-gray-500 text-gray-700 rounded-xl px-7 py-3 text-[14px] transition">
               看看怎么算的
             </a>
+          </div>
+
+          {/* 注册动态滚动播报 */}
+          <div className="mt-6 flex justify-center">
+            <div className="inline-flex items-center gap-2.5 bg-white/80 backdrop-blur border border-blue-100 rounded-full pl-4 pr-5 py-1.5 text-[12px] text-gray-600 shadow-sm max-w-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+              <span className="relative h-5 flex-1 min-w-[180px] overflow-hidden text-left">
+                <span key={tick} className="ticker-item absolute inset-0 truncate">
+                  {TICKER[tick]}
+                </span>
+              </span>
+              <span className="text-blue-200">|</span>
+              <span className="text-blue-700 font-medium whitespace-nowrap">5000+ 工厂注册</span>
+            </div>
           </div>
         </div>
       </section>

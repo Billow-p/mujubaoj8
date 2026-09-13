@@ -259,9 +259,18 @@ export default function Materials() {
           </Link>
           <button
             onClick={() => { setSeedSel({}); setSeedOpen(true); }}
-            className="border border-gray-300 px-4 py-2 rounded text-sm hover:bg-gray-50"
+            title={
+              list.length === 0
+                ? '第一次使用：把 39 种行业常用材料一键灌入材料库（可按模具类型勾选）'
+                : '已初始化过：重复点击只补缺失的材料，不会改你已设的价格'
+            }
+            className={
+              list.length === 0
+                ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white px-4 py-2 rounded text-sm font-medium shadow-md shadow-blue-500/25 hover:opacity-90 whitespace-nowrap'
+                : 'border border-gray-300 px-4 py-2 rounded text-sm hover:bg-gray-50 whitespace-nowrap'
+            }
           >
-            初始化预置材料
+            {list.length === 0 ? '第 1 步：初始化预置材料' : '补齐预置材料'}
           </button>
           <button
             onClick={() => { setIsNew(true); setFormErr(''); setEditing({ ...EMPTY }); }}
@@ -416,6 +425,8 @@ export default function Materials() {
               <h2 className="font-medium">初始化预置材料</h2>
               <p className="text-[12.5px] text-gray-500 mt-1">
                 选择要同步哪类模具的材料；已存在的材料不会覆盖你改过的价格。
+                <br />
+                这个按钮只负责把<strong>材料</strong>灌进库；日常改价直接在表格里改「单价」，改完去配置中心点「同步」生效。
               </p>
             </div>
             <div className="p-6 space-y-2">
