@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { materials } from '../api';
+import { useFeedback } from '../components/feedback';
 import { MATERIAL_GROUPS, MATERIAL_SUB_CATEGORIES } from '@mqs/shared';
 
 const EMPTY = {
@@ -75,6 +76,7 @@ export default function Materials() {
   const [seedOpen, setSeedOpen] = useState(false);
   const [seedSel, setSeedSel] = useState<Record<string, boolean>>({});
   const [seeding, setSeeding] = useState(false);
+  const fb = useFeedback();
 
   const load = () => {
     setLoading(true);
@@ -104,11 +106,11 @@ export default function Materials() {
       const r = await materials.seedPreset(codes);
       const extra = r.classified ? `，并为 ${r.classified} 个已有材料补全了分类` : '';
       const scope = codes && codes.length ? '所选类型相关材料' : '全部材料';
-      alert(`已补充 ${r.created} 个预置材料（${scope}，共 ${r.total} 个，已存在的不覆盖价格）${extra}`);
+      fb.toast(`已补充 ${r.created} 个预置材料（${scope}，共 ${r.total} 个，已存在的不覆盖价格）${extra}`);
       setSeedOpen(false);
       load();
     } catch (e: any) {
-      alert('初始化失败：' + (e.response?.data?.error || e.message));
+      fb.toast('初始化失败：' + (e.response?.data?.error || e.message), 'err');
     } finally {
       setSeeding(false);
     }
@@ -212,18 +214,23 @@ export default function Materials() {
       await materials.update(m.id, { enabled: !m.enabled });
       load();
     } catch (e: any) {
-      alert('操作失败：' + (e.response?.data?.error || e.message));
+      fb.toast('操作失败：' + (e.response?.data?.error || e.message), 'err');
     }
   };
 
-  const remove = async (m: any) => {
-    if (!confirm(`确定删除材料「${m.name}」？`)) return;
-    try {
-      await materials.remove(m.id);
-      load();
-    } catch (e: any) {
-      alert(e.response?.data?.error || e.message);
-    }
+  const remove = (m: any) => {
+    fb.confirmBox(
+      { title: '删除材料', message: `确定删除材料「${m.name}」？此操作不可恢复。`, okText: '删除', danger: true },
+      async () => {
+        try {
+          await materials.remove(m.id);
+          fb.toast('已删除');
+          load();
+        } catch (e: any) {
+          fb.toast(e.response?.data?.error || e.message, 'err');
+        }
+      },
+    );
   };
 
   const showPrices = async (id: string) => {
@@ -234,6 +241,7 @@ export default function Materials() {
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-5">
+      {fb.host}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <div className="flex items-center gap-2">

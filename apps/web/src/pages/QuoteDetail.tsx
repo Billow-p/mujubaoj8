@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { quotes } from '../api';
+import { useFeedback } from '../components/feedback';
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
@@ -61,6 +62,7 @@ export default function QuoteDetail() {
   const [tab, setTab] = useState<'calc' | 'versions' | 'logs'>('calc');
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [adjustForm, setAdjustForm] = useState({ field: 'grandTotalIncVat', adjustedValue: '', reason: '' });
+  const fb = useFeedback();
 
   const load = () => {
     if (!id) return;
@@ -143,41 +145,59 @@ export default function QuoteDetail() {
     try {
       await quotes.exportExcel(q.id);
     } catch (e: any) {
-      alert('导出失败：' + (e.response?.data?.error || e.message));
+      fb.toast('导出失败：' + (e.response?.data?.error || e.message), 'err');
     }
   };
 
-  const doSend = async () => {
-    const email = prompt('发送到客户邮箱：', q.customer?.email || '');
-    if (!email) return;
-    try {
-      await quotes.send(q.id, email);
-      alert('已发送');
-      load();
-    } catch (e: any) {
-      alert('发送失败：' + (e.response?.data?.error || e.message));
-    }
+  const doSend = () => {
+    fb.promptBox(
+      { title: '发送报价单给客户', value: q.customer?.email || '', label: '报价单链接将发送到该邮箱', okText: '发送' },
+      async (email) => {
+        try {
+          await quotes.send(q.id, email);
+          fb.toast('已发送');
+          load();
+        } catch (e: any) {
+          fb.toast('发送失败：' + (e.response?.data?.error || e.message), 'err');
+        }
+      },
+    );
   };
 
-  const doDuplicate = async () => {
-    if (!confirm('按此版本重新报价？原报价不变，新报价单可继续修改。')) return;
-    if (isProject) {
-      navigate(`/quotes/new?copyFrom=${q.id}`);
-      return;
-    }
-    const nq = await quotes.duplicate(q.id);
-    navigate(`/quotes/${nq.id}`);
+  const doDuplicate = () => {
+    fb.confirmBox(
+      { title: '按此版本重新报价', message: '原报价不变，将生成一张可继续修改的新报价单。', okText: '重新报价' },
+      async () => {
+        if (isProject) {
+          navigate(`/quotes/new?copyFrom=${q.id}`);
+          return;
+        }
+        const nq = await quotes.duplicate(q.id);
+        navigate(`/quotes/${nq.id}`);
+      },
+    );
   };
 
-  const setStatus = async (status: string) => {
+  const setStatus = (status: string) => {
     const label = STATUS_LABEL[status];
-    if (!confirm(`确定将状态改为「${label}」？`)) return;
-    await quotes.setStatus(q.id, status);
-    load();
+    fb.confirmBox(
+      { title: '修改报价单状态', message: `确定将状态改为「${label}」？`, okText: '确认修改' },
+      async () => {
+        try {
+          await quotes.setStatus(q.id, status);
+          load();
+        } catch (e: any) {
+          fb.toast('修改失败：' + (e.response?.data?.error || e.message), 'err');
+        }
+      },
+    );
   };
 
   const submitAdjust = async () => {
-    if (!adjustForm.adjustedValue) return alert('请填写调整后的值');
+    if (!adjustForm.adjustedValue) {
+      fb.toast('请填写调整后的值', 'err');
+      return;
+    }
     await quotes.adjust(q.id, {
       field: adjustForm.field,
       adjustedValue: Number(adjustForm.adjustedValue),
@@ -191,6 +211,7 @@ export default function QuoteDetail() {
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6">
+      {fb.host}
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-3">

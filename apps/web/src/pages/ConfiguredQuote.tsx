@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { configApi, materials as materialsApi, quotes } from '../api';
+import { useFeedback } from '../components/feedback';
 import { calculateQuoteProject } from '@mqs/calc-engine';
 import type { QuoteItemDef } from '@mqs/shared';
 import { QTY_VAR_CANDIDATES, resolveMaterialPrice } from '@mqs/shared';
@@ -57,6 +58,7 @@ export default function ConfiguredQuote() {
   const [detailOpen, setDetailOpen] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const fb = useFeedback();
   const [source, setSource] = useState<any | null>(null);
   const copyFrom = sp.get('copyFrom');
 
@@ -413,7 +415,10 @@ export default function ConfiguredQuote() {
 
   const submit = async () => {
     if (!cfg) return;
-    if (!customer.name.trim()) return alert('请填写客户名称');
+    if (!customer.name.trim()) {
+      fb.toast('请填写客户名称', 'err');
+      return;
+    }
     setSaving(true);
     try {
       const coerce = (o: Record<string, any>) => {
@@ -453,7 +458,7 @@ export default function ConfiguredQuote() {
       });
       navigate(`/quotes/${created.id}`);
     } catch (e: any) {
-      alert('生成失败：' + (e.response?.data?.error || e.message));
+      fb.toast('生成失败：' + (e.response?.data?.error || e.message), 'err');
     } finally {
       setSaving(false);
     }
@@ -513,6 +518,7 @@ export default function ConfiguredQuote() {
 
   return (
     <div className="max-w-[1600px] mx-auto p-5">
+      {fb.host}
       <div className="flex items-start justify-between mb-4">
         <div>
           <h1 className="text-xl font-semibold">{copyFrom ? '按此版本重新报价' : '新建报价单（多注塑件）'}</h1>

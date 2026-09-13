@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { configApi, materials } from '../api';
+import { useFeedback } from '../components/feedback';
 import { calculateConfigured } from '@mqs/calc-engine';
 import { CALC_TYPE_META } from '@mqs/shared';
 import type { MoldCalcType, QuoteItemDef } from '@mqs/shared';
@@ -89,6 +90,10 @@ export default function ConfigCenter() {
   const [picking, setPicking] = useState(false);
   /** 四步引导展开/收起（默认展开） */
   const [guideOpen, setGuideOpen] = useState(true);
+  /** 费用分组折叠（默认全开） */
+  const [itemsOpen, setItemsOpen] = useState<Record<string, boolean>>({ mold: true, injection: true });
+  const toggleItemsGroup = (k: string) => setItemsOpen((s) => ({ ...s, [k]: !s[k] }));
+  const fb = useFeedback();
   /** 材料库索引（code → 材料），用于价格参数显示绑定材料的现价 */
   const [matMap, setMatMap] = useState<Record<string, any>>({});
   const [togglingPriceMode, setTogglingPriceMode] = useState(false);
@@ -128,9 +133,18 @@ export default function ConfigCenter() {
   }, []);
 
   const switchType = async (id: string) => {
-    if (dirty && !confirm('当前配置有未保存的改动，切换会丢失。确定切换吗？')) return;
-    setActiveId(id);
-    await loadConfig(id);
+    const doSwitch = async () => {
+      setActiveId(id);
+      await loadConfig(id);
+    };
+    if (dirty) {
+      fb.confirmBox(
+        { title: '切换模具类型', message: '当前配置有未保存的改动，切换会丢失。确定切换吗？', okText: '切换', danger: true },
+        doSwitch,
+      );
+      return;
+    }
+    await doSwitch();
   };
 
   // ---------- 算价（前端直接算，实时） ----------
@@ -382,7 +396,7 @@ export default function ConfigCenter() {
       await loadConfig(activeId);
       await loadTypes(activeId);
     } catch (e: any) {
-      alert('保存失败：' + (e.response?.data?.error || e.message));
+      fb.toast('保存失败：' + (e.response?.data?.error || e.message), 'err');
     } finally {
       setSaving(false);
     }
@@ -390,107 +404,161 @@ export default function ConfigCenter() {
 
   // ---------- 模具类型操作 ----------
   const initPreset = async () => {
-    const r = await configApi.initPreset();
-    const id = await loadTypes();
-    if (id) await loadConfig(id);
-    alert(
-      `已初始化 ${r.created} 套、增量补齐 ${r.filled} 套（补参数 ${r.addedParams} 个、费用项 ${r.addedItems} 个，从材料库补价 ${r.filledPrices} 个；已有配置不覆盖）`,
-    );
+    try {
+      const r = await configApi.initPreset();
+      const id = await loadTypes();
+      if (id) await loadConfig(id);
+      fb.toast(
+        `已初始化 ${r.created} 套、补齐 ${r.filled} 套（补参数 ${r.addedParams}、费用项 ${r.addedItems}、补价 ${r.filledPrices}）`,
+      );
+    } catch (e: any) {
+      fb.toast('初始化失败：' + (e.response?.data?.error || e.message), 'err');
+    }
   };
 
   /** 分类同步：只同步当前激活的这一套（补缺失参数/费用项 + 从材料库补空价），不覆盖已有 */
-  const syncCurrentPreset = async () => {
+  const syncCurrentPreset = () => {
     const t = types.find((x) => x.id === activeId);
     if (!t) return;
     const modeB = cfg?.moldType?.priceFromLibrary === true;
-    if (
-      !confirm(
-        modeB
-          ? `把「${t.name}」与官方预置配置对齐？\n\n· 缺的参数 / 费用项 / 条款会补上\n· 材料库价格模式已开启：绑定材料的价格将按材料库现价全量刷新\n· 其余已有配置不动\n\n确定继续吗？`
-          : `把「${t.name}」与官方预置配置对齐？\n\n· 缺的参数 / 费用项 / 条款会补上\n· 空着的价格会从材料库自动补价\n· 你已改过的配置和价格一律不动\n\n确定继续吗？`,
-      )
-    )
-      return;
-    try {
-      const r = await configApi.initPreset({ code: t.code });
-      await loadTypes(activeId!);
-      await loadConfig(activeId!);
-      const parts: string[] = [];
-      if (r.created) parts.push(`新建了这套配置`);
-      if (r.addedParams) parts.push(`补参数 ${r.addedParams} 个`);
-      if (r.addedItems) parts.push(`补费用项 ${r.addedItems} 个`);
-      if (r.filledPrices) parts.push(`从材料库补价 ${r.filledPrices} 个`);
-      alert(parts.length ? `同步完成：${parts.join('，')}。已有配置未覆盖。` : '配置已是最全状态，无需补充。');
-    } catch (e: any) {
-      alert('同步失败：' + (e.response?.data?.error || e.message));
-    }
+    const run = async () => {
+      try {
+        const r = await configApi.initPreset({ code: t.code });
+        await loadTypes(activeId!);
+        await loadConfig(activeId!);
+        const parts: string[] = [];
+        if (r.created) parts.push('新建了这套配置');
+        if (r.addedParams) parts.push(`补参数 ${r.addedParams} 个`);
+        if (r.addedItems) parts.push(`补费用项 ${r.addedItems} 个`);
+        if (r.filledPrices) parts.push(`从材料库补/刷新价 ${r.filledPrices} 个`);
+        fb.toast(parts.length ? `同步完成：${parts.join('，')}。已有配置未覆盖。` : '配置已是最全状态，无需补充。');
+      } catch (e: any) {
+        fb.toast('同步失败：' + (e.response?.data?.error || e.message), 'err');
+      }
+    };
+    fb.confirmBox(
+      {
+        title: `同步「${t.name}」与官方预置`,
+        message: modeB
+          ? '· 缺的参数 / 费用项 / 条款会补上\n· 材料库价格模式已开启：绑定材料的价格将按材料库现价全量刷新\n· 其余已有配置不动'
+          : '· 缺的参数 / 费用项 / 条款会补上\n· 空着的价格会从材料库自动补价\n· 你已改过的配置和价格一律不动',
+        okText: '开始同步',
+      },
+      run,
+    );
   };
 
   /** 材料库价格模式：开启后绑定材料的价格默认值由材料库全量刷新（库是唯一真源） */
-  const togglePriceMode = async () => {
+  const togglePriceMode = () => {
     if (!cfg || togglingPriceMode) return;
     const cur = cfg.moldType?.priceFromLibrary === true;
+    const run = async () => {
+      setTogglingPriceMode(true);
+      try {
+        await configApi.updateMoldType(activeId!, { priceFromLibrary: !cur });
+        await loadConfig(activeId!);
+        fb.toast(!cur ? '材料库价格模式已开启，价格已按材料库刷新' : '已关闭材料库价格模式，价格可手动编辑');
+      } catch (e: any) {
+        fb.toast('操作失败：' + (e.response?.data?.error || e.message), 'err');
+      } finally {
+        setTogglingPriceMode(false);
+      }
+    };
     if (!cur) {
       const n = (cfg.parameters ?? []).filter((p: any) => p.materialCode).length;
-      if (
-        !confirm(
-          `开启「材料库价格模式」？\n\n· 绑定了材料的 ${n} 个价格参数，默认值将立即按材料库现价刷新（覆盖）\n· 之后点「同步预置配置」也会全量刷新这些价格\n· 库改价 → 同步 → 这里生效，逻辑只有一条\n\n确定开启吗？`,
-        )
-      )
-        return;
-    } else if (
-      !confirm('关闭「材料库价格模式」？\n\n关闭后价格参数可手动编辑，同步只补空价、不再覆盖。')
-    )
-      return;
-    setTogglingPriceMode(true);
-    try {
-      await configApi.updateMoldType(activeId!, { priceFromLibrary: !cur });
-      await loadConfig(activeId!);
-    } catch (e: any) {
-      alert('操作失败：' + (e.response?.data?.error || e.message));
-    } finally {
-      setTogglingPriceMode(false);
+      fb.confirmBox(
+        {
+          title: '开启「材料库价格模式」？',
+          message: `· 绑定了材料的 ${n} 个价格参数，默认值将立即按材料库现价刷新（覆盖）\n· 之后点「同步预置配置」也会全量刷新这些价格\n· 库改价 → 同步 → 这里生效，逻辑只有一条`,
+          okText: '开启并刷新',
+        },
+        run,
+      );
+    } else {
+      fb.confirmBox(
+        {
+          title: '关闭「材料库价格模式」？',
+          message: '关闭后价格参数可手动编辑，同步只补空价、不再覆盖。',
+          okText: '关闭',
+        },
+        run,
+      );
     }
   };
 
-  const addType = async () => {
-    if (picking) return;
-    setPicking(true);
-    try {
-      const name = prompt('新模具类型名称：', '橡胶模具');
-      if (!name) return;
-      const copyFrom = confirm('是否复制当前类型的配置作为起点？\n确定＝复制，取消＝从空白开始');
-      const created = await configApi.createMoldType(copyFrom ? { name, copyFromId: activeId! } : { name });
-      await loadTypes(created.id);
-      await loadConfig(created.id);
-    } finally {
-      setPicking(false);
-    }
+  const addType = () => {
+    fb.promptBox(
+      {
+        title: '新建模具类型',
+        value: '',
+        label: '名称最多 40 个字，创建后可在配置里随意调整',
+        checkboxLabel: `复制「${cfg?.moldType?.name ?? '当前类型'}」的配置作为起点`,
+        okText: '创建',
+      },
+      async (name, copyFrom) => {
+        if (picking) return;
+        setPicking(true);
+        try {
+          const created = await configApi.createMoldType(copyFrom ? { name, copyFromId: activeId! } : { name });
+          await loadTypes(created.id);
+          await loadConfig(created.id);
+          fb.toast(`已创建「${name}」${copyFrom ? '（已复制当前配置）' : ''}`);
+        } catch (e: any) {
+          fb.toast('创建失败：' + (e.response?.data?.error || e.message), 'err');
+        } finally {
+          setPicking(false);
+        }
+      },
+    );
   };
 
-  const renameType = async () => {
+  const renameType = () => {
     if (!cfg) return;
-    const name = prompt('重命名为：', cfg.moldType.name);
-    if (!name) return;
-    await configApi.updateMoldType(activeId!, { name });
-    await loadTypes(activeId!);
-    await loadConfig(activeId!);
+    fb.promptBox(
+      { title: '重命名模具类型', value: cfg.moldType.name, okText: '保存' },
+      async (name) => {
+        try {
+          await configApi.updateMoldType(activeId!, { name });
+          await loadTypes(activeId!);
+          await loadConfig(activeId!);
+          fb.toast('已重命名');
+        } catch (e: any) {
+          fb.toast('重命名失败：' + (e.response?.data?.error || e.message), 'err');
+        }
+      },
+    );
   };
 
-  const delType = async () => {
+  const delType = () => {
     if (!cfg) return;
-    if (!confirm(`删除「${cfg.moldType.name}」及其全部参数与费用项？`)) return;
-    try {
-      await configApi.removeMoldType(activeId!);
-      const id = await loadTypes();
-      if (id) await loadConfig(id);
-    } catch (e: any) {
-      alert(e.response?.data?.error || e.message);
-    }
+    fb.confirmBox(
+      {
+        title: '删除模具类型',
+        message: `删除「${cfg.moldType.name}」及其全部参数与费用项？此操作不可恢复。`,
+        okText: '删除',
+        danger: true,
+      },
+      async () => {
+        try {
+          await configApi.removeMoldType(activeId!);
+          const id = await loadTypes();
+          if (id) await loadConfig(id);
+          fb.toast('已删除');
+        } catch (e: any) {
+          fb.toast(e.response?.data?.error || e.message, 'err');
+        }
+      },
+    );
   };
 
   // ---------- 渲染 ----------
-  if (loading && !cfg) return <div className="max-w-7xl mx-auto p-6 text-gray-400">加载中…</div>;
+  if (loading && !cfg)
+    return (
+      <div className="max-w-7xl mx-auto p-6 text-gray-400">
+        加载中…
+        {fb.host}
+      </div>
+    );
 
   if (types.length === 0) {
     return (
@@ -502,6 +570,7 @@ export default function ConfigCenter() {
         <button onClick={initPreset} className="bg-gray-900 text-white px-5 py-2.5 rounded text-sm">
           初始化预置模具类型
         </button>
+        {fb.host}
       </div>
     );
   }
@@ -513,6 +582,7 @@ export default function ConfigCenter() {
 
   return (
     <div className="max-w-[1600px] mx-auto p-5">
+      {fb.host}
       {/* 顶部 */}
       <div className="bg-white border border-gray-200 rounded-lg px-4 py-3 mb-3 flex items-center gap-3 flex-wrap">
         <div className="w-7 h-7 rounded bg-gray-900 text-white flex items-center justify-center text-xs font-bold shrink-0">M</div>
@@ -815,22 +885,33 @@ export default function ConfigCenter() {
               const group = items
                 .map((it, i) => ({ it, i }))
                 .filter((x) => (x.it.scope ?? 'mold') === g.k);
+              const open = itemsOpen[g.k] !== false;
               return (
                 <div key={g.k} className="mb-4 last:mb-0">
-                  <div className="flex items-center gap-2 mb-2 pb-1.5 border-b border-gray-100">
+                  <div
+                    onClick={() => toggleItemsGroup(g.k)}
+                    className="flex items-center gap-2 mb-2 pb-1.5 border-b border-gray-100 cursor-pointer select-none hover:text-gray-900"
+                    title={open ? '点击折叠这一组' : '点击展开这一组'}
+                  >
+                    <span className="text-gray-400 text-[10px] w-3">{open ? '▼' : '▶'}</span>
                     <span className="text-[13px] font-medium text-gray-900">{g.t}</span>
                     <span className="text-[11.5px] text-gray-400">{g.d}</span>
                     <div className="flex-1" />
                     <span className="text-[11.5px] text-gray-400 tabular-nums">{group.length} 项</span>
-                    <button
-                      onClick={() => patch((c) => { c.items.push({ ...emptyItem(), scope: g.k }); })}
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        patch((c) => { c.items.push({ ...emptyItem(), scope: g.k }); });
+                      }}
                       className="border border-gray-300 px-2 py-0.5 rounded text-[11.5px] hover:bg-gray-50"
-                    >+ 加一项</button>
+                    >+ 加一项</span>
                   </div>
-                  {group.length === 0 && (
-                    <p className="text-[12px] text-gray-400 py-1.5">这一类还没有费用项</p>
-                  )}
-                  <div className="space-y-2">
+                  {open && (
+                    <>
+                      {group.length === 0 && (
+                        <p className="text-[12px] text-gray-400 py-1.5">这一类还没有费用项</p>
+                      )}
+                      <div className="space-y-2">
                     {group.map(({ it, i }) => {
                 const line = lineOf(it.name);
                 const open = openItem === (it.id ?? String(i));
@@ -968,7 +1049,9 @@ export default function ConfigCenter() {
                   </div>
                 );
                     })}
-                  </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               );
             })}

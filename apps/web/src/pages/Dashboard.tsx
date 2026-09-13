@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { quotes } from '../api';
 import { useAuth } from '../store';
+import { useFeedback } from '../components/feedback';
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
@@ -22,6 +23,7 @@ export default function Dashboard() {
   const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState<string | null>(null);
+  const fb = useFeedback();
 
   useEffect(() => {
     quotes.list().then((data) => {
@@ -42,7 +44,7 @@ export default function Dashboard() {
     try {
       await quotes.exportExcel(id);
     } catch (e: any) {
-      alert('导出失败：' + (e.response?.data?.error || e.message));
+      fb.toast('导出失败：' + (e.response?.data?.error || e.message), 'err');
     } finally {
       setExporting(null);
     }
@@ -50,6 +52,7 @@ export default function Dashboard() {
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6">
+      {fb.host}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">报价单</h1>

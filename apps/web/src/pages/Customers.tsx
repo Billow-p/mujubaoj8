@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { customers } from '../api';
+import { useFeedback } from '../components/feedback';
 
 export default function Customers() {
   const [list, setList] = useState<any[]>([]);
@@ -9,13 +10,14 @@ export default function Customers() {
   const [detail, setDetail] = useState<any | null>(null);
   const [quotes, setQuotes] = useState<any[]>([]);
   const [exporting, setExporting] = useState(false);
+  const fb = useFeedback();
 
   const exportAll = async () => {
     setExporting(true);
     try {
       await customers.exportAll();
     } catch (e: any) {
-      alert('导出失败：' + (e.response?.data?.error || e.message));
+      fb.toast('导出失败：' + (e.response?.data?.error || e.message), 'err');
     } finally {
       setExporting(false);
     }
@@ -36,6 +38,7 @@ export default function Customers() {
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6">
+      {fb.host}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">客户库</h1>

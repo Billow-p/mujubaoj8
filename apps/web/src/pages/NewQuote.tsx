@@ -15,6 +15,7 @@ import type {
 } from '@mqs/shared';
 import type { CavityComparison } from '@mqs/calc-engine';
 import { calc, quotes, parameters, quoteItems } from '../api';
+import { useFeedback } from '../components/feedback';
 
 const DEFAULT_INPUT: QuoteInput = {
   customerName: '',
@@ -49,6 +50,7 @@ function genId(): string {
 
 export default function NewQuote() {
   const navigate = useNavigate();
+  const fb = useFeedback();
   const [input, setInput] = useState<QuoteInput>(DEFAULT_INPUT);
   const [overrides, setOverrides] = useState<Record<string, number>>({});
   const [locks, setLocks] = useState<Set<string>>(new Set());
@@ -184,7 +186,7 @@ export default function NewQuote() {
       const cmp = await calc.cavity(input);
       setCavityComparison(cmp);
     } catch (e: any) {
-      alert('腔数对比失败：' + (e.response?.data?.error || e.message));
+      fb.toast('腔数对比失败：' + (e.response?.data?.error || e.message), 'err');
     }
   };
 
@@ -230,6 +232,7 @@ export default function NewQuote() {
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-5">
+      {fb.host}
       {/* 顶部 */}
       <div className="bg-white border border-gray-200 rounded-lg p-5 flex items-center justify-between">
         <h1 className="text-lg font-semibold">新建报价单</h1>
