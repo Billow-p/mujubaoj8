@@ -19,14 +19,16 @@ const I = {
   sync: 'M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6',
   sliders: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6',
   calc: 'M5 3h14a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM8 7h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15v4M8 19h4',
+  /** plus-circle */
+  plus: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM12 8v8M8 12h8',
 };
 
-/** 四步主流程 —— 与系统内「材料库 → 配置中心 → 报价」的实际使用顺序一致 */
+/** 四步主流程 —— 按吴老师要求：补齐预制材料 → 新增材料 → 配置中心同步 → 报价 */
 const FLOW = [
-  { n: 1, t: '材料库备价', d: '39 种主流材料预置好，改个价格就行。全系统唯一价格来源。', icon: I.db },
-  { n: 2, t: '一键同步', d: '材料库改价后点一下同步，价格全类型生效，中间不改任何公式。', icon: I.sync },
-  { n: 3, t: '定费用算法', d: '收哪些费、怎么算，选方式填数字即可，右侧实时出价，不用写公式。', icon: I.sliders },
-  { n: 4, t: '报价计算', d: '填数量自动出含税总价，导 Excel、发邮箱、客户在线确认。', icon: I.calc, highlight: true },
+  { n: 1, t: '补齐预制材料', d: '进入「设置 → 材料库」，按模具类型一键初始化系统预置材料，改价格即可。', icon: I.db },
+  { n: 2, t: '新增材料', d: '材料库里添加自己的常用材料，作为后续报价的唯一价格来源。', icon: I.plus },
+  { n: 3, t: '去配置中心同步', d: '材料库改价或新增后，到「设置 → 计价规则」点同步，把价格同步到配置中心。', icon: I.sync },
+  { n: 4, t: '创建报价', d: '选模具类型、填产品参数和数量，自动出含税总价，可导 Excel、发邮箱、客户确认。', icon: I.calc, highlight: true },
 ];
 
 const TRUST = [
@@ -137,7 +139,7 @@ export default function Landing() {
 
           {/* 流程胶囊 */}
           <div className="mt-7 flex items-center justify-center gap-2 flex-wrap">
-            {['材料库备价', '一键同步', '配置费用', '3 分钟出报价'].map((s, i) => (
+            {['补齐预制材料', '新增材料', '配置中心同步', '3 分钟出报价'].map((s, i) => (
               <span key={s} className="flex items-center gap-2">
                 {i > 0 && <span className="text-blue-300 text-sm">→</span>}
                 <span
@@ -184,7 +186,7 @@ export default function Landing() {
       {/* ---------- 四步流程：玻璃卡片 ---------- */}
       <section id="flow" className="relative max-w-6xl mx-auto px-5 py-14">
         <h2 className="text-[22px] font-semibold text-center">四步跑通一张报价单</h2>
-        <p className="text-center text-gray-400 text-[12.5px] mt-1.5">价格只维护一处（材料库），改价即生效</p>
+        <p className="text-center text-gray-400 text-[12.5px] mt-1.5">先在材料库补齐/新增材料，再同步到配置中心，最后报价</p>
         <div className="mt-9 flex gap-3 items-stretch flex-wrap lg:flex-nowrap">
           {FLOW.map((s, i) => (
             <div key={s.n} className="contents">
