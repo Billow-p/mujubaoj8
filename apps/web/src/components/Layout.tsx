@@ -38,6 +38,25 @@ const ROLE_LABEL: Record<string, string> = {
   quoter: '报价员',
 };
 
+/** 格式化账号有效期提示 */
+function expiryBadge(expiresAt: string | null | undefined): { text: string; className: string } | null {
+  if (expiresAt === null || expiresAt === undefined) {
+    return { text: '永久有效', className: 'text-gray-600 bg-gray-100' };
+  }
+  const end = new Date(expiresAt);
+  if (isNaN(end.getTime())) return null;
+  const now = Date.now();
+  const diffMs = end.getTime() - now;
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) {
+    return { text: '已过期', className: 'text-red-700 bg-red-50 border border-red-200' };
+  }
+  if (diffDays === 0) {
+    return { text: '今天过期', className: 'text-amber-700 bg-amber-50 border border-amber-200' };
+  }
+  return { text: `剩余 ${diffDays} 天`, className: 'text-blue-700 bg-blue-50 border border-blue-200' };
+}
+
 export default function Layout() {
   const { user, setUser } = useAuth();
   const location = useLocation();
@@ -46,6 +65,7 @@ export default function Layout() {
   const isAdmin = user?.role === 'admin';
   const isSuperAdmin = !!user?.isSuperAdmin;
   const inSettings = location.pathname.startsWith('/settings');
+  const expiry = expiryBadge(user?.expiresAt);
 
   const logout = () => {
     localStorage.removeItem('mqs_token');
@@ -89,6 +109,11 @@ export default function Layout() {
             <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
               {ROLE_LABEL[user?.role ?? ''] ?? user?.role}
             </span>
+            {expiry && (
+              <span title={`到期时间：${new Date(user!.expiresAt!).toLocaleString()}`} className={`text-xs px-2 py-0.5 rounded ${expiry.className}`}>
+                {expiry.text}
+              </span>
+            )}
             {isSuperAdmin && (
               <span className="text-xs text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded">
                 平台超管

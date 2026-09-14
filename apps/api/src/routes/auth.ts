@@ -66,15 +66,9 @@ export async function authRoutes(app: FastifyInstance) {
     const check = await verifyCode(email, body.code, 'register');
     if (!check.ok) return reply.code(400).send({ error: check.error });
 
-    let company;
-    if (body.companyName) {
-      company = await prisma.company.create({ data: { name: body.companyName } });
-    } else {
-      company = await prisma.company.findUnique({ where: { id: 'default-company' } });
-      if (!company) {
-        company = await prisma.company.create({ data: { id: 'default-company', name: '默认企业' } });
-      }
-    }
+    // 每个新注册账号都创建独立企业，避免多用户共享 default-company 导致数据串仓
+    const companyName = body.companyName?.trim() || `${body.name.trim()}的公司`;
+    const company = await prisma.company.create({ data: { name: companyName } });
 
     const passwordHash = await bcrypt.hash(body.password, 10);
     // 新注册账号默认 5 天试用（注册成功起算）
