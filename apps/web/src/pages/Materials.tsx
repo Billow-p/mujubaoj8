@@ -259,7 +259,7 @@ export default function Materials() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          {/* 第 1 步：补齐预制材料 */}
+          {/* 第 1 步：补齐预置材料 */}
           <button
             onClick={() => { setSeedSel({}); setSeedOpen(true); }}
             title={
@@ -273,7 +273,7 @@ export default function Materials() {
                 : 'border border-gray-300 px-4 py-2 rounded text-sm hover:bg-gray-50 whitespace-nowrap'
             }
           >
-            {list.length === 0 ? '第 1 步：初始化预制材料' : '补齐预制材料'}
+            {list.length === 0 ? '第 1 步：初始化预置材料' : '补齐预置材料'}
           </button>
           {/* 第 2 步：新增材料 */}
           <button
@@ -410,7 +410,7 @@ export default function Materials() {
                             编辑
                           </button>
                           {m.isPreset ? (
-                            <span className="text-gray-300 text-xs px-2" title="预制材料不能删除，可点状态列停用">
+                            <span className="text-gray-300 text-xs px-2" title="预置材料不能删除，可点状态列停用">
                               删除
                             </span>
                           ) : (
@@ -428,12 +428,12 @@ export default function Materials() {
           );
         })}
 
-      {/* 初始化预制材料：按模具类型分类同步 */}
+      {/* 初始化预置材料：按模具类型分类同步 */}
       {seedOpen && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-6 z-50">
           <div className="bg-white rounded-lg w-full max-w-md shadow-xl">
             <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="font-medium">初始化预制材料</h2>
+              <h2 className="font-medium">初始化预置材料</h2>
               <p className="text-[12.5px] text-gray-500 mt-1">
                 选择要同步哪类模具的材料；已存在的材料不会覆盖你改过的价格。
                 <br />
