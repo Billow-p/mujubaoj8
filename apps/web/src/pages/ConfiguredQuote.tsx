@@ -56,6 +56,14 @@ export default function ConfiguredQuote() {
   const [matList, setMatList] = useState<any[]>([]);
   /** 右栏「费用明细」展开状态（m0/m1=模具，p0/p1=注塑件） */
   const [detailOpen, setDetailOpen] = useState<Record<string, boolean>>({});
+  /** 左栏表单分区折叠：customer / common / molds / parts */
+  const [secOpen, setSecOpen] = useState<Record<string, boolean>>({
+    customer: true,
+    common: true,
+    molds: true,
+    parts: true,
+  });
+  const toggleSec = (k: string) => setSecOpen((s) => ({ ...s, [k]: !s[k] }));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const fb = useFeedback();
@@ -575,7 +583,20 @@ export default function ConfiguredQuote() {
         <div className="space-y-3.5">
           {/* 客户信息 */}
           <div className="bg-white border border-gray-200 rounded-lg">
-            <div className="px-3.5 py-3 border-b border-gray-200 font-semibold text-sm">客户信息</div>
+            <div
+              onClick={() => toggleSec('customer')}
+              className={`px-3.5 py-3 flex items-center gap-2 cursor-pointer select-none hover:bg-gray-50 ${
+                secOpen.customer ? 'border-b border-gray-200' : ''
+              }`}
+              title={secOpen.customer ? '点击折叠' : '点击展开'}
+            >
+              <span className="text-gray-400 text-[10px]">{secOpen.customer ? '▼' : '▶'}</span>
+              <span className="font-semibold text-sm">客户信息</span>
+              {!secOpen.customer && customer.name && (
+                <span className="text-xs text-gray-400 truncate">{customer.name}</span>
+              )}
+            </div>
+            {secOpen.customer && (
             <div className="p-3.5 grid grid-cols-3 gap-3">
               <label className="text-sm">
                 <span className="text-gray-500">客户名称 *</span>
@@ -605,14 +626,24 @@ export default function ConfiguredQuote() {
                 />
               </label>
             </div>
+            )}
           </div>
 
           {/* 公共参数 */}
           {commonDefs.length > 0 && (
             <div className="bg-white border border-gray-200 rounded-lg">
-              <div className="px-3.5 py-3 border-b border-gray-200 font-semibold text-sm">
-                公共参数（整单共享）
+              <div
+                onClick={() => toggleSec('common')}
+                className={`px-3.5 py-3 flex items-center gap-2 cursor-pointer select-none hover:bg-gray-50 ${
+                  secOpen.common ? 'border-b border-gray-200' : ''
+                }`}
+                title={secOpen.common ? '点击折叠' : '点击展开'}
+              >
+                <span className="text-gray-400 text-[10px]">{secOpen.common ? '▼' : '▶'}</span>
+                <span className="font-semibold text-sm">公共参数（整单共享）</span>
+                <span className="text-[11.5px] text-gray-400">{commonDefs.length} 项</span>
               </div>
+              {secOpen.common && (
               <div className="p-3.5 grid grid-cols-3 gap-x-4 gap-y-3">
                 {commonDefs.map((p) => (
                   <label key={p.id ?? p.name} className="text-sm">
@@ -628,13 +659,25 @@ export default function ConfiguredQuote() {
                   </label>
                 ))}
               </div>
+              )}
             </div>
           )}
 
           {/* 模具列表 */}
           <div className="bg-white border border-gray-200 rounded-lg">
-            <div className="px-3.5 py-3 border-b border-gray-200 flex items-center justify-between">
-              <span className="font-semibold text-sm">模具（{molds.length} 套）</span>
+            <div
+              className={`px-3.5 py-3 flex items-center justify-between ${
+                secOpen.molds ? 'border-b border-gray-200' : ''
+              }`}
+            >
+              <div
+                onClick={() => toggleSec('molds')}
+                className="flex items-center gap-2 cursor-pointer select-none flex-1 min-w-0 hover:opacity-80"
+                title={secOpen.molds ? '点击折叠' : '点击展开'}
+              >
+                <span className="text-gray-400 text-[10px]">{secOpen.molds ? '▼' : '▶'}</span>
+                <span className="font-semibold text-sm">模具（{molds.length} 套）</span>
+              </div>
               <button
                 onClick={() => setMolds((arr) => [...arr, seedMold(cfg, arr.length + 1)])}
                 className="text-xs bg-gray-900 text-white px-2.5 py-1 rounded hover:bg-gray-800"
@@ -642,6 +685,7 @@ export default function ConfiguredQuote() {
                 + 加一套模具
               </button>
             </div>
+            {secOpen.molds && (
             <div className="p-3.5 space-y-3">
               {molds.map((m, i) => (
                 <div key={m.uid} className="border border-gray-200 rounded-lg p-3">
@@ -747,12 +791,24 @@ export default function ConfiguredQuote() {
                 <p className="text-center text-gray-400 text-sm py-4">暂无模具，点右上角「加一套模具」</p>
               )}
             </div>
+            )}
           </div>
 
           {/* 注塑件列表 */}
           <div className="bg-white border border-gray-200 rounded-lg">
-            <div className="px-3.5 py-3 border-b border-gray-200 flex items-center justify-between">
-              <span className="font-semibold text-sm">注塑件（{parts.length} 个）</span>
+            <div
+              className={`px-3.5 py-3 flex items-center justify-between ${
+                secOpen.parts ? 'border-b border-gray-200' : ''
+              }`}
+            >
+              <div
+                onClick={() => toggleSec('parts')}
+                className="flex items-center gap-2 cursor-pointer select-none flex-1 min-w-0 hover:opacity-80"
+                title={secOpen.parts ? '点击折叠' : '点击展开'}
+              >
+                <span className="text-gray-400 text-[10px]">{secOpen.parts ? '▼' : '▶'}</span>
+                <span className="font-semibold text-sm">注塑件（{parts.length} 个）</span>
+              </div>
               <div className="flex gap-1.5">
                 <button
                   onClick={() => setParts((arr) => [...arr, seedPart(cfg, arr.length + 1)])}
@@ -773,6 +829,7 @@ export default function ConfiguredQuote() {
                 </button>
               </div>
             </div>
+            {secOpen.parts && (
             <div className="p-3.5 space-y-3">
               {parts.map((p, i) => (
                 <div key={p.uid} className="border border-gray-200 rounded-lg p-3">
@@ -886,6 +943,7 @@ export default function ConfiguredQuote() {
                 <p className="text-center text-gray-400 text-sm py-4">暂无注塑件，点右上角「加 1 件」</p>
               )}
             </div>
+            )}
           </div>
         </div>
 

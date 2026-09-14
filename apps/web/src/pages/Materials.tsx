@@ -273,7 +273,7 @@ export default function Materials() {
                 : 'border border-gray-300 px-4 py-2 rounded text-sm hover:bg-gray-50 whitespace-nowrap'
             }
           >
-            {list.length === 0 ? '第 1 步：初始化预置材料' : '补齐预置材料'}
+            {list.length === 0 ? '第 1 步：初始化预置材料' : '第 1 步：补齐预置材料'}
           </button>
           {/* 第 2 步：新增材料 */}
           <button

@@ -109,8 +109,11 @@ export default function Layout() {
             <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
               {ROLE_LABEL[user?.role ?? ''] ?? user?.role}
             </span>
-            {expiry && (
-              <span title={`到期时间：${new Date(user!.expiresAt!).toLocaleString()}`} className={`text-xs px-2 py-0.5 rounded ${expiry.className}`}>
+            {user && expiry && (
+              <span
+                title={user.expiresAt ? `到期时间：${new Date(user.expiresAt).toLocaleString()}` : '永久有效'}
+                className={`text-xs px-2 py-0.5 rounded ${expiry.className}`}
+              >
                 {expiry.text}
               </span>
             )}
