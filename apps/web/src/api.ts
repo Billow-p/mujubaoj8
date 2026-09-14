@@ -47,8 +47,10 @@ export const platform = {
     api.get('/platform/users', { params }).then((r) => r.data),
   companies: (params?: { keyword?: string }) =>
     api.get('/platform/companies', { params }).then((r) => r.data),
-  updateUser: (id: string, body: { role?: string; isSuperAdmin?: boolean }) =>
-    api.patch(`/platform/users/${id}`, body).then((r) => r.data),
+  updateUser: (
+    id: string,
+    body: { role?: string; isSuperAdmin?: boolean; extendDays?: number; expiresAt?: string | null },
+  ) => api.patch(`/platform/users/${id}`, body).then((r) => r.data),
 };
 
 // 认证

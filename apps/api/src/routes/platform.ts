@@ -139,6 +139,7 @@ export async function platformRoutes(app: FastifyInstance) {
           role: true,
           isSuperAdmin: true,
           emailVerified: true,
+          expiresAt: true,
           createdAt: true,
           lastLoginAt: true,
           company: { select: { id: true, name: true } },
@@ -221,7 +222,10 @@ export async function platformRoutes(app: FastifyInstance) {
   });
 
   // ================================================================
-  // 修改用户角色 / 超管标记（禁止自锁：不能取消自己的超管）
+  // 修改用户角色 / 超管标记 / 使用时长（禁止自锁：不能取消自己的超管）
+  // 使用时长：
+  //   extendDays : 从「当前时刻」起算 N 天（开通 / 续期）
+  //   expiresAt  : 自定义到期时间（ISO 字符串），传 null 表示「永久有效」
   // ================================================================
   app.patch('/api/platform/users/:id', { preHandler: [requireSuperAdmin(app)] }, async (req, reply) => {
     const { id } = req.params as any;
@@ -229,6 +233,8 @@ export async function platformRoutes(app: FastifyInstance) {
       .object({
         role: z.enum(['quoter', 'auditor', 'admin']).optional(),
         isSuperAdmin: z.boolean().optional(),
+        extendDays: z.number().int().positive().optional(),
+        expiresAt: z.string().nullable().optional(),
       })
       .parse(req.body ?? {});
 
@@ -243,6 +249,22 @@ export async function platformRoutes(app: FastifyInstance) {
     const data: any = {};
     if (body.role !== undefined) data.role = body.role;
     if (body.isSuperAdmin !== undefined) data.isSuperAdmin = body.isSuperAdmin;
+
+    // 使用时长
+    let newExpires: Date | null | undefined; // undefined = 不改动
+    if (body.extendDays !== undefined) {
+      newExpires = new Date(Date.now() + body.extendDays * 24 * 60 * 60 * 1000);
+    } else if (body.expiresAt !== undefined) {
+      if (body.expiresAt === null) {
+        newExpires = null; // 永久有效
+      } else {
+        const d = new Date(body.expiresAt);
+        if (isNaN(d.getTime())) return reply.code(400).send({ error: '到期时间格式不正确' });
+        newExpires = d;
+      }
+    }
+    if (newExpires !== undefined) data.expiresAt = newExpires;
+
     if (Object.keys(data).length === 0) return reply.code(400).send({ error: '没有要修改的内容' });
 
     const updated = await prisma.user.update({
@@ -254,6 +276,7 @@ export async function platformRoutes(app: FastifyInstance) {
         name: true,
         role: true,
         isSuperAdmin: true,
+        expiresAt: true,
         company: { select: { id: true, name: true } },
       },
     });

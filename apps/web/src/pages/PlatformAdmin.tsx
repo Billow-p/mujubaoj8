@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { platform } from '../api';
+import { useFeedback } from '../components/feedback';
 
 const money = (n: number | null | undefined) =>
   '¥ ' + Number(n || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
@@ -32,6 +33,44 @@ export default function PlatformAdmin() {
   const [page, setPage] = useState(1);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
+
+  // 开通 / 续期弹窗状态
+  const fb = useFeedback();
+  const [grant, setGrant] = useState<{ id: string; name: string } | null>(null);
+  const [grantMode, setGrantMode] = useState<'preset' | 'date' | 'permanent'>('preset');
+  const [presetDays, setPresetDays] = useState<number>(30);
+  const [dateVal, setDateVal] = useState('');
+
+  // 账号到期状态展示
+  const expiryInfo = (u: any) => {
+    if (!u.expiresAt) return { label: '永久有效', cls: 'text-emerald-600' };
+    const exp = new Date(u.expiresAt).getTime();
+    if (exp < Date.now()) return { label: '已过期', cls: 'text-rose-600 font-medium' };
+    const days = Math.ceil((exp - Date.now()) / 86400000);
+    return { label: `剩 ${days} 天`, cls: 'text-gray-700' };
+  };
+
+  async function doGrant() {
+    if (!grant) return;
+    try {
+      let body: any = {};
+      if (grantMode === 'permanent') body = { expiresAt: null };
+      else if (grantMode === 'preset') body = { extendDays: presetDays };
+      else body = { expiresAt: new Date(dateVal + 'T23:59:59').toISOString() };
+      await platform.updateUser(grant.id, body);
+      fb.toast('已更新使用时长', 'ok');
+      setGrant(null);
+      const fresh = await platform.users({
+        keyword: keyword.trim() || undefined,
+        companyId: companyId || undefined,
+        page,
+        pageSize: PAGE_SIZE,
+      });
+      setData(fresh);
+    } catch (e: any) {
+      fb.toast(e?.response?.data?.error || '操作失败', 'err');
+    }
+  }
 
   // 概览只加载一次
   useEffect(() => {
@@ -197,6 +236,7 @@ export default function PlatformAdmin() {
                   <th className="text-left px-3 py-2.5 font-normal">最后登录</th>
                   <th className="text-right px-3 py-2.5 font-normal">报价单</th>
                   <th className="text-right px-5 py-2.5 font-normal">累计金额</th>
+                  <th className="text-left px-5 py-2.5 font-normal">使用时长 / 操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -232,19 +272,33 @@ export default function PlatformAdmin() {
                       <td className="px-5 py-2.5 text-right tabular-nums text-gray-900">
                         {money(u.stats.amount)}
                       </td>
+                      <td className="px-5 py-2.5">
+                        <div className={`text-[12.5px] ${expiryInfo(u).cls}`}>{expiryInfo(u).label}</div>
+                        <button
+                          onClick={() => {
+                            setGrant({ id: u.id, name: u.name });
+                            setGrantMode('preset');
+                            setPresetDays(30);
+                            setDateVal('');
+                          }}
+                          className="mt-1 text-[12px] text-blue-600 hover:underline"
+                        >
+                          开通 / 续期
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
                 {!loading && (data?.items ?? []).length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-5 py-8 text-center text-sm text-gray-400">
+                    <td colSpan={9} className="px-5 py-8 text-center text-sm text-gray-400">
                       没有匹配的用户
                     </td>
                   </tr>
                 )}
                 {loading && (
                   <tr>
-                    <td colSpan={8} className="px-5 py-8 text-center text-sm text-gray-400">
+                    <td colSpan={9} className="px-5 py-8 text-center text-sm text-gray-400">
                       加载中…
                     </td>
                   </tr>
@@ -314,6 +368,89 @@ export default function PlatformAdmin() {
           </div>
         )}
       </div>
+
+      {/* 开通 / 续期使用时长弹窗 */}
+      {grant && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-6 z-[60]">
+          <div className="bg-white rounded-lg w-full max-w-md shadow-xl">
+            <div className="px-6 py-4 border-b border-gray-100">
+              <h2 className="font-medium text-[14.5px]">开通 / 续期使用时长</h2>
+              <p className="text-[12px] text-gray-500 mt-0.5">{grant.name}</p>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              {/* 预设档位 */}
+              <div>
+                <div className="text-[12.5px] text-gray-600 mb-2">按预设档位</div>
+                <div className="flex gap-2">
+                  {[
+                    { d: 30, t: '1 个月' },
+                    { d: 180, t: '半年' },
+                    { d: 365, t: '1 年' },
+                  ].map((p) => (
+                    <button
+                      key={p.d}
+                      onClick={() => {
+                        setGrantMode('preset');
+                        setPresetDays(p.d);
+                      }}
+                      className={`flex-1 border rounded px-3 py-2 text-[13px] ${
+                        grantMode === 'preset' && presetDays === p.d
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      {p.t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 自定义日期 */}
+              <div>
+                <div className="text-[12.5px] text-gray-600 mb-2">或指定到期日期</div>
+                <input
+                  type="date"
+                  value={dateVal}
+                  onChange={(e) => {
+                    setGrantMode('date');
+                    setDateVal(e.target.value);
+                  }}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:border-blue-500 outline-none"
+                />
+              </div>
+
+              {/* 永久有效 */}
+              <button
+                onClick={() => setGrantMode('permanent')}
+                className={`w-full border rounded px-3 py-2 text-[13px] ${
+                  grantMode === 'permanent'
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                设为永久有效（永不过期）
+              </button>
+            </div>
+            <div className="px-6 py-3 border-t border-gray-100 flex justify-end gap-2">
+              <button
+                onClick={() => setGrant(null)}
+                className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={doGrant}
+                disabled={grantMode === 'date' && !dateVal}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-40"
+              >
+                {grantMode === 'permanent' ? '设为永久' : '确认开通'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {fb.host}
     </div>
   );
 }

@@ -77,6 +77,8 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     const passwordHash = await bcrypt.hash(body.password, 10);
+    // 新注册账号默认 5 天试用（注册成功起算）
+    const trialEnd = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
     const user = await prisma.user.create({
       data: {
         email,
@@ -85,6 +87,7 @@ export async function authRoutes(app: FastifyInstance) {
         role: 'quoter',
         companyId: company.id,
         emailVerified: true, // 验证码验证通过
+        expiresAt: trialEnd,
       },
     });
 
@@ -97,6 +100,7 @@ export async function authRoutes(app: FastifyInstance) {
         name: user.name,
         role: user.role,
         isSuperAdmin: user.isSuperAdmin,
+        expiresAt: user.expiresAt,
       },
     };
   });
@@ -113,6 +117,13 @@ export async function authRoutes(app: FastifyInstance) {
     const ok = await bcrypt.compare(body.password, user.passwordHash);
     if (!ok) return reply.code(401).send({ error: '邮箱或密码错误' });
 
+    // 账号到期拦截
+    if (user.expiresAt && user.expiresAt < new Date()) {
+      return reply
+        .code(403)
+        .send({ error: '账号已过期，请联系管理员开通使用时长', code: 'ACCOUNT_EXPIRED' });
+    }
+
     await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
     const token = app.jwt.sign({ userId: user.id, companyId: user.companyId, role: user.role });
@@ -124,6 +135,7 @@ export async function authRoutes(app: FastifyInstance) {
         name: user.name,
         role: user.role,
         isSuperAdmin: user.isSuperAdmin,
+        expiresAt: user.expiresAt,
       },
     };
   });
@@ -165,6 +177,7 @@ export async function authRoutes(app: FastifyInstance) {
       companyId: user.companyId,
       emailVerified: user.emailVerified,
       isSuperAdmin: user.isSuperAdmin,
+      expiresAt: user.expiresAt,
     };
   });
 

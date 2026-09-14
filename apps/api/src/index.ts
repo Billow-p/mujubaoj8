@@ -16,6 +16,7 @@ import { configRoutes } from './routes/config.js';
 import { adminRoutes } from './routes/admin.js';
 import { platformRoutes } from './routes/platform.js';
 import { verifySmtpConnection } from './services/email.js';
+import { prisma } from './db.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -38,7 +39,22 @@ async function bootstrap() {
     try {
       await req.jwtVerify();
     } catch (err) {
-      reply.code(401).send({ error: '未登录或登录已过期' });
+      return reply.code(401).send({ error: '未登录或登录已过期' });
+    }
+    // 账号到期拦截：expiresAt 有值且小于当前时间则禁止一切操作
+    try {
+      const u = await prisma.user.findUnique({
+        where: { id: (req.user as any).userId },
+        select: { expiresAt: true },
+      });
+      if (u?.expiresAt && u.expiresAt < new Date()) {
+        return reply
+          .code(403)
+          .send({ error: '账号已过期，请联系管理员开通使用时长', code: 'ACCOUNT_EXPIRED' });
+      }
+    } catch (e) {
+      // 查询失败不阻断（避免 DB 抖动导致全员掉线），仅记录日志
+      req.log?.error?.(e);
     }
   });
 

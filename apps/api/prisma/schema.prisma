@@ -43,6 +43,8 @@ model User {
   emailVerified Boolean  @default(false)  // 邮箱是否已通过验证码验证
   // 平台超管：可跨租户查看全部注册用户与公司（SaaS 运营方账号）
   isSuperAdmin  Boolean  @default(false)
+  // 账号使用到期时间：null = 永久有效；有值且 < now 则账号过期（禁止登录/操作）
+  expiresAt     DateTime?
   createdAt     DateTime @default(now())
   lastLoginAt   DateTime?
 
