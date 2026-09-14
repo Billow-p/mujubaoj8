@@ -52,6 +52,26 @@ ssh -o StrictHostKeyChecking=no root@47.242.248.104 "
   set -e
   tar xzf /tmp/mqs-v10.tar.gz -C $APP_DIR
   echo '解压完成'
+
+  # ---- 清理历史构建产物：只保留 index.html 当前引用的那一个 JS / CSS ----
+  # 旧产物仍可被访问（/assets/ 配了 30 天 immutable 缓存），
+  # 浏览器可能一直复用旧入口导致「代码已更新但页面没变」，这里每次部署后强制清掉。
+  cd $APP_DIR/apps/web/dist/assets 2>/dev/null && {
+    CUR_JS=\$(grep -o 'index-[^.]*\.js' ../index.html | head -1)
+    CUR_CSS=\$(grep -o 'index-[^.]*\.css' ../index.html | head -1)
+    for f in index-*.js; do
+      [ -e \"\$f\" ] || continue
+      [ \"\$f\" = \"\$CUR_JS\" ] && continue
+      rm -f \"\$f\"
+    done
+    for f in index-*.css; do
+      [ -e \"\$f\" ] || continue
+      [ \"\$f\" = \"\$CUR_CSS\" ] && continue
+      rm -f \"\$f\"
+    done
+    echo \"清理旧产物完成，当前保留：\$CUR_JS \$CUR_CSS\"
+    ls -1
+  }
 "
 
 echo "==> [6/8] 生成 Prisma Client 并同步数据库结构（只增表/字段，不删数据）"

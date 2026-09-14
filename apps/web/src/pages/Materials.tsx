@@ -85,12 +85,17 @@ export default function Materials() {
   useEffect(load, []);
 
   // 按一级分类分组：预置顺序在前，用户自建的分类排最后
+  // 只要有材料，就把 5 个标准分类都列出来 —— 每个分类右上角都有自己的「+ 新增材料」，
+  // 用户想往「橡胶原料」这类暂时为空的分类里加材料时也有入口。
   const groups = useMemo(() => {
     const map = new Map<string, any[]>();
     for (const m of list) {
       const g = m.category || '未分类';
       if (!map.has(g)) map.set(g, []);
       map.get(g)!.push(m);
+    }
+    if (list.length > 0) {
+      for (const g of MATERIAL_GROUPS) if (!map.has(g)) map.set(g, []);
     }
     const order: string[] = [...MATERIAL_GROUPS, '其他'];
     const idx = (g: string) => {
@@ -121,6 +126,23 @@ export default function Materials() {
     const all = SEED_OPTIONS.every((o) => seedSel[o.code]);
     if (!codes.length) return; // 按钮已禁用，双保险
     seed(all ? undefined : codes);
+  };
+
+  /**
+   * 在某个一级分类下新增材料。
+   * 分类按钮下放到每个分组的右上角，用户点哪个分类就在哪个分类里新增，
+   * 不用先打开表单再自己挑分类（原来的做法容易选错）。
+   */
+  const addInGroup = (category: string) => {
+    setFormErr('');
+    setIsNew(true);
+    setEditing({
+      ...EMPTY,
+      category,
+      subCategory: MATERIAL_SUB_CATEGORIES[category]?.[0] ?? '',
+    });
+    // 顺手把该分组展开，保存后新行能立刻看到
+    setCollapsed((s) => ({ ...s, [category]: false }));
   };
 
   /** 保存前先在本地校验，不让用户被服务端的英文报错劝退 */
@@ -275,19 +297,12 @@ export default function Materials() {
           >
             {list.length === 0 ? '第 1 步：初始化预置材料' : '第 1 步：补齐预置材料'}
           </button>
-          {/* 第 2 步：新增材料 */}
-          <button
-            onClick={() => { setIsNew(true); setFormErr(''); setEditing({ ...EMPTY }); }}
-            className="bg-gray-900 text-white px-4 py-2 rounded text-sm font-medium hover:bg-gray-800"
-          >
-            第 2 步：新增材料
-          </button>
-          {/* 第 3 步：去配置中心同步 */}
+          {/* 第 2 步：去配置中心同步 */}
           <Link
             to="/settings/config"
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm whitespace-nowrap"
           >
-            第 3 步：去配置中心同步 →
+            第 2 步：去配置中心同步 →
           </Link>
         </div>
       </div>
@@ -328,17 +343,27 @@ export default function Materials() {
           const subs = [...new Set(items.map((i) => i.subCategory).filter(Boolean))] as string[];
           return (
             <div key={g} className="bg-white border border-gray-200 rounded overflow-hidden">
-              <button
-                onClick={() => toggle(g)}
-                className="w-full px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center gap-2.5 hover:bg-gray-100"
-              >
-                <span className="text-gray-400 text-[11px] w-3">{collapsed[g] ? '▶' : '▼'}</span>
-                <span className="font-medium text-sm text-gray-900">{g}</span>
-                <span className="text-[12px] text-gray-400 tabular-nums">{items.length} 种</span>
-                <span className="ml-auto text-[11.5px] text-gray-400 truncate hidden sm:block">
-                  {subs.join(' · ')}
-                </span>
-              </button>
+              <div className="w-full px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center gap-2.5">
+                <div
+                  onClick={() => toggle(g)}
+                  className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer select-none hover:opacity-80"
+                  title={collapsed[g] ? '点击展开这一类' : '点击收起这一类'}
+                >
+                  <span className="text-gray-400 text-[11px] w-3">{collapsed[g] ? '▶' : '▼'}</span>
+                  <span className="font-medium text-sm text-gray-900">{g}</span>
+                  <span className="text-[12px] text-gray-400 tabular-nums">{items.length} 种</span>
+                  <span className="text-[11.5px] text-gray-400 truncate hidden sm:block">
+                    {subs.join(' · ')}
+                  </span>
+                </div>
+                <button
+                  onClick={() => addInGroup(g)}
+                  title={`在「${g}」下新增一个材料`}
+                  className="text-[12px] border border-gray-300 bg-white px-2.5 py-1 rounded hover:bg-gray-100 hover:border-gray-400 whitespace-nowrap shrink-0"
+                >
+                  + 新增材料
+                </button>
+              </div>
 
               {!collapsed[g] && (
                 <table className="w-full text-sm">
@@ -354,6 +379,13 @@ export default function Materials() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
+                    {items.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-6 text-center text-[12.5px] text-gray-400">
+                          这一类还没有材料，点右上角「+ 新增材料」按「{g}」添加
+                        </td>
+                      </tr>
+                    )}
                     {items.map((m) => (
                       <tr key={m.id} className="hover:bg-gray-50">
                         <td className="px-4 py-2">
@@ -511,7 +543,9 @@ export default function Materials() {
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-6 z-50">
           <div className="bg-white rounded-lg w-full max-w-lg shadow-xl">
             <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="font-medium">{isNew ? '新增材料' : `编辑：${editing.name}`}</h2>
+              <h2 className="font-medium">
+                {isNew ? `新增材料 · ${editing.category || '未分类'}` : `编辑：${editing.name}`}
+              </h2>
             </div>
             {formErr && (
               <div className="mx-6 mt-3 text-[12.5px] text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
