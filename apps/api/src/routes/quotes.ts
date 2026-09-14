@@ -976,6 +976,8 @@ export async function quoteRoutes(app: FastifyInstance) {
             taxRate: z.number().optional(),
             qtyVarName: z.string().optional(),
             params: z.record(z.union([z.number(), z.string()])).optional().default({}),
+            /** 「不纳入计算」的公共参数名（回显用；算价时前端已按 0 送过来） */
+            off: z.record(z.boolean()).optional(),
           })
           .optional()
           .default({}),
@@ -988,6 +990,8 @@ export async function quoteRoutes(app: FastifyInstance) {
               materialCode: z.string().optional(),
               params: z.record(z.union([z.number(), z.string()])).optional().default({}),
               manualAmounts: z.record(z.number()).optional(),
+              /** 「不纳入计算」的参数/手填项名 */
+              off: z.record(z.boolean()).optional(),
             }),
           )
           .optional()
@@ -1001,6 +1005,8 @@ export async function quoteRoutes(app: FastifyInstance) {
               qty: z.number().min(0),
               params: z.record(z.union([z.number(), z.string()])).optional().default({}),
               manualAmounts: z.record(z.number()).optional(),
+              /** 「不纳入计算」的参数/手填项名 */
+              off: z.record(z.boolean()).optional(),
             }),
           )
           .optional()
@@ -1148,6 +1154,8 @@ export async function quoteRoutes(app: FastifyInstance) {
         materialName: moldMaterialNames.get(mi),
         params,
         manualAmounts: m.manualAmounts,
+        // 带回「不纳入计算」的勾选，方便「按此版本重新报价」原样复现
+        off: m.off,
       };
     });
 
@@ -1247,7 +1255,7 @@ export async function quoteRoutes(app: FastifyInstance) {
                 group: p.group,
                 scope: p.scope,
               })),
-              common: input.common,
+              common: { ...input.common, off: body.common.off },
               // 存计算时实际用的模具数组（含 materialName 与注入后的钢材价/密度/损耗），
               // 这样「按此版本重新报价」能原样复现
               molds,

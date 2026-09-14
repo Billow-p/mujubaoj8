@@ -180,21 +180,21 @@ const NO_QTY = '__NO_INJECTION_QTY__';
 
 /**
  * 价格/密度缺失的中文提醒（非致命）。
- * 场景：「按尺寸算」的钢材费、「按重量算」的材料费，若单价/密度没填
- * （或被填成 0），该项会静默算成 0，用户以为是算错了（幻觉）。
- * 这里明确提示「XXX 未设置，暂按 0 计算——请补充价格」，让用户知道原因。
+ * 场景：「按尺寸算」的钢材费、「按重量算」的材料费，若单价/密度为 0
+ * （没接材料库、配置里也没填，或报价时被设成「不纳入计算」），
+ * 该项会静默算成 0，用户会以为算错了（幻觉）。这里明确说明原因。
  */
 function priceWarning(it: QuoteItemDef, scope: Scope): string | undefined {
   const c: QuoteItemCalcConfig = it.calcConfig ?? {};
   if (it.calcType === 'size' || it.calcType === 'weight') {
     const pv = c.priceVar as string | undefined;
     if (pv && (scope[pv] == null || !Number.isFinite(Number(scope[pv])) || Number(scope[pv]) === 0)) {
-      return `「${pv}」未设置或为空，此项暂按 0 计算——请到材料库/参数补充价格`;
+      return `「${pv}」当前为 0，此项按 0 计入——如需计费请补充价格；若已设为「不纳入计算」可忽略`;
     }
     if (it.calcType === 'size') {
       const dv = c.densityVar as string | undefined;
       if (dv && (scope[dv] == null || !Number.isFinite(Number(scope[dv])) || Number(scope[dv]) === 0)) {
-        return `「${dv}」未设置或为空，钢材重量算不出，此项暂按 0 计算——请补充密度`;
+        return `「${dv}」当前为 0，钢材重量算不出，此项按 0 计入——如需计费请补充密度；若已设为「不纳入计算」可忽略`;
       }
     }
   }

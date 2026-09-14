@@ -109,6 +109,8 @@ export const quotes = {
       taxRate?: number;
       qtyVarName?: string;
       params: Record<string, any>;
+      /** 「不纳入计算」的公共参数名 */
+      off?: Record<string, boolean>;
     };
     molds: {
       code?: string;
@@ -117,6 +119,8 @@ export const quotes = {
       materialCode?: string;
       params: Record<string, any>;
       manualAmounts?: Record<string, number>;
+      /** 「不纳入计算」的参数/手填项名 */
+      off?: Record<string, boolean>;
     }[];
     parts: {
       code?: string;
@@ -125,6 +129,8 @@ export const quotes = {
       qty: number;
       params: Record<string, any>;
       manualAmounts?: Record<string, number>;
+      /** 「不纳入计算」的参数/手填项名 */
+      off?: Record<string, boolean>;
     }[];
   }) => api.post('/quotes/project', body).then((r) => r.data),
 

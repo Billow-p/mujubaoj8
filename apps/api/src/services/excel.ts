@@ -28,6 +28,17 @@ const QTY_FMT = '#,##0" 件"';
 const thin = { style: 'thin' as const, color: { argb: C.line } };
 const box = { top: thin, left: thin, bottom: thin, right: thin };
 
+/**
+ * 报表明细里不体现「金额为 0」的行，让报价表干净。
+ *
+ * 两类情况都会归零、一并隐藏：
+ *   1) 报价时勾了「不纳入计算」——该项按 0 计；
+ *   2) 该项用户压根没填数值。
+ * 合计行不受影响（合计只按实际金额汇总）。
+ */
+const visibleLines = (lines: ExcelLine[]): ExcelLine[] =>
+  lines.filter((l) => Number(l.value) !== 0);
+
 export interface ExcelLine {
   name: string;
   readable?: string;
@@ -311,12 +322,16 @@ function buildMainSheet(wb: ExcelJS.Workbook, m: ExcelQuoteModel) {
     r++;
   };
 
-  if (m.moldLines.length) {
+  // 金额为 0 的行不出现（"不纳入计算"和"没填写"都归零，一并隐藏）
+  const moldLines = visibleLines(m.moldLines);
+  const injectionLines = visibleLines(m.injectionLines);
+
+  if (moldLines.length) {
     groupRow('（一）模具费用　（一次性）', m.summary.mold);
-    m.moldLines.forEach((l, i) => lineRow(i + 1, l, i % 2 === 1));
+    moldLines.forEach((l, i) => lineRow(i + 1, l, i % 2 === 1));
   }
 
-  if (m.injectionLines.length) {
+  if (injectionLines.length) {
     const qty = m.summary.injectionQty;
     const unit = m.summary.unitCost;
     const subText =
@@ -324,10 +339,10 @@ function buildMainSheet(wb: ExcelJS.Workbook, m: ExcelQuoteModel) {
         ? `单件成本 ¥${unit.toLocaleString('zh-CN', { minimumFractionDigits: 2 })} / 件　×　${qty.toLocaleString('zh-CN')} 件`
         : undefined;
     groupRow('（二）注塑费用　（按件计价）', m.summary.injection, { subText, accent: true });
-    m.injectionLines.forEach((l, i) => lineRow(i + 1, l, i % 2 === 1));
+    injectionLines.forEach((l, i) => lineRow(i + 1, l, i % 2 === 1));
   }
 
-  if (!m.moldLines.length && !m.injectionLines.length) {
+  if (!moldLines.length && !injectionLines.length) {
     ws.mergeCells(r, 1, r, LAST);
     const c = ws.getCell(r, 1);
     c.value = '（无费用明细）';
@@ -516,8 +531,8 @@ function buildDetailSheet(wb: ExcelJS.Workbook, m: ExcelQuoteModel) {
     });
   };
 
-  block('（一）模具费用', m.moldLines, false);
-  block('（二）注塑费用', m.injectionLines, true);
+  block('（一）模具费用', visibleLines(m.moldLines), false);
+  block('（二）注塑费用', visibleLines(m.injectionLines), true);
 
   r++;
   const s = m.summary;

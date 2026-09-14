@@ -30,6 +30,11 @@ interface MoldState {
   /** 本套模具所用钢材编码（来自材料库；空=用公共参数里的钢材单价） */
   materialCode: string;
   params: Record<string, any>;
+  /**
+   * 「不纳入计算」开关：键 = 参数名或手填费用项名，true 表示这一栏先不算钱。
+   * 值仍保留在页面上，只是送进算价时按 0 处理（导出的 Excel 也不会出现这一行）。
+   */
+  off: Record<string, boolean>;
   manuals: Record<string, number>;
 }
 interface PartState {
@@ -39,7 +44,37 @@ interface PartState {
   materialCode: string;
   qty: any;
   params: Record<string, any>;
+  /** 同 MoldState.off */
+  off: Record<string, boolean>;
   manuals: Record<string, number>;
+}
+
+/**
+ * 「纳入 / 不纳入计算」小开关。
+ *
+ * 为什么要它：有些参数（模架、热流道、EDM…）这次报价根本不涉及，
+ * 以前只能把值改成 0，既麻烦又分不清「真的是 0」还是「不想算」。
+ * 默认全部「纳入」；点一下变「不纳入」，值留着但不参与算价。
+ */
+function OffToggle({ off, onToggle }: { off: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={
+        off
+          ? '当前「不纳入计算」——这一栏不参与算价，点击恢复纳入'
+          : '点击设为「不纳入计算」——值保留，但不参与算价、也不出现在导出的报价表上'
+      }
+      className={`shrink-0 text-[10.5px] leading-none px-1.5 py-[3px] rounded border transition ${
+        off
+          ? 'border-gray-300 bg-gray-100 text-gray-500 hover:bg-gray-200'
+          : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+      }`}
+    >
+      {off ? '不纳入' : '纳入'}
+    </button>
+  );
 }
 
 export default function ConfiguredQuote() {
@@ -50,6 +85,8 @@ export default function ConfiguredQuote() {
   const [activeId, setActiveId] = useState('');
   const [cfg, setCfg] = useState<any | null>(null);
   const [commonParams, setCommonParams] = useState<Record<string, any>>({});
+  /** 公共参数的「不纳入计算」开关 */
+  const [commonOff, setCommonOff] = useState<Record<string, boolean>>({});
   const [molds, setMolds] = useState<MoldState[]>([]);
   const [parts, setParts] = useState<PartState[]>([]);
   const [customer, setCustomer] = useState({ name: '', phone: '', productName: '' });
@@ -119,6 +156,7 @@ export default function ConfiguredQuote() {
             if ((p.scope as string) === 'common') v[p.name] = p.defaultValue ?? '';
           }
           setCommonParams(v);
+          setCommonOff({});
           // 注意：这里不能直接用 qtyVarName / qtyDefault 这两个 useMemo ——
           // 它们是从 cfg 派生的，而 setCfg(data) 要等下一次渲染才生效，
           // 此刻拿到的还是旧值（首次加载时是空），会把注塑件数量填成 0。
@@ -250,7 +288,7 @@ export default function ConfiguredQuote() {
     for (const d of data.parameters ?? []) {
       if ((d.scope as string) === 'mold' && d.enabled !== false) p[d.name] = d.defaultValue ?? '';
     }
-    return { uid: uid(), code: '', name: `模具 ${i}`, materialCode: '', params: p, manuals: {} };
+    return { uid: uid(), code: '', name: `模具 ${i}`, materialCode: '', params: p, off: {}, manuals: {} };
   }
   function seedPart(data: any, i: number, qtyDef: any = 0, qtyVar: string = qtyVarName): PartState {
     const p: Record<string, any> = {};
@@ -259,7 +297,7 @@ export default function ConfiguredQuote() {
         p[d.name] = d.defaultValue ?? '';
       }
     }
-    return { uid: uid(), code: '', name: `注塑件 ${i}`, materialCode: '', qty: qtyDef, params: p, manuals: {} };
+    return { uid: uid(), code: '', name: `注塑件 ${i}`, materialCode: '', qty: qtyDef, params: p, off: {}, manuals: {} };
   }
 
   function prefillFromSource(data: any, paramsJson: any) {
@@ -280,6 +318,7 @@ export default function ConfiguredQuote() {
       nextCommon[p.name] = raw !== undefined && raw !== '' ? raw : (p.defaultValue ?? '');
     }
     setCommonParams(nextCommon);
+    setCommonOff(srcCommon.off || {});
 
     const srcMolds: any[] = paramsJson.molds || [];
     if (srcMolds.length) {
@@ -298,6 +337,7 @@ export default function ConfiguredQuote() {
             name: m.name || `模具 ${i + 1}`,
             materialCode: m.materialCode || '',
             params: p,
+            off: m.off || {},
             manuals: m.manualAmounts || {},
           };
         }),
@@ -324,6 +364,7 @@ export default function ConfiguredQuote() {
             materialCode: p.materialCode || '',
             qty: p.qty ?? qd,
             params: pp,
+            off: p.off || {},
             manuals: p.manualAmounts || {},
           };
         }),
@@ -332,6 +373,89 @@ export default function ConfiguredQuote() {
       setParts([seedPart(data, 1, qd, qv)]);
     }
   }
+
+  /**
+   * 组装送进算价的参数 —— **预览与保存共用这一套**。
+   * （以前预览和提交各写一份，材料价一变就会出现「预览一个价、保存另一个价」。）
+   *
+   * 取值顺序：
+   *   1) 勾了「不纳入计算」的字段 → 按 0 计（值仍留在页面上，只是不参与算钱）
+   *   2) 选了材料牌号 → 单价/密度按材料库（价格模式 B：材料库是唯一价格来源）
+   *   3) 损耗率**不覆盖** —— 选牌号时已作为默认值带进输入框，用户改过就以用户为准
+   */
+  const calcInput = useMemo(() => {
+    const coerce = (o: Record<string, any>) => {
+      const r: Record<string, number> = {};
+      for (const [k, v] of Object.entries(o ?? {})) {
+        const n = Number(v);
+        if (Number.isFinite(n)) r[k] = n;
+      }
+      return r;
+    };
+    /** 手填费用项：勾了「不纳入」的直接不传 → 引擎按 0 计 */
+    const keepManuals = (manuals: Record<string, any>, off: Record<string, boolean>) =>
+      Object.fromEntries(Object.entries(manuals ?? {}).filter(([k]) => !off?.[k]));
+
+    const cParams = coerce(commonParams);
+    for (const [k, v] of Object.entries(commonOff ?? {})) if (v) cParams[k] = 0;
+
+    const moldsIn = molds.map((m) => {
+      const mp = coerce(m.params);
+      for (const [k, v] of Object.entries(m.off ?? {})) if (v) mp[k] = 0;
+      if (m.materialCode) {
+        const mat = matByCode.get(m.materialCode);
+        if (mat) {
+          const dVar = moldSteelVars.densityVar;
+          // 密度取「材料库的密度」优先（引擎会用它算重量），再退回整单参数/配置固定值
+          const density =
+            mat.density != null
+              ? Number(mat.density)
+              : Number(commonParams[dVar ?? '']) || Number(moldSteelVars.cfg?.density) || 0;
+          // 阶梯价的用量口径 = 本套模具的钢材用量(kg)
+          const weightKg = sizeWeightKg(moldSteelVars.cfg, { ...mp, ...(dVar ? { [dVar]: density } : {}) });
+          if (moldSteelVars.priceVar && !m.off[moldSteelVars.priceVar]) {
+            mp[moldSteelVars.priceVar] = pricePerKgOf(mat, weightKg);
+          }
+          if (dVar && mat.density != null && !m.off[dVar]) mp[dVar] = Number(mat.density) || 0;
+        }
+      }
+      return {
+        code: m.code || undefined,
+        name: m.name,
+        materialCode: m.materialCode || undefined,
+        params: mp,
+        manualAmounts: keepManuals(m.manuals, m.off),
+      };
+    });
+
+    const partsIn = parts.map((p) => {
+      const pp = coerce(p.params);
+      for (const [k, v] of Object.entries(p.off ?? {})) if (v) pp[k] = 0;
+      // 选了牌号 → 单价按材料库（价格模式 B）；损耗率交给输入框，不再覆盖
+      if (p.materialCode) {
+        const mat = matByCode.get(p.materialCode);
+        if (mat) {
+          // 阶梯价的用量口径 = 数量(件) × 单件重量(kg)
+          const uw = Number(pp[injectionVars.wVar ?? '']);
+          const consumptionKg =
+            Number.isFinite(uw) && uw > 0 ? (Number(p.qty) || 0) * uw : null;
+          if (injectionVars.priceVar && !p.off[injectionVars.priceVar]) {
+            pp[injectionVars.priceVar] = pricePerKgOf(mat, consumptionKg);
+          }
+        }
+      }
+      return {
+        code: p.code || undefined,
+        name: p.name,
+        materialCode: p.materialCode || undefined,
+        qty: Number(p.qty) || 0,
+        params: pp,
+        manualAmounts: keepManuals(p.manuals, p.off),
+      };
+    });
+
+    return { cParams, moldsIn, partsIn };
+  }, [commonParams, commonOff, molds, parts, matByCode, moldSteelVars, injectionVars]);
 
   // 实时算价
   const result = useMemo(() => {
@@ -347,79 +471,18 @@ export default function ConfiguredQuote() {
       sortOrder: it.sortOrder ?? i,
       perUnit: it.scope === 'injection' && it.perUnit === true,
     }));
-    const coerce = (o: Record<string, any>) => {
-      const r: Record<string, number> = {};
-      for (const [k, v] of Object.entries(o ?? {})) {
-        const n = Number(v);
-        if (Number.isFinite(n)) r[k] = n;
-      }
-      return r;
-    };
-    const cParams = coerce(commonParams);
-    const moldsIn = molds.map((m) => {
-      const mp = coerce(m.params);
-      // 选了钢材牌号 → 用材料库里的单价/密度/损耗率（覆盖整单公共参数）
-      if (m.materialCode) {
-        const mat = matByCode.get(m.materialCode);
-        if (mat) {
-          const dVar = moldSteelVars.densityVar;
-          // 密度取「材料库的密度」优先（引擎会用它算重量），再退回整单参数/配置固定值
-          const density =
-            mat.density != null
-              ? Number(mat.density)
-              : Number(commonParams[dVar ?? '']) || Number(moldSteelVars.cfg?.density) || 0;
-          // 阶梯价的用量口径 = 本套模具的钢材用量(kg)
-          const weightKg = sizeWeightKg(moldSteelVars.cfg, { ...mp, ...(dVar ? { [dVar]: density } : {}) });
-          if (moldSteelVars.priceVar) mp[moldSteelVars.priceVar] = pricePerKgOf(mat, weightKg);
-          if (dVar && mat.density != null) mp[dVar] = Number(mat.density) || 0;
-          if (moldSteelVars.lossVar && mat.lossRate != null)
-            mp[moldSteelVars.lossVar] = Number(mat.lossRate) || 0;
-        }
-      }
-      return {
-        code: m.code || undefined,
-        name: m.name,
-        materialCode: m.materialCode || undefined,
-        params: mp,
-        manualAmounts: m.manuals,
-      };
-    });
-    const partsIn = parts.map((p) => {
-      const pp = coerce(p.params);
-      // 选了牌号 → 单价与损耗率都按材料库走（与钢材同一套规则）
-      if (p.materialCode) {
-        const mat = matByCode.get(p.materialCode);
-        if (mat) {
-          // 阶梯价的用量口径 = 数量(件) × 单件重量(kg)
-          const uw = Number(pp[injectionVars.wVar ?? '']);
-          const consumptionKg =
-            Number.isFinite(uw) && uw > 0 ? (Number(p.qty) || 0) * uw : null;
-          if (injectionVars.priceVar) pp[injectionVars.priceVar] = pricePerKgOf(mat, consumptionKg);
-          if (injectionVars.lossVar && mat.lossRate != null)
-            pp[injectionVars.lossVar] = Number(mat.lossRate) || 0;
-        }
-      }
-      return {
-        code: p.code || undefined,
-        name: p.name,
-        materialCode: p.materialCode || undefined,
-        qty: Number(p.qty) || 0,
-        params: pp,
-        manualAmounts: p.manuals,
-      };
-    });
     return calculateQuoteProject({
       items: defs,
       common: {
         profitRate: cfg.moldType?.profitRate ?? 0.1,
         taxRate: cfg.moldType?.taxRate ?? 0.13,
         qtyVarName,
-        params: cParams,
+        params: calcInput.cParams,
       },
-      molds: moldsIn,
-      parts: partsIn,
+      molds: calcInput.moldsIn,
+      parts: calcInput.partsIn,
     });
-  }, [cfg, commonParams, molds, parts, matByCode, injectionPriceVar, moldSteelVars, qtyVarName]);
+  }, [cfg, calcInput, qtyVarName]);
 
   const submit = async () => {
     if (!cfg) return;
@@ -429,14 +492,6 @@ export default function ConfiguredQuote() {
     }
     setSaving(true);
     try {
-      const coerce = (o: Record<string, any>) => {
-        const r: Record<string, number> = {};
-        for (const [k, v] of Object.entries(o ?? {})) {
-          const n = Number(v);
-          if (Number.isFinite(n)) r[k] = n;
-        }
-        return r;
-      };
       const created = await quotes.createProject({
         moldTypeId: cfg.moldType.id,
         customerName: customer.name.trim(),
@@ -446,23 +501,12 @@ export default function ConfiguredQuote() {
           profitRate: cfg.moldType.profitRate,
           taxRate: cfg.moldType.taxRate,
           qtyVarName,
-          params: coerce(commonParams),
+          // 与实时预览同一套参数（已应用「不纳入→0」「材料库取价」）
+          params: calcInput.cParams,
+          off: commonOff,
         },
-        molds: molds.map((m) => ({
-          code: m.code || undefined,
-          name: m.name,
-          materialCode: m.materialCode || undefined,
-          params: coerce(m.params),
-          manualAmounts: m.manuals,
-        })),
-        parts: parts.map((p) => ({
-          code: p.code || undefined,
-          name: p.name,
-          materialCode: p.materialCode || undefined,
-          qty: Number(p.qty) || 0,
-          params: coerce(p.params),
-          manualAmounts: p.manuals,
-        })),
+        molds: calcInput.moldsIn.map((m, i) => ({ ...m, off: molds[i].off })),
+        parts: calcInput.partsIn.map((p, i) => ({ ...p, off: parts[i].off })),
       });
       navigate(`/quotes/${created.id}`);
     } catch (e: any) {
@@ -493,9 +537,44 @@ export default function ConfiguredQuote() {
     setParts((arr) => arr.map((p, idx) => (idx === i ? { ...p, ...patch } : p)));
 
   const copyMold = (i: number) =>
-    setMolds((arr) => [...arr, { ...arr[i], uid: uid(), name: arr[i].name + ' 副本', manuals: { ...arr[i].manuals } }]);
+    setMolds((arr) => [
+      ...arr,
+      { ...arr[i], uid: uid(), name: arr[i].name + ' 副本', off: { ...arr[i].off }, manuals: { ...arr[i].manuals } },
+    ]);
   const copyPart = (i: number) =>
-    setParts((arr) => [...arr, { ...arr[i], uid: uid(), name: arr[i].name + ' 副本', manuals: { ...arr[i].manuals } }]);
+    setParts((arr) => [
+      ...arr,
+      { ...arr[i], uid: uid(), name: arr[i].name + ' 副本', off: { ...arr[i].off }, manuals: { ...arr[i].manuals } },
+    ]);
+
+  // ---------- 「纳入 / 不纳入计算」开关 ----------
+  const toggleCommonOff = (name: string) => setCommonOff((s) => ({ ...s, [name]: !s[name] }));
+  const toggleMoldOff = (i: number, name: string) =>
+    setMolds((arr) => arr.map((m, idx) => (idx === i ? { ...m, off: { ...m.off, [name]: !m.off[name] } } : m)));
+  const togglePartOff = (i: number, name: string) =>
+    setParts((arr) => arr.map((p, idx) => (idx === i ? { ...p, off: { ...p.off, [name]: !p.off[name] } } : p)));
+
+  /**
+   * 选/换材料牌号。
+   * B 档：材料库的损耗率作为「默认值」带进输入框，之后用户改了就以用户为准，不再被覆盖。
+   * （单价与密度仍由材料库决定，见 submit 里的取值顺序 —— 价格模式 B：材料库是唯一价格来源。）
+   */
+  const pickMoldSteel = (i: number, code: string) => {
+    const mat = code ? matByCode.get(code) : null;
+    const patch: Partial<MoldState> = { materialCode: code };
+    if (mat && moldSteelVars.lossVar && mat.lossRate != null) {
+      patch.params = { ...molds[i].params, [moldSteelVars.lossVar]: String(mat.lossRate) };
+    }
+    setMold(i, patch);
+  };
+  const pickPartMaterial = (i: number, code: string) => {
+    const mat = code ? matByCode.get(code) : null;
+    const patch: Partial<PartState> = { materialCode: code };
+    if (mat && injectionVars.lossVar && mat.lossRate != null) {
+      patch.params = { ...parts[i].params, [injectionVars.lossVar]: String(mat.lossRate) };
+    }
+    setPart(i, patch);
+  };
 
   const renderParamInput = (p: any, value: any, onChange: (v: any) => void) => {
     const opts: any[] = Array.isArray(p.options) ? p.options : [];
@@ -523,6 +602,100 @@ export default function ConfiguredQuote() {
       />
     );
   };
+
+  /**
+   * 一个「参数栏」= 标签 + 纳入开关 + 输入控件（+ 可选提示）。
+   * 开关把这一栏排除出算价：值留着，但不参与计算，导出的报价表也不会出现这一行。
+   */
+  const renderField = (
+    p: any,
+    value: any,
+    onChange: (v: any) => void,
+    off: boolean,
+    onToggle: () => void,
+    hint?: any,
+  ) => (
+    <label className="text-sm">
+      <span className="text-gray-500 flex items-center justify-between gap-2">
+        <span className="truncate">
+          {p.name}
+          {p.unit && <span className="text-gray-400 text-xs"> ({p.unit})</span>}
+        </span>
+        <OffToggle off={off} onToggle={onToggle} />
+      </span>
+      <div className={off ? 'opacity-40 pointer-events-none' : ''}>
+        {renderParamInput(p, value, onChange)}
+      </div>
+      {hint}
+    </label>
+  );
+
+  /**
+   * 材料驱动的参数（钢材单价/密度、原料单价…）：值由材料库决定，用户改了也不会生效。
+   * 所以不给输入框，直接只读展示 + 标注来源，避免「填了没反应」。
+   */
+  const readonlyField = (label: string, display: string, note: string) => (
+    <div className="text-sm">
+      <span className="text-gray-500">{label}</span>
+      <div className="mt-1 border border-gray-200 bg-gray-50 rounded px-2.5 py-2 text-sm text-gray-600 flex items-center justify-between gap-2">
+        <span className="tabular-nums truncate">{display}</span>
+        <span className="text-[10.5px] text-gray-400 shrink-0">{note}</span>
+      </div>
+    </div>
+  );
+
+  /**
+   * 材料驱动的参数在「选了牌号」后由材料库取值。返回：
+   *   null      —— 不受材料影响，正常渲染（带纳入开关）
+   *   'locked'  —— 相关对象**全都**选了牌号 → 这个值完全用不到 → 只读展示
+   *   'partial' —— 只有部分选了 → 对「没选牌号」的仍然生效 → 可编辑 + 提示
+   *
+   * includeLoss：损耗率是否也算「材料驱动」。
+   *   损耗率本身允许用户覆盖（B 档），所以在「注塑件/模具」区块里**不算**；
+   *   但如果配置把它放在「公共参数」，选了牌号后每套模具/每个注塑件都会各自覆盖它，
+   *   那个公共值就成了摆设 —— 这时要按材料驱动处理，免得又变成一个"填了没反应"的坑。
+   */
+  const materialDriven = (name: string, includeLoss = false): 'locked' | 'partial' | null => {
+    if (!name) return null;
+    let isSteel = name === moldSteelVars.priceVar || name === moldSteelVars.densityVar;
+    let isMat = name === injectionVars.priceVar;
+    if (includeLoss) {
+      isSteel = isSteel || name === moldSteelVars.lossVar;
+      isMat = isMat || name === injectionVars.lossVar;
+    }
+    if (!isSteel && !isMat) return null;
+    const list: any[] = isSteel ? molds : parts;
+    if (!list.length) return null;
+    const picked = list.filter((x) => x.materialCode).length;
+    if (picked === 0) return null;
+    return picked === list.length ? 'locked' : 'partial';
+  };
+
+  /** 手填金额类费用项（标准件费 / 后加工费 …）—— 也带「不纳入计算」开关 */
+  const renderManualField = (
+    label: string,
+    value: any,
+    onChange: (v: any) => void,
+    off: boolean,
+    onToggle: () => void,
+  ) => (
+    <label className="text-sm">
+      <span className="text-gray-500 flex items-center justify-between gap-2">
+        <span className="truncate">{label}</span>
+        <OffToggle off={off} onToggle={onToggle} />
+      </span>
+      <div className={off ? 'opacity-40 pointer-events-none' : ''}>
+        <input
+          type="number"
+          step="any"
+          value={value ?? ''}
+          onChange={(e) => onChange(e.target.value)}
+          className="mt-1 w-full border border-gray-300 rounded px-2.5 py-2 text-sm text-right tabular-nums"
+          placeholder="0"
+        />
+      </div>
+    </label>
+  );
 
   return (
     <div className="max-w-[1600px] mx-auto p-5">
@@ -645,19 +818,31 @@ export default function ConfiguredQuote() {
               </div>
               {secOpen.common && (
               <div className="p-3.5 grid grid-cols-3 gap-x-4 gap-y-3">
-                {commonDefs.map((p) => (
-                  <label key={p.id ?? p.name} className="text-sm">
-                    <span className="text-gray-500">
-                      {p.name}
-                      {p.unit && <span className="text-gray-400 text-xs"> ({p.unit})</span>}
-                    </span>
-                    {renderParamInput(
-                      p,
-                      commonParams[p.name],
-                      (v) => setCommonParams((s) => ({ ...s, [p.name]: v })),
-                    )}
-                  </label>
-                ))}
+                {commonDefs.map((p) => {
+                  const md = materialDriven(p.name, true);
+                  const shown =
+                    commonParams[p.name] === '' || commonParams[p.name] == null
+                      ? '—'
+                      : String(commonParams[p.name]);
+                  return (
+                    <div key={p.id ?? p.name} className="min-w-0">
+                      {md === 'locked'
+                        ? readonlyField(p.name, shown, '材料库带入')
+                        : renderField(
+                            p,
+                            commonParams[p.name],
+                            (v) => setCommonParams((s) => ({ ...s, [p.name]: v })),
+                            !!commonOff[p.name],
+                            () => toggleCommonOff(p.name),
+                            md === 'partial' ? (
+                              <span className="block mt-1 text-[10.5px] text-amber-700 leading-tight">
+                                已有模具/注塑件选了牌号；此值只对「没选牌号」的那些生效
+                              </span>
+                            ) : undefined,
+                          )}
+                    </div>
+                  );
+                })}
               </div>
               )}
             </div>
@@ -716,7 +901,7 @@ export default function ConfiguredQuote() {
                         <span className="text-gray-500">模具钢材（来自材料库）</span>
                         <select
                           value={m.materialCode}
-                          onChange={(e) => setMold(i, { materialCode: e.target.value })}
+                          onChange={(e) => pickMoldSteel(i, e.target.value)}
                           className="mt-1 w-full border border-gray-300 rounded px-2.5 py-2 text-sm"
                         >
                           <option value="">
@@ -751,37 +936,45 @@ export default function ConfiguredQuote() {
                   )}
                   {moldDefs.length > 0 && (
                     <div className="grid grid-cols-3 gap-x-4 gap-y-3">
-                      {moldDefs.map((p) => (
-                        <label key={p.id ?? p.name} className="text-sm">
-                          <span className="text-gray-500">
-                            {p.name}
-                            {p.unit && <span className="text-gray-400 text-xs"> ({p.unit})</span>}
-                          </span>
-                          {renderParamInput(
-                            p,
-                            m.params[p.name],
-                            (v) => setMold(i, { params: { ...m.params, [p.name]: v } }),
-                          )}
-                        </label>
-                      ))}
+                      {moldDefs.map((p) => {
+                        const md = materialDriven(p.name);
+                        const shown =
+                          m.params[p.name] === '' || m.params[p.name] == null
+                            ? '—'
+                            : String(m.params[p.name]);
+                        return (
+                          <div key={p.id ?? p.name} className="min-w-0">
+                            {md === 'locked'
+                              ? readonlyField(p.name, shown, '材料库带入')
+                              : renderField(
+                                  p,
+                                  m.params[p.name],
+                                  (v) => setMold(i, { params: { ...m.params, [p.name]: v } }),
+                                  !!m.off[p.name],
+                                  () => toggleMoldOff(i, p.name),
+                                  md === 'partial' ? (
+                                    <span className="block mt-1 text-[10.5px] text-amber-700 leading-tight">
+                                      本套已选牌号，按材料库取值
+                                    </span>
+                                  ) : undefined,
+                                )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                   {manualMoldItems.length > 0 && (
                     <div className="grid grid-cols-3 gap-x-4 gap-y-3 mt-3 pt-3 border-t border-gray-100">
                       {manualMoldItems.map((it: any) => (
-                        <label key={it.id ?? it.name} className="text-sm">
-                          <span className="text-gray-500">{it.name}（元）</span>
-                          <input
-                            type="number"
-                            step="any"
-                            value={m.manuals[it.name] ?? ''}
-                            onChange={(e) =>
-                              setMold(i, { manuals: { ...m.manuals, [it.name]: Number(e.target.value) } })
-                            }
-                            className="mt-1 w-full border border-gray-300 rounded px-2.5 py-2 text-sm text-right tabular-nums"
-                            placeholder="0"
-                          />
-                        </label>
+                        <div key={it.id ?? it.name} className="min-w-0">
+                          {renderManualField(
+                            `${it.name}（元）`,
+                            m.manuals[it.name],
+                            (v) => setMold(i, { manuals: { ...m.manuals, [it.name]: v } }),
+                            !!m.off[it.name],
+                            () => toggleMoldOff(i, it.name),
+                          )}
+                        </div>
                       ))}
                     </div>
                   )}
@@ -860,7 +1053,7 @@ export default function ConfiguredQuote() {
                       <span className="text-gray-500">材料（来自材料库）</span>
                       <select
                         value={p.materialCode}
-                        onChange={(e) => setPart(i, { materialCode: e.target.value })}
+                        onChange={(e) => pickPartMaterial(i, e.target.value)}
                         className="mt-1 w-full border border-indigo-300 bg-indigo-50 text-indigo-900 rounded px-2.5 py-2 text-sm"
                       >
                         <option value="">— 不选 —</option>
@@ -889,6 +1082,15 @@ export default function ConfiguredQuote() {
                           （材料库带入）
                         </div>
                       )}
+                      {!p.materialCode && injectionVars.priceVar && (
+                        <div className="text-[12px] text-gray-400 mt-1">
+                          {injectionVars.priceVar}：未选牌号，按配置中心同步价 ¥
+                          {Number(p.params[injectionVars.priceVar] ?? 0).toLocaleString('zh-CN', {
+                            maximumFractionDigits: 4,
+                          })}
+                          /kg（此处只读，要改价格去材料库）
+                        </div>
+                      )}
                     </label>
                     {/* 数量 */}
                     <label className="text-sm">
@@ -904,36 +1106,44 @@ export default function ConfiguredQuote() {
                     {/* 其它注塑参数（排除数量项与材料价项） */}
                     {injectionDefs
                       .filter((d) => d.name !== qtyVarName && d.name !== injectionPriceVar)
-                      .map((d) => (
-                        <label key={d.id ?? d.name} className="text-sm">
-                          <span className="text-gray-500">
-                            {d.name}
-                            {d.unit && <span className="text-gray-400 text-xs"> ({d.unit})</span>}
-                          </span>
-                          {renderParamInput(
-                            d,
-                            p.params[d.name],
-                            (v) => setPart(i, { params: { ...p.params, [d.name]: v } }),
-                          )}
-                        </label>
-                      ))}
+                      .map((d) => {
+                        const md = materialDriven(d.name);
+                        const shown =
+                          p.params[d.name] === '' || p.params[d.name] == null
+                            ? '—'
+                            : String(p.params[d.name]);
+                        return (
+                          <div key={d.id ?? d.name} className="min-w-0">
+                            {md === 'locked'
+                              ? readonlyField(d.name, shown, '材料库带入')
+                              : renderField(
+                                  d,
+                                  p.params[d.name],
+                                  (v) => setPart(i, { params: { ...p.params, [d.name]: v } }),
+                                  !!p.off[d.name],
+                                  () => togglePartOff(i, d.name),
+                                  md === 'partial' ? (
+                                    <span className="block mt-1 text-[10.5px] text-amber-700 leading-tight">
+                                      本件已选牌号，按材料库取值
+                                    </span>
+                                  ) : undefined,
+                                )}
+                          </div>
+                        );
+                      })}
                   </div>
                   {manualInjItems.length > 0 && (
                     <div className="grid grid-cols-3 gap-x-4 gap-y-3 mt-3 pt-3 border-t border-gray-100">
                       {manualInjItems.map((it: any) => (
-                        <label key={it.id ?? it.name} className="text-sm">
-                          <span className="text-gray-500">{it.name}（元/件）</span>
-                          <input
-                            type="number"
-                            step="any"
-                            value={p.manuals[it.name] ?? ''}
-                            onChange={(e) =>
-                              setPart(i, { manuals: { ...p.manuals, [it.name]: Number(e.target.value) } })
-                            }
-                            className="mt-1 w-full border border-gray-300 rounded px-2.5 py-2 text-sm text-right tabular-nums"
-                            placeholder="0"
-                          />
-                        </label>
+                        <div key={it.id ?? it.name} className="min-w-0">
+                          {renderManualField(
+                            `${it.name}（元/件）`,
+                            p.manuals[it.name],
+                            (v) => setPart(i, { manuals: { ...p.manuals, [it.name]: v } }),
+                            !!p.off[it.name],
+                            () => togglePartOff(i, it.name),
+                          )}
+                        </div>
                       ))}
                     </div>
                   )}
