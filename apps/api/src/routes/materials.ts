@@ -104,7 +104,7 @@ const MaterialSchema = z.object({
   category: z.string().max(30, '一级分类最多 30 个字符').optional(), // 一级分类
   subCategory: z.string().max(30, '二级分类最多 30 个字符').nullable().optional(), // 二级分类
   unit: z.string().max(10, '单位最多 10 个字符').optional(),
-  density: z.number().nonnegative('密度不能为负').optional(),
+  density: z.number().nonnegative('密度不能为负').nullable().optional(),
   lossRate: z.number().min(0, '损耗率不能小于 0').max(1, '损耗率不能大于 1').optional(),
   currentPrice: z.number().nonnegative('单价不能为负').optional(),
   currency: z.string().max(10).optional(),
@@ -117,8 +117,9 @@ const MaterialSchema = z.object({
         price: z.number().nonnegative(),
       }),
     )
+    .nullable()
     .optional(),
-  remark: z.string().max(200, '备注最多 200 个字符').optional(),
+  remark: z.string().max(200, '备注最多 200 个字符').nullable().optional(),
   enabled: z.boolean().optional(),
 });
 

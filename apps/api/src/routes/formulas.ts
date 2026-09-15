@@ -12,23 +12,23 @@ import {
 const SCOPES = ['mold', 'injection', 'summary'] as const;
 
 const ItemSchema = z.object({
-  code: z.string().max(40).optional(),
+  code: z.string().max(40).nullable().optional(),
   name: z.string().min(1).max(40),
   scope: z.enum(SCOPES),
   category: z.string().max(30).optional(),
-  unit: z.string().max(20).optional(),
+  unit: z.string().max(20).nullable().optional(),
   expression: z.string().min(1).max(500),
-  condition: z.string().max(500).optional(),
+  condition: z.string().max(500).nullable().optional(),
   sortOrder: z.number().int().optional(),
-  note: z.string().max(200).optional(),
+  note: z.string().max(200).nullable().optional(),
 });
 
 const UpdateSchema = ItemSchema.partial();
 
 const TestSchema = z.object({
   expression: z.string().min(1).max(500),
-  condition: z.string().max(500).optional(),
-  variables: z.record(z.number()).optional(), // 测试用的变量值覆盖
+  condition: z.string().max(500).nullable().optional(),
+  variables: z.record(z.number()).nullable().optional(), // 测试用的变量值覆盖
 });
 
 export async function formulaRoutes(app: FastifyInstance) {

@@ -15,21 +15,22 @@ import { toExcelModel } from '../services/quoteModel.js';
 import { calcTotal } from '../services/quoteTotal.js';
 
 const CreateQuoteSchema = z.object({
-  customerId: z.string().optional(),
+  customerId: z.string().nullable().optional(),
   customerName: z.string().min(1),
-  customerEmail: z.string().email().optional(), // 新增：客户邮箱（直发场景）
+  customerEmail: z.union([z.string().email(), z.literal(''), z.null()]).optional(), // 新增：客户邮箱（直发场景）
   input: z.any(), // QuoteInput - 已校验（含 extras/customParams）
-  customFormulas: z.array(z.any()).optional(), // 参数中心 — 用户公式
+  customFormulas: z.array(z.any()).nullable().optional(), // 参数中心 — 用户公式
 });
 
 const UpdateQuoteSchema = z.object({
   input: z.any(),
-  overrides: z.record(z.string(), z.number()).optional(),
-  locks: z.array(z.string()).optional(),
+  overrides: z.record(z.string(), z.number()).nullable().optional(),
+  locks: z.array(z.string()).nullable().optional(),
   businessTermOverrides: z
     .array(z.object({ index: z.number(), enabled: z.boolean(), text: z.string() }))
+    .nullable()
     .optional(),
-  changeNote: z.string().optional(),
+  changeNote: z.string().nullable().optional(),
 });
 
 function genQuoteNo(): string {
@@ -381,7 +382,7 @@ export async function quoteRoutes(app: FastifyInstance) {
     }
 
     const companyFormulas = await loadEnabledFormulas(companyId);
-    const formulas = mergeFormulas(companyFormulas, body.customFormulas);
+    const formulas = mergeFormulas(companyFormulas, body.customFormulas ?? undefined);
 
     const result = calculateQuote({
       input: body.input,
@@ -548,7 +549,7 @@ export async function quoteRoutes(app: FastifyInstance) {
         input: body.input,
         overrides: body.overrides as any,
         locks: body.locks as any,
-        businessTermOverrides: body.businessTermOverrides,
+        businessTermOverrides: body.businessTermOverrides ?? undefined,
         customFormulas: formulas,
       };
       const result = calculateQuote(calcReq);
@@ -823,10 +824,10 @@ export async function quoteRoutes(app: FastifyInstance) {
       .object({
         moldTypeId: z.string().min(1),
         customerName: z.string().min(1).max(100),
-        customerEmail: z.string().email().optional().or(z.literal('')),
-        productName: z.string().max(100).optional(),
+        customerEmail: z.union([z.string().email(), z.literal(''), z.null()]).optional(),
+        productName: z.string().max(100).nullable().optional(),
         values: z.record(z.union([z.number(), z.string()])).optional().default({}),
-        manualAmounts: z.record(z.number()).optional(),
+        manualAmounts: z.record(z.number()).nullable().optional(),
       })
       .parse(req.body);
 
@@ -967,8 +968,8 @@ export async function quoteRoutes(app: FastifyInstance) {
       .object({
         moldTypeId: z.string().min(1),
         customerName: z.string().min(1).max(100),
-        customerPhone: z.string().max(30).optional().or(z.literal('')),
-        productName: z.string().max(100).optional(),
+        customerPhone: z.union([z.string().max(30), z.literal(''), z.null()]).optional(),
+        productName: z.string().max(100).nullable().optional(),
         // 整单公共参数（利润/税/数量参数名 + common 作用域参数）
         common: z
           .object({

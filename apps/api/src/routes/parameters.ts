@@ -21,16 +21,16 @@ const ParamSchema = z.object({
   code: z.string().min(1).max(40).regex(/^[a-zA-Z][a-zA-Z0-9_]*$/, '编码需以字母开头，仅含字母数字下划线'),
   name: z.string().min(1).max(40),
   type: z.enum(PARAM_TYPES).optional(),
-  unit: z.string().max(10).optional(),
-  defaultValue: z.string().max(100).optional(),
+  unit: z.string().max(10).nullable().optional(),
+  defaultValue: z.string().max(100).nullable().optional(),
   required: z.boolean().optional(),
-  options: z.array(z.string().max(50)).optional(),
-  min: z.number().optional(),
-  max: z.number().optional(),
+  options: z.array(z.string().max(50)).nullable().optional(),
+  min: z.number().nullable().optional(),
+  max: z.number().nullable().optional(),
   group: z.string().max(20).optional(),
   sortOrder: z.number().int().optional(),
   enabled: z.boolean().optional(),
-  remark: z.string().max(200).optional(),
+  remark: z.string().max(200).nullable().optional(),
 });
 
 const UpdateSchema = ParamSchema.partial();

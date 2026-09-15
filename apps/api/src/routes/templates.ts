@@ -7,7 +7,7 @@ import { prisma } from '../db.js';
 
 const TemplateSchema = z.object({
   name: z.string().min(1).max(40),
-  description: z.string().max(200).optional(),
+  description: z.string().max(200).nullable().optional(),
   itemCodes: z.array(z.string().max(40)).default([]),
   enabled: z.boolean().optional(),
   isDefault: z.boolean().optional(),

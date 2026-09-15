@@ -195,6 +195,7 @@ export default function Materials() {
       lossRate: Number(editing.lossRate),
       currentPrice: Number(editing.currentPrice),
       subCategory: editing.subCategory || null,
+      remark: editing.remark ?? '',
       priceRule: tiered ? 'tiered' : 'fixed',
       priceTiers: tiered
         ? parseTiers(editing.priceTiers).map((t) => ({

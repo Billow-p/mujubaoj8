@@ -17,15 +17,15 @@ function pickQty(vals: any, params: any): number {
 }
 
 const CreateCustomerSchema = z.object({
-  code: z.string().max(30).optional(),
+  code: z.string().max(30).nullable().optional(),
   name: z.string().min(1),
-  contactName: z.string().optional(),
-  email: z.string().email().optional().or(z.literal('')),
-  phone: z.string().optional(),
-  address: z.string().optional(),
-  industry: z.string().optional(),
-  size: z.string().optional(),
-  notes: z.string().optional(),
+  contactName: z.string().nullable().optional(),
+  email: z.union([z.string().email(), z.literal(''), z.null()]).optional(),
+  phone: z.string().nullable().optional(),
+  address: z.string().nullable().optional(),
+  industry: z.string().nullable().optional(),
+  size: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
 });
 
 export async function customerRoutes(app: FastifyInstance) {
