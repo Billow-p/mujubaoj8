@@ -206,10 +206,16 @@ export default function Materials() {
         : [],
     };
     try {
-      if (isNew) await materials.create(body);
-      else await materials.update(editing.id, body);
+      if (isNew) {
+        const created = await materials.create(body);
+        setList((prev) => [...prev, created]);
+        // 新增后自动展开对应分类，让用户立刻看到新行
+        setCollapsed((s) => ({ ...s, [created.category || '未分类']: false }));
+      } else {
+        const updated = await materials.update(editing.id, body);
+        setList((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)));
+      }
       setEditing(null);
-      load();
     } catch (e: any) {
       setFormErr(e.response?.data?.error || e.message || '保存失败');
     }
@@ -233,10 +239,14 @@ export default function Materials() {
 
   /** 直接列表里启用 / 停用（原来只有状态标签，没法切换） */
   const toggleEnabled = async (m: any) => {
+    const next = !m.enabled;
+    // 乐观更新：先改本地状态，避免整页 loading 导致跳动
+    setList((prev) => prev.map((x) => (x.id === m.id ? { ...x, enabled: next } : x)));
     try {
-      await materials.update(m.id, { enabled: !m.enabled });
-      load();
+      await materials.update(m.id, { enabled: next });
     } catch (e: any) {
+      // 失败回滚
+      setList((prev) => prev.map((x) => (x.id === m.id ? { ...x, enabled: m.enabled } : x)));
       fb.toast('操作失败：' + (e.response?.data?.error || e.message), 'err');
     }
   };
@@ -247,8 +257,9 @@ export default function Materials() {
       async () => {
         try {
           await materials.remove(m.id);
+          // 本地移除，避免整页刷新导致跳动
+          setList((prev) => prev.filter((x) => x.id !== m.id));
           fb.toast('已删除');
-          load();
         } catch (e: any) {
           fb.toast(e.response?.data?.error || e.message, 'err');
         }

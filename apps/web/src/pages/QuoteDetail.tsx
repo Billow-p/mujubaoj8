@@ -64,17 +64,17 @@ export default function QuoteDetail() {
   const [adjustForm, setAdjustForm] = useState({ field: 'grandTotalIncVat', adjustedValue: '', reason: '' });
   const fb = useFeedback();
 
-  const load = () => {
+  const load = (silent = false) => {
     if (!id) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     Promise.all([quotes.get(id), quotes.adjustments(id)])
       .then(([data, adj]) => {
         setQ(data);
         setAdjustments(adj);
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!silent) setLoading(false); });
   };
-  useEffect(load, [id]);
+  useEffect(() => load(), [id]);
 
   if (loading) return <div className="max-w-7xl mx-auto p-6 text-gray-400">加载中…</div>;
   if (!q) return <div className="max-w-7xl mx-auto p-6 text-gray-400">报价单不存在</div>;
@@ -156,7 +156,7 @@ export default function QuoteDetail() {
         try {
           await quotes.send(q.id, email);
           fb.toast('已发送');
-          load();
+          load(true);
         } catch (e: any) {
           fb.toast('发送失败：' + (e.response?.data?.error || e.message), 'err');
         }
@@ -185,7 +185,7 @@ export default function QuoteDetail() {
       async () => {
         try {
           await quotes.setStatus(q.id, status);
-          load();
+          load(true);
         } catch (e: any) {
           fb.toast('修改失败：' + (e.response?.data?.error || e.message), 'err');
         }
@@ -206,7 +206,7 @@ export default function QuoteDetail() {
     });
     setAdjustOpen(false);
     setAdjustForm({ field: 'grandTotalIncVat', adjustedValue: '', reason: '' });
-    load();
+    load(true);
   };
 
   return (

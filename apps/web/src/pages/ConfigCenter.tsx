@@ -115,13 +115,13 @@ export default function ConfigCenter() {
     return next;
   };
 
-  const loadConfig = async (id: string) => {
-    setLoading(true);
+  const loadConfig = async (id: string, silent = false) => {
+    if (!silent) setLoading(true);
     const data = await configApi.get(id);
     setCfg(data);
     setDirty(false);
     setOpenItem(null);
-    setLoading(false);
+    if (!silent) setLoading(false);
   };
 
   useEffect(() => {
@@ -393,7 +393,7 @@ export default function ConfigCenter() {
     setSaving(true);
     try {
       await configApi.save(activeId, payload);
-      await loadConfig(activeId);
+      await loadConfig(activeId, true);
       await loadTypes(activeId);
     } catch (e: any) {
       fb.toast('保存失败：' + (e.response?.data?.error || e.message), 'err');
@@ -425,7 +425,7 @@ export default function ConfigCenter() {
       try {
         const r = await configApi.initPreset({ code: t.code });
         await loadTypes(activeId!);
-        await loadConfig(activeId!);
+        await loadConfig(activeId!, true);
         const parts: string[] = [];
         if (r.created) parts.push('新建了这套配置');
         if (r.addedParams) parts.push(`补参数 ${r.addedParams} 个`);
@@ -456,7 +456,7 @@ export default function ConfigCenter() {
       setTogglingPriceMode(true);
       try {
         await configApi.updateMoldType(activeId!, { priceFromLibrary: !cur });
-        await loadConfig(activeId!);
+        await loadConfig(activeId!, true);
         fb.toast(!cur ? '材料库价格模式已开启，价格已按材料库刷新' : '已关闭材料库价格模式，价格可手动编辑');
       } catch (e: any) {
         fb.toast('操作失败：' + (e.response?.data?.error || e.message), 'err');
@@ -501,7 +501,7 @@ export default function ConfigCenter() {
         try {
           const created = await configApi.createMoldType(copyFrom ? { name, copyFromId: activeId! } : { name });
           await loadTypes(created.id);
-          await loadConfig(created.id);
+          await loadConfig(created.id, true);
           fb.toast(`已创建「${name}」${copyFrom ? '（已复制当前配置）' : ''}`);
         } catch (e: any) {
           fb.toast('创建失败：' + (e.response?.data?.error || e.message), 'err');
@@ -520,7 +520,7 @@ export default function ConfigCenter() {
         try {
           await configApi.updateMoldType(activeId!, { name });
           await loadTypes(activeId!);
-          await loadConfig(activeId!);
+          await loadConfig(activeId!, true);
           fb.toast('已重命名');
         } catch (e: any) {
           fb.toast('重命名失败：' + (e.response?.data?.error || e.message), 'err');
