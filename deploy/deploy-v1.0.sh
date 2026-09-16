@@ -90,6 +90,8 @@ ssh -o StrictHostKeyChecking=no root@47.242.248.104 "
   node scripts/migrate-fix-freight.mjs
   echo '==> [6.9/8] 确保全局材料库编码唯一索引（db push 可能清掉，每次重建）'
   node scripts/migrate-add-material-unique.mjs
+  echo '==> [6.10/8] 补齐模具预置参数 v2（前后模钢材/模具寿命/滑块斜顶/双色系数 + 参数分区调整）'
+  node scripts/migrate-mold-params-v2.mjs
 "
 
 echo "==> [7/8] 更新 Nginx 配置并重启服务"
