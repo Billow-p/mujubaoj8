@@ -48,3 +48,6 @@ uploads/
 # OpenCascade 运行时（构建时从 node_modules 复制，不进版本库）
 apps/web/public/occt/occt-import-js.js
 apps/web/public/occt/occt-import-js.wasm
+
+# vite 临时文件
+apps/web/vite.config.ts.timestamp-*.mjs
