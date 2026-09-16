@@ -30,6 +30,18 @@ function pickLoss(varName: string | undefined, fixed: number | undefined): strin
   return Number.isFinite(f) ? String(f) : '0';
 }
 
+/**
+ * 单价的中文读法：多价来源（前后模钢材）显示为「前模钢材 / 后模钢材 综合价」，
+ * 单来源显示参数名，都没有则显示固定数值。
+ */
+function priceText(c: QuoteItemCalcConfig): string {
+  const vars = (c.priceVars ?? []).filter((v) => v && String(v).trim()) as string[];
+  if (vars.length) return `${vars.join(' / ')} 综合价`;
+  const pv = c.priceVar;
+  if (pv && pv.trim()) return `${pv.trim()} 元`;
+  return `${Number(c.priceFixed) || 0} 元`;
+}
+
 /** 损耗的中文读法：优先显示参数名，否则显示固定数值；都没有则返回空 */
 function lossText(c: QuoteItemCalcConfig): string {
   if (c.lossVar && c.lossVar.trim()) return `损耗 ${c.lossVar.trim()}`;
@@ -66,12 +78,40 @@ export function normalizeItemVars(
       put(c.densityVar, c.density ?? 1);
       put(c.lossVar, c.loss ?? 0);
       put(c.priceVar, c.priceFixed);
+      // 多价来源（前后模钢材）：没传时补 0，交给表达式回落到公共单价
+      for (const v of c.priceVars ?? []) put(v, 0);
     } else if (it.calcType === 'weight') {
       put(c.lossVar, c.loss ?? 0);
       put(c.priceVar, c.priceFixed);
+      for (const v of c.priceVars ?? []) put(v, 0);
     }
   }
   return out;
+}
+
+/**
+ * 单价表达式 —— 支持「多价来源 + 权重」。
+ *
+ * 场景：模具前后模用不同钢材（前模型腔 S136、后模型芯 NAK80），
+ * 钢料费需要一个综合单价。做法是按权重加权，且**某个来源没选（值为 0）时
+ * 自动回落到公共钢材单价**，所以：
+ *   - 前后模都没选 → 加权结果 = 公共单价，与老配置**完全一致**；
+ *   - 只选了一个 → 该部分用选的价，另一部分仍走公共单价。
+ * 权重之和按 1 设计（如前模 0.4 / 后模 0.6）。
+ */
+function buildPriceExpr(c: QuoteItemCalcConfig): string {
+  const vars = (c.priceVars ?? []).filter((v) => v && String(v).trim()) as string[];
+  if (!vars.length) return pick(c.priceVar, c.priceFixed);
+
+  const fallback = pick(c.priceVar, c.priceFixed);
+  const raw = c.priceWeights ?? [];
+  const weights =
+    raw.length === vars.length ? raw.map((w) => Number(w) || 0) : vars.map(() => 1 / vars.length);
+
+  const parts = vars.map(
+    (v, i) => `${weights[i]} * 如果 ( ${v} > 0, ${v}, ${fallback} )`,
+  );
+  return `( ${parts.join(' + ')} )`;
 }
 
 /** 由「计算方式 + 配置」生成表达式（中文变量名，求值器原生支持） */
@@ -90,7 +130,7 @@ export function buildItemExpression(item: QuoteItemDef): string {
       // 长×宽×高(mm³) ÷1000→cm³ ×密度(g/cm³) ÷1000→kg ×单价(元/kg) ×(1+损耗)
       return (
         `${dims.join(' * ')} / 1000 * ${pick(c.densityVar, c.density, '1')} / 1000 * ` +
-        `${pick(c.priceVar, c.priceFixed)} * ( 1 + ${pickLoss(c.lossVar, c.loss)} )`
+        `${buildPriceExpr(c)} * ( 1 + ${pickLoss(c.lossVar, c.loss)} )`
       );
     }
 
@@ -99,7 +139,7 @@ export function buildItemExpression(item: QuoteItemDef): string {
 
     case 'weight':
       return (
-        `${pick(c.wVar, undefined, '0')} * ${pick(c.priceVar, c.priceFixed)} * ` +
+        `${pick(c.wVar, undefined, '0')} * ${buildPriceExpr(c)} * ` +
         `( 1 + ${pickLoss(c.lossVar, c.loss)} )`
       );
 
@@ -132,7 +172,7 @@ export function describeItem(item: QuoteItemDef): string {
     case 'size': {
       const dims = [c.l, c.w, c.h].filter((x) => x && String(x).trim());
       const loss = lossText(c);
-      return `${dims.join(' × ')} → 换算重量 × ${c.priceVar || (Number(c.priceFixed) || 0) + ' 元'}${
+      return `${dims.join(' × ')} → 换算重量 × ${priceText(c)}${
         loss ? ` × (1 + ${loss})` : ''
       }${tail}`;
     }
@@ -142,8 +182,13 @@ export function describeItem(item: QuoteItemDef): string {
       return `${c.wVar || '重量'} × ${c.priceVar || (Number(c.priceFixed) || 0) + ' 元'} × (1 + ${
         lossText(c) || '损耗 0'
       })${tail}`;
-    case 'percent':
-      return `${c.base || '模具小计'} × ${r2((Number(c.rate) || 0) * 100)}%`;
+    case 'percent': {
+      const base = c.base || '模具小计';
+      // 比例来自参数时直接显示参数名，比一个写死的百分比更有信息量
+      return c.rateVar
+        ? `${base} × ${c.rateVar}`
+        : `${base} × ${r2((Number(c.rate) || 0) * 100)}%`;
+    }
     case 'manual':
       return per ? '报价时手动填写单件成本' : '报价时手动填写金额';
     case 'formula':
@@ -326,7 +371,9 @@ export function calculateConfigured(
   let mold = directMold;
   let injection = directInjection;
   for (const { idx, it } of percentQueue) {
-    const rate = Number(it.calcConfig?.rate) || 0;
+    // 比例优先取自参数（如「模具寿命加价系数」随下拉档位变化），否则用配置里的固定 rate
+    const rateVar = it.calcConfig?.rateVar;
+    const rate = rateVar ? Number(scope[rateVar]) || 0 : Number(it.calcConfig?.rate) || 0;
     const baseName = it.calcConfig?.base ?? '模具小计';
     const from =
       baseName === '材料费合计'
@@ -343,7 +390,7 @@ export function calculateConfigured(
     lines[idx] = {
       ...meta(it),
       value: r2(v),
-      expression: `${from} * ${rate}`,
+      expression: `${from} * ${rateVar ? `${rateVar}(${rate})` : rate}`,
       readable: describeItem(it),
       qty: isInj ? injectionQty : undefined,
       unitPrice: isInj && injectionQty > 0 ? r2(v / injectionQty) : undefined,

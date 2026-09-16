@@ -85,6 +85,51 @@ const SMALL_BASE_OPTIONS = [
   { label: '3535 标准模架', value: 5600 },
 ];
 
+// ---- 前 / 后模钢材（前模型腔、后模型芯分开选，value = 钢材单价 元/kg）----
+// 0 = 按公共参数「钢材单价」计；这里只是预置参考价，可在材料库与配置中心里改。
+const FRONT_MOLD_STEEL_OPTIONS = [
+  { label: '按公共钢材单价', value: 0 },
+  { label: 'S136 不锈钢（耐腐蚀）', value: 48 },
+  { label: 'NAK80 预硬钢（镜面）', value: 52 },
+  { label: '718H 预硬钢', value: 32 },
+  { label: 'H13 热作钢', value: 45 },
+  { label: 'P20 预硬钢（经济型）', value: 25 },
+];
+const REAR_MOLD_STEEL_OPTIONS = [
+  { label: '按公共钢材单价', value: 0 },
+  { label: '718H 预硬钢', value: 32 },
+  { label: 'NAK80 预硬钢（抚顺）', value: 50 },
+  { label: 'H13 热作钢', value: 45 },
+  { label: 'P20 预硬钢（经济型）', value: 25 },
+  { label: 'S136 不锈钢', value: 48 },
+];
+
+/**
+ * 模具寿命档 —— value 是「模具寿命加价比例」，不是万次数。
+ * 寿命越长，对钢材等级与热处理要求越高，所以按比例加价。
+ * 2 万模为基准（不加价），其余为相对基准的加价幅度。
+ */
+const MOLD_LIFE_OPTIONS = [
+  { label: '2 万模（基准）', value: 0 },
+  { label: '5 万模（+3%）', value: 0.03 },
+  { label: '10 万模（+6%）', value: 0.06 },
+  { label: '20 万模（+10%）', value: 0.1 },
+  { label: '30 万模（+15%）', value: 0.15 },
+  { label: '50 万模（+20%）', value: 0.2 },
+  { label: '50 万模以上（+28%）', value: 0.28 },
+];
+
+/**
+ * 双色模结构系数 —— value 是「加价比例」。
+ * 单色为基准；滑板式结构复杂度中等；旋转式要加转盘机构，成本翻倍。
+ */
+const TWO_COLOR_OPTIONS = [
+  { label: '单色模具（基准）', value: 0 },
+  { label: '滑板式双色模（+30%）', value: 0.3 },
+  { label: '旋转式双色模（+100%）', value: 1 },
+];
+
+
 export const MOLD_PRESETS: PresetMoldType[] = [
   {
     code: 'injection',
@@ -105,6 +150,19 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { code: 'edmHours', name: 'EDM工时', value: 0, unit: '小时', group: '模具', scope: 'mold' },
       { code: 'wireCutLength', name: '线切割长度', value: 0, unit: 'mm', group: '模具', scope: 'mold' },
       { code: 'polishHours', name: '抛光工时', value: 0, unit: '小时', group: '模具', scope: 'mold' },
+      // —— 前/后模钢材：分开选牌号。都不选时自动回落到下面的「钢材单价」，结果与老配置完全一致 ——
+      { code: 'frontMoldSteel', name: '前模钢材', value: '0', unit: '', group: '材料', type: 'select', scope: 'mold',
+        options: FRONT_MOLD_STEEL_OPTIONS },
+      { code: 'rearMoldSteel', name: '后模钢材', value: '0', unit: '', group: '材料', type: 'select', scope: 'mold',
+        options: REAR_MOLD_STEEL_OPTIONS },
+      // —— 滑块/斜顶：按个数计价，0 = 不计 ——
+      { code: 'slideCount', name: '滑块斜顶数量', value: 0, unit: '个', group: '模具', scope: 'mold' },
+      // —— 模具寿命档：value 是加价比例（见 MOLD_LIFE_OPTIONS 注释） ——
+      { code: 'moldLife', name: '模具寿命', value: '0', unit: '', group: '模具', type: 'select', scope: 'mold',
+        options: MOLD_LIFE_OPTIONS },
+      // —— 双色模结构系数：value 是加价比例 ——
+      { code: 'twoColorCoef', name: '双色模系数', value: '0', unit: '', group: '模具', type: 'select', scope: 'mold',
+        options: TWO_COLOR_OPTIONS },
       { code: 'materialPrice', name: '钢材单价', value: 25, unit: '元/kg', group: '材料', scope: 'common', materialCode: 'P20' },
       { code: 'steelDensity', name: '钢材密度', value: 7.85, unit: 'g/cm³', group: '材料', scope: 'common' },
       { code: 'steelLossRate', name: '钢材损耗率', value: 0.1, unit: '', group: '材料', scope: 'common' },
@@ -136,6 +194,9 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { code: 'PC', name: 'PC', category: '塑料原料', subCategory: '工程塑料', unit: 'kg', price: 26, lossRate: 0.05, density: 1.2 },
       { code: 'P20', name: 'P20 预硬钢', category: '模具钢材', subCategory: '预硬塑胶模具钢', unit: 'kg', price: 25, lossRate: 0.1, density: 7.85 },
       { code: '718H', name: '718H 预硬钢', category: '模具钢材', subCategory: '预硬塑胶模具钢', unit: 'kg', price: 32, lossRate: 0.1, density: 7.85 },
+      { code: 'NAK80', name: 'NAK80 预硬钢', category: '模具钢材', subCategory: '镜面塑胶模具钢', unit: 'kg', price: 52, lossRate: 0.1, density: 7.85 },
+      { code: 'S136', name: 'S136 不锈钢', category: '模具钢材', subCategory: '耐腐蚀塑胶模具钢', unit: 'kg', price: 48, lossRate: 0.1, density: 7.85 },
+      { code: 'H13', name: 'H13 热作钢', category: '模具钢材', subCategory: '热作模具钢', unit: 'kg', price: 45, lossRate: 0.12, density: 7.85 },
     ],
     terms: [
       '以上总价含 13% 增值税，开具增值税专用发票。',
@@ -147,10 +208,21 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       // 钢材来自材料库（方案 A）：选了牌号就按该牌号的单价/密度/损耗率算；
       // 没选则回落到「钢材单价 / 钢材密度 / 钢材损耗率」这三个公共参数。
       { name: '模芯钢材费', category: '材料费', scope: 'mold', calcType: 'size',
-        calcConfig: { l: '模芯长', w: '模芯宽', h: '模芯高', density: 7.85, densityVar: '钢材密度', priceVar: '钢材单价', lossVar: '钢材损耗率' } },
+        calcConfig: {
+          l: '模芯长', w: '模芯宽', h: '模芯高', density: 7.85, densityVar: '钢材密度',
+          lossVar: '钢材损耗率',
+          // 前后模选了牌号就按牌号加权（前模型腔 40% / 后模型芯 60%），没选则回落到「钢材单价」
+          priceVar: '钢材单价', priceFixed: 25,
+          priceVars: ['前模钢材', '后模钢材'], priceWeights: [0.4, 0.6],
+        } },
       { name: 'CNC 加工费', category: 'CNC', scope: 'mold', calcType: 'hours', calcConfig: { hours: 96, rate: 400 } },
       { name: '设计费', category: '自定义', scope: 'mold', calcType: 'fixed', calcConfig: { amount: 6000 } },
       { name: '试模费', category: '试模', scope: 'mold', calcType: 'qty', calcConfig: { src: '腔数', price: 2500 } },
+      // —— 滑块/斜顶：按个数 × 单价（每个滑块/斜顶的加工与标准件成本） ——
+      { name: '滑块斜顶费', category: '自定义', scope: 'mold', calcType: 'qty', calcConfig: { src: '滑块斜顶数量', price: 3500 } },
+      // —— 寿命 / 双色结构加价：按「模具小计」的比例加价，比例随下拉档位变化 ——
+      { name: '模具寿命加价', category: '自定义', scope: 'mold', calcType: 'percent', calcConfig: { base: '模具小计', rateVar: '模具寿命' } },
+      { name: '双色模加价', category: '自定义', scope: 'mold', calcType: 'percent', calcConfig: { base: '模具小计', rateVar: '双色模系数' } },
       // ------- 下面这批默认都是 0，报价时不填就不计钱 -------
       // 模架（模胚）：标准模架按规格选，选「不另计模架费」就是 0
       { name: '模架费', category: '模架', scope: 'mold', calcType: 'qty', calcConfig: { src: '模架规格', price: 1 } },

@@ -325,8 +325,23 @@ export interface QuoteItemCalcConfig {
   densityVar?: string;
   priceVar?: string;
   priceFixed?: number;
+  /**
+   * 多价来源（如前后模用不同钢材）：['前模钢材', '后模钢材']。
+   * 与 priceWeights 配对使用，按权重加权出一个综合单价；
+   * 某项参数为 0 时自动回落到 priceVar / priceFixed（即「按公共钢材单价」）。
+   * 仅 size 类型使用；不填时行为与只有 priceVar 完全一致。
+   */
+  priceVars?: string[];
+  /** priceVars 各自权重，长度需与 priceVars 一致，通常和为 1（如前模 0.4 / 后模 0.6） */
+  priceWeights?: number[];
   hours?: number;
   rate?: number;
+  /**
+   * 比例来源参数名（如「模具寿命加价系数」）。
+   * 填了就用该参数的值当比例，忽略 rate；参数值 0.15 即 15%。
+   * 仅 percent 类型使用。
+   */
+  rateVar?: string;
   wVar?: string;
   /** 固定损耗率。未选材料时使用 */
   loss?: number;

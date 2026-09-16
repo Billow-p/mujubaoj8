@@ -483,6 +483,33 @@ async function incrementalFill(
     }
   }
 
+  // 给已有费用项补「多价来源」（如模芯钢材费 → 前模钢材 / 后模钢材 加权）。
+  //
+  // 这一步是**纯增量且金额中性**的：新增的 priceVars 对应参数若为 0，
+  // 表达式会回退到 priceVar（公共钢材单价），算出来的钱与补之前完全一致。
+  // 只有用户真的去选了前/后模牌号，金额才会变。
+  for (const it of p.items) {
+    const priceVars = it.calcConfig?.priceVars as string[] | undefined;
+    if (!priceVars?.length) continue;
+    const row = await prisma.quoteItem.findFirst({
+      where: { companyId, moldTypeId, name: it.name },
+      select: { id: true, calcConfig: true },
+    });
+    if (!row) continue;
+    const cfg: any = (row.calcConfig as any) ?? {};
+    if (Array.isArray(cfg.priceVars) && cfg.priceVars.length) continue; // 已升级过
+    await prisma.quoteItem.update({
+      where: { id: row.id },
+      data: {
+        calcConfig: {
+          ...cfg,
+          priceVars,
+          priceWeights: (it.calcConfig?.priceWeights as number[] | undefined) ?? [],
+        } as any,
+      },
+    });
+  }
+
   let addedItems = 0;
   const missingItems = p.items.filter((x) => !itemNames.has(x.name));
   if (missingItems.length) {
