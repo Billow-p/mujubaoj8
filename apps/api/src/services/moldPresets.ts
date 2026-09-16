@@ -6,13 +6,19 @@
 //   2) 价格参数通过 materialCode 绑定默认材料（材料库为价格真源），
 //      「从材料库同步价格」只给当前为空/0 的参数填价，已设值一律不动。
 
+/**
+ * 参数控件类型：
+ *   decimal —— 数字输入（默认）
+ *   select  —— 固定下拉，选项写在 options 里
+ *   material—— 材料库下拉，选项来自「材料中心」的某个分类（默认模具钢材），
+ *              价格永远跟材料库同步，改材料中心即全局生效
+ */
 export interface PresetParam {
   code: string;
   name: string;
   value: number | string;
   unit: string;
   group: string;
-  /** 参数控件类型：decimal（默认，数字输入）| select（下拉） */
   type?: string;
   /** type='select' 时的选项，value 必须是数字（公式里按数值参与计算） */
   options?: { label: string; value: number }[];
@@ -85,24 +91,10 @@ const SMALL_BASE_OPTIONS = [
   { label: '3535 标准模架', value: 5600 },
 ];
 
-// ---- 前 / 后模钢材（前模型腔、后模型芯分开选，value = 钢材单价 元/kg）----
-// 0 = 按公共参数「钢材单价」计；这里只是预置参考价，可在材料库与配置中心里改。
-const FRONT_MOLD_STEEL_OPTIONS = [
-  { label: '按公共钢材单价', value: 0 },
-  { label: 'S136 不锈钢（耐腐蚀）', value: 48 },
-  { label: 'NAK80 预硬钢（镜面）', value: 52 },
-  { label: '718H 预硬钢', value: 32 },
-  { label: 'H13 热作钢', value: 45 },
-  { label: 'P20 预硬钢（经济型）', value: 25 },
-];
-const REAR_MOLD_STEEL_OPTIONS = [
-  { label: '按公共钢材单价', value: 0 },
-  { label: '718H 预硬钢', value: 32 },
-  { label: 'NAK80 预硬钢（抚顺）', value: 50 },
-  { label: 'H13 热作钢', value: 45 },
-  { label: 'P20 预硬钢（经济型）', value: 25 },
-  { label: 'S136 不锈钢', value: 48 },
-];
+// ---- 前 / 后模钢材 ----
+// 不再写死牌号与价格：改用 type='material'，下拉选项直接取「材料中心 → 模具钢材」分类，
+// 值 = 该材料的单价（元/kg）。这样材料中心改价，报价页自动跟着变，只有一处数据源。
+// 值为 0 表示「按公共参数『钢材单价』计」。
 
 /**
  * 模具寿命档 —— value 是「模具寿命加价比例」，不是万次数。
@@ -150,11 +142,10 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { code: 'edmHours', name: 'EDM工时', value: 0, unit: '小时', group: '模具', scope: 'mold' },
       { code: 'wireCutLength', name: '线切割长度', value: 0, unit: 'mm', group: '模具', scope: 'mold' },
       { code: 'polishHours', name: '抛光工时', value: 0, unit: '小时', group: '模具', scope: 'mold' },
-      // —— 前/后模钢材：分开选牌号。都不选时自动回落到下面的「钢材单价」，结果与老配置完全一致 ——
-      { code: 'frontMoldSteel', name: '前模钢材', value: '0', unit: '', group: '材料', type: 'select', scope: 'mold',
-        options: FRONT_MOLD_STEEL_OPTIONS },
-      { code: 'rearMoldSteel', name: '后模钢材', value: '0', unit: '', group: '材料', type: 'select', scope: 'mold',
-        options: REAR_MOLD_STEEL_OPTIONS },
+      // —— 前/后模钢材：分开选牌号，下拉选项来自材料中心的「模具钢材」分类 ——
+      // 都不选（值为 0）时自动回落到下面的「钢材单价」，结果与老配置完全一致
+      { code: 'frontMoldSteel', name: '前模钢材', value: '0', unit: '', group: '材料', type: 'material', scope: 'mold' },
+      { code: 'rearMoldSteel', name: '后模钢材', value: '0', unit: '', group: '材料', type: 'material', scope: 'mold' },
       // —— 滑块/斜顶：按个数计价，0 = 不计 ——
       { code: 'slideCount', name: '滑块斜顶数量', value: 0, unit: '个', group: '模具', scope: 'mold' },
       // —— 模具寿命档：value 是加价比例（见 MOLD_LIFE_OPTIONS 注释） ——
@@ -195,8 +186,10 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { code: 'PC', name: 'PC', category: '塑料原料', subCategory: '工程塑料', unit: 'kg', price: 26, lossRate: 0.05, density: 1.2 },
       { code: 'P20', name: 'P20 预硬钢', category: '模具钢材', subCategory: '预硬塑胶模具钢', unit: 'kg', price: 25, lossRate: 0.1, density: 7.85 },
       { code: '718H', name: '718H 预硬钢', category: '模具钢材', subCategory: '预硬塑胶模具钢', unit: 'kg', price: 32, lossRate: 0.1, density: 7.85 },
-      { code: 'NAK80', name: 'NAK80 预硬钢', category: '模具钢材', subCategory: '镜面塑胶模具钢', unit: 'kg', price: 52, lossRate: 0.1, density: 7.85 },
-      { code: 'S136', name: 'S136 不锈钢', category: '模具钢材', subCategory: '耐腐蚀塑胶模具钢', unit: 'kg', price: 48, lossRate: 0.1, density: 7.85 },
+      // 注意：这个 materials 数组已不再用于建库（材料统一由「材料中心」维护），
+      // 保留仅为兼容旧引用；价格与材料中心保持一致，避免误导。
+      { code: 'NAK80', name: 'NAK80 镜面预硬钢', category: '模具钢材', subCategory: '预硬塑胶模具钢', unit: 'kg', price: 60, lossRate: 0.12, density: 7.85 },
+      { code: 'S136', name: 'S136 镜面耐腐蚀钢', category: '模具钢材', subCategory: '镜面耐腐蚀钢', unit: 'kg', price: 55, lossRate: 0.12, density: 7.85 },
       { code: 'H13', name: 'H13 热作钢', category: '模具钢材', subCategory: '热作模具钢', unit: 'kg', price: 45, lossRate: 0.12, density: 7.85 },
     ],
     terms: [

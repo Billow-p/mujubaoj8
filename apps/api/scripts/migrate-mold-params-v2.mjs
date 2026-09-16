@@ -23,6 +23,7 @@ async function main() {
 
   let totalParams = 0;
   let totalMoved = 0;
+  let totalType = 0;
   let totalItems = 0;
   let totalVars = 0;
 
@@ -33,7 +34,7 @@ async function main() {
     const [params, items] = await Promise.all([
       prisma.customParameter.findMany({
         where: { moldTypeId: mt.id },
-        select: { id: true, code: true, scope: true },
+        select: { id: true, code: true, scope: true, type: true, options: true },
       }),
       prisma.quoteItem.findMany({
         where: { moldTypeId: mt.id },
@@ -74,6 +75,24 @@ async function main() {
       if (!want || want === row.scope) continue;
       await prisma.customParameter.update({ where: { id: row.id }, data: { scope: want } });
       moved++;
+    }
+
+    // ---- 2.5) 同步参数控件类型与选项 ----
+    // 典型场景：前/后模钢材从「写死价格的下拉」改成「材料库下拉」（type='material'），
+    // 这样材料中心改价，报价页自动跟着变，只有一处数据源。
+    let typeFixed = 0;
+    for (const row of params) {
+      const pre = preset.params.find((x) => x.code === row.code);
+      if (!pre) continue;
+      const wantType = pre.type ?? 'decimal';
+      const wantOptions = pre.options ? JSON.stringify(pre.options) : null;
+      if (row.type !== wantType || row.options !== wantOptions) {
+        await prisma.customParameter.update({
+          where: { id: row.id },
+          data: { type: wantType, options: wantOptions },
+        });
+        typeFixed++;
+      }
     }
 
     // ---- 3) 补缺失费用项 ----
@@ -120,15 +139,16 @@ async function main() {
 
     totalParams += missingParams.length;
     totalMoved += moved;
+    totalType += typeFixed;
     totalItems += missingItems.length;
     totalVars += varsFixed;
     console.log(
-      `- ${mt.name}：新增参数 ${missingParams.length}，搬作用域 ${moved}，新增费用项 ${missingItems.length}，补 priceVars ${varsFixed}`,
+      `- ${mt.name}：新增参数 ${missingParams.length}，搬作用域 ${moved}，控件类型 ${typeFixed}，新增费用项 ${missingItems.length}，补 priceVars ${varsFixed}`,
     );
   }
 
   console.log(
-    `\n完成：共新增参数 ${totalParams} 个、作用域调整 ${totalMoved} 个、新增费用项 ${totalItems} 个、补 priceVars ${totalVars} 个`,
+    `\n完成：共新增参数 ${totalParams} 个、作用域调整 ${totalMoved} 个、控件类型修正 ${totalType} 个、新增费用项 ${totalItems} 个、补 priceVars ${totalVars} 个`,
   );
 }
 

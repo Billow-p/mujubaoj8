@@ -259,6 +259,7 @@ export default function ConfigCenter() {
           >
             <option value="decimal">数字</option>
             <option value="select">下拉</option>
+            <option value="material">材料</option>
           </select>
           <button
             onClick={() => patch((c) => { c.parameters.splice(i, 1); })}
