@@ -137,7 +137,7 @@ export const MOLD_PRESETS: PresetMoldType[] = [
     profitRate: 0.1,
     taxRate: 0.13,
     params: [
-      { code: 'cavityCount', name: '腔数', value: 2, unit: '穴', group: '产品', scope: 'common' },
+      { code: 'cavityCount', name: '腔数', value: 2, unit: '穴', group: '产品', scope: 'mold' },
       { code: 'singleWeightKg', name: '单件重量', value: 0.18, unit: 'kg', group: '产品', scope: 'injection' },
       { code: 'coreLengthMm', name: '模芯长', value: 500, unit: 'mm', group: '模具', scope: 'mold' },
       { code: 'coreWidthMm', name: '模芯宽', value: 400, unit: 'mm', group: '模具', scope: 'mold' },
@@ -163,9 +163,10 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       // —— 双色模结构系数：value 是加价比例 ——
       { code: 'twoColorCoef', name: '双色模系数', value: '0', unit: '', group: '模具', type: 'select', scope: 'mold',
         options: TWO_COLOR_OPTIONS },
-      { code: 'materialPrice', name: '钢材单价', value: 25, unit: '元/kg', group: '材料', scope: 'common', materialCode: 'P20' },
-      { code: 'steelDensity', name: '钢材密度', value: 7.85, unit: 'g/cm³', group: '材料', scope: 'common' },
-      { code: 'steelLossRate', name: '钢材损耗率', value: 0.1, unit: '', group: '材料', scope: 'common' },
+      // 钢材三件套属于「一套模具自己的事」——作用域放在模具，跟着每套模具走
+      { code: 'materialPrice', name: '钢材单价', value: 25, unit: '元/kg', group: '材料', scope: 'mold', materialCode: 'P20' },
+      { code: 'steelDensity', name: '钢材密度', value: 7.85, unit: 'g/cm³', group: '材料', scope: 'mold' },
+      { code: 'steelLossRate', name: '钢材损耗率', value: 0.1, unit: '', group: '材料', scope: 'mold' },
       { code: 'materialUnitPrice', name: '原料单价', value: 12, unit: '元/kg', group: '材料', scope: 'injection', materialCode: 'ABS' },
       // 原料损耗率：选了材料库材料时用该牌号的损耗率，未选则用这里的值（默认与旧固定值一致）
       { code: 'materialLossRate', name: '原料损耗率', value: 0.05, unit: '', group: '材料', scope: 'injection' },

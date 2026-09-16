@@ -440,7 +440,7 @@ async function incrementalFill(
 ): Promise<{ addedParams: number; addedItems: number; filledPrices: number }> {
   const [moldType, params, items, terms] = await Promise.all([
     prisma.moldType.findUnique({ where: { id: moldTypeId }, select: { priceFromLibrary: true } }),
-    prisma.customParameter.findMany({ where: { companyId, moldTypeId }, select: { id: true, code: true, materialCode: true } }),
+    prisma.customParameter.findMany({ where: { companyId, moldTypeId }, select: { id: true, code: true, scope: true, materialCode: true } }),
     prisma.quoteItem.findMany({ where: { companyId, moldTypeId }, select: { name: true } }),
     prisma.businessTerm.findMany({ where: { companyId, moldTypeId }, select: { text: true } }),
   ]);
@@ -481,6 +481,18 @@ async function incrementalFill(
         data: { materialCode: presetByCode.get(row.code)!.materialCode! },
       });
     }
+  }
+
+  // 同步作用域（公共 / 模具 / 注塑件）—— 布局调整后，已有企业也能跟着变。
+  // 只按预置声明同步；用户自建的参数（不在预置里）不动。
+  for (const row of params) {
+    const presetParam = presetByCode.get(row.code);
+    const want = presetParam?.scope;
+    if (!want || want === row.scope) continue;
+    await prisma.customParameter.update({
+      where: { id: row.id },
+      data: { scope: want },
+    });
   }
 
   // 给已有费用项补「多价来源」（如模芯钢材费 → 前模钢材 / 后模钢材 加权）。

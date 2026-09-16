@@ -327,7 +327,9 @@ export default function ConfiguredQuote() {
           const p: Record<string, any> = {};
           for (const d of data.parameters ?? []) {
             if ((d.scope as string) === 'mold' && d.enabled !== false) {
-              const raw = m.params?.[d.name];
+              // 兼容老报价单：早期「腔数 / 钢材单价 / 钢材密度 / 钢材损耗率」存在整单公共参数里，
+              // 后来改到模具作用域。这里回落到旧位置取值，避免重新打开时丢成默认值。
+              const raw = m.params?.[d.name] ?? srcCommon.params?.[d.name];
               p[d.name] = raw !== undefined && raw !== '' ? raw : (d.defaultValue ?? '');
             }
           }
@@ -406,11 +408,15 @@ export default function ConfiguredQuote() {
         const mat = matByCode.get(m.materialCode);
         if (mat) {
           const dVar = moldSteelVars.densityVar;
-          // 密度取「材料库的密度」优先（引擎会用它算重量），再退回整单参数/配置固定值
+          // 密度取「材料库的密度」优先（引擎会用它算重量）；
+          // 没接材料库时先看本套模具填的密度，再回落到整单公共参数与配置固定值。
           const density =
             mat.density != null
               ? Number(mat.density)
-              : Number(commonParams[dVar ?? '']) || Number(moldSteelVars.cfg?.density) || 0;
+              : Number(mp[dVar ?? '']) ||
+                Number(commonParams[dVar ?? '']) ||
+                Number(moldSteelVars.cfg?.density) ||
+                0;
           // 阶梯价的用量口径 = 本套模具的钢材用量(kg)
           const weightKg = sizeWeightKg(moldSteelVars.cfg, { ...mp, ...(dVar ? { [dVar]: density } : {}) });
           if (moldSteelVars.priceVar && !m.off[moldSteelVars.priceVar]) {
