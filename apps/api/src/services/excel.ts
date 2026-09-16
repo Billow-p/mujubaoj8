@@ -8,6 +8,9 @@
 // 两段共用同一套表头（单价、数量列模具段留「—」），保证列对齐、读起来清楚。
 
 import ExcelJS from 'exceljs';
+import fs from 'fs';
+import path from 'path';
+import { uploadRoot } from '../routes/uploads.js';
 
 const C = {
   brand: 'FF1E40AF',
@@ -52,6 +55,56 @@ export interface ExcelLine {
   perUnit?: boolean;
 }
 
+/**
+ * 件图 —— 报价单里每个模具 / 注塑件配一张图，客户一眼知道报的是哪个件。
+ * imageUrl 支持两种：/uploads/<文件名>（本地目录）或 data:image/...;base64,...
+ */
+export interface ExcelPieceImage {
+  /** 件名，如「模具 1」「注塑件 2」 */
+  label: string;
+  imageUrl: string;
+  /** 图上那句话，如「模芯 500×400×150 · P20 · 1 模 2 穴」 */
+  caption?: string;
+}
+
+/**
+ * 把件图 URL 解析成 exceljs 能用的图片源。
+ * 只认本地 uploads 目录与 data URL，且只支持 exceljs 认得的格式（png / jpeg / gif）。
+ * 任何异常都返回 null —— 一张图坏了不能让整张报价单导不出来。
+ */
+function resolveImageSource(
+  url: string,
+): { buffer: Buffer; extension: 'png' | 'jpeg' | 'gif' } | null {
+  if (!url) return null;
+
+  // data URL（3D 渲染截图走这条路）
+  const m = /^data:image\/(png|jpeg|jpg|gif);base64,([\s\S]+)$/i.exec(url);
+  if (m) {
+    const raw = m[1].toLowerCase();
+    const extension = raw === 'png' ? 'png' : raw === 'gif' ? 'gif' : 'jpeg';
+    try {
+      const buffer = Buffer.from(m[2], 'base64');
+      return buffer.length ? { buffer, extension } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // /uploads/<文件名>
+  const name = url.split('?')[0].split('/').pop() || '';
+  if (!/^[a-f0-9]{20}\.(png|jpg|jpeg|gif)$/i.test(name)) return null;
+  const full = path.join(uploadRoot(), name);
+  if (!fs.existsSync(full)) return null;
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  const extension = ext === 'png' ? 'png' : ext === 'gif' ? 'gif' : 'jpeg';
+  try {
+    const buffer = fs.readFileSync(full);
+    return buffer.length ? { buffer, extension } : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface ExcelQuoteModel {
   company?: { name?: string; phone?: string; address?: string; email?: string };
   quoteNo: string;
@@ -68,6 +121,10 @@ export interface ExcelQuoteModel {
   project: { label: string; value: string }[];
   moldLines: ExcelLine[];
   injectionLines: ExcelLine[];
+  /** 每套模具的件图（有图才出现，按顺序排在模具费用明细之前） */
+  moldPieces?: ExcelPieceImage[];
+  /** 每个注塑件的件图 */
+  partPieces?: ExcelPieceImage[];
   summary: {
     mold: number;
     injection: number;
@@ -326,12 +383,45 @@ function buildMainSheet(wb: ExcelJS.Workbook, m: ExcelQuoteModel) {
   const moldLines = visibleLines(m.moldLines);
   const injectionLines = visibleLines(m.injectionLines);
 
-  if (moldLines.length) {
+  /**
+   * 件图行：左侧 A 列放缩略图，右侧合并写「件名 · 说明」。
+   * 行高给到 74pt（≈99px），64px 的图放得下；A 列宽 10（≈75px）刚好容纳。
+   */
+  const pieceRow = (piece: ExcelPieceImage) => {
+    ws.getRow(r).height = 74;
+    ws.mergeCells(r, 2, r, LAST);
+    const c = ws.getCell(r, 2);
+    c.value = piece.caption ? `${piece.label}　·　${piece.caption}` : piece.label;
+    c.font = { size: 11, bold: true, color: { argb: C.brand }, name: '微软雅黑' };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.brandLight } };
+    c.alignment = { horizontal: 'left', vertical: 'middle', indent: 1, wrapText: true };
+    c.border = box;
+    for (let col = 3; col <= LAST; col++) ws.getCell(r, col).border = box;
+    ws.getCell(r, 1).border = box;
+
+    const src = resolveImageSource(piece.imageUrl);
+    if (src) {
+      try {
+        const imgId = wb.addImage({ buffer: src.buffer as any, extension: src.extension as any });
+        ws.addImage(imgId, {
+          tl: { col: 0.08, row: r - 1 + 0.04 },
+          ext: { width: 64, height: 64 },
+          editAs: 'oneCell',
+        });
+      } catch {
+        /* 图片读取失败不影响单据导出 */
+      }
+    }
+    r++;
+  };
+
+  if (moldLines.length || (m.moldPieces ?? []).length) {
     groupRow('（一）模具费用　（一次性）', m.summary.mold);
+    for (const piece of m.moldPieces ?? []) pieceRow(piece);
     moldLines.forEach((l, i) => lineRow(i + 1, l, i % 2 === 1));
   }
 
-  if (injectionLines.length) {
+  if (injectionLines.length || (m.partPieces ?? []).length) {
     const qty = m.summary.injectionQty;
     const unit = m.summary.unitCost;
     const subText =
@@ -339,6 +429,7 @@ function buildMainSheet(wb: ExcelJS.Workbook, m: ExcelQuoteModel) {
         ? `单件成本 ¥${unit.toLocaleString('zh-CN', { minimumFractionDigits: 2 })} / 件　×　${qty.toLocaleString('zh-CN')} 件`
         : undefined;
     groupRow('（二）注塑费用　（按件计价）', m.summary.injection, { subText, accent: true });
+    for (const piece of m.partPieces ?? []) pieceRow(piece);
     injectionLines.forEach((l, i) => lineRow(i + 1, l, i % 2 === 1));
   }
 

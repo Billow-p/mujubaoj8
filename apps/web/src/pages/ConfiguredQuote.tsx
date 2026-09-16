@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { configApi, materials as materialsApi, quotes } from '../api';
+import { configApi, materials as materialsApi, quotes, uploads, type QuoteImage } from '../api';
 import { useFeedback } from '../components/feedback';
 import { calculateQuoteProject } from '@mqs/calc-engine';
 import type { QuoteItemDef } from '@mqs/shared';
@@ -36,6 +36,8 @@ interface MoldState {
    */
   off: Record<string, boolean>;
   manuals: Record<string, number>;
+  /** 件图：这一套模具对应的图纸/实物照片，会一起导出到 Excel 报价单 */
+  image?: QuoteImage | null;
 }
 interface PartState {
   uid: string;
@@ -47,6 +49,8 @@ interface PartState {
   /** 同 MoldState.off */
   off: Record<string, boolean>;
   manuals: Record<string, number>;
+  /** 件图：这一个注塑件的图纸/实物照片 */
+  image?: QuoteImage | null;
 }
 
 /**
@@ -74,6 +78,102 @@ function OffToggle({ off, onToggle }: { off: boolean; onToggle: () => void }) {
     >
       {off ? '不纳入' : '纳入'}
     </button>
+  );
+}
+
+/**
+ * 件图槽 —— 卡片上的缩略图 + 上传 / 替换 / 删除。
+ *
+ * 报价单最终是给客户看的：光有参数分不清「哪套模具、哪个件」，
+ * 把图纸或实物照片挂在件上，导出的 Excel 报价单也带上，一眼就明白。
+ */
+function ImageSlot({
+  image,
+  onChange,
+  onError,
+  size = 72,
+}: {
+  image?: QuoteImage | null;
+  onChange: (img: QuoteImage | null) => void;
+  onError: (msg: string) => void;
+  size?: number;
+}) {
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleFile = async (f: File | undefined) => {
+    if (!f) return;
+    setBusy(true);
+    try {
+      const img = await uploads.upload(f);
+      onChange({
+        url: img.url,
+        name: img.name,
+        source: 'upload',
+        uploadedAt: new Date().toISOString(),
+      });
+    } catch (e: any) {
+      onError('图片上传失败：' + (e.response?.data?.error || e.message));
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  };
+
+  const clear = () => {
+    const old = image?.url;
+    onChange(null);
+    // 文件删除失败不影响业务（报价单里已经不引用了）
+    if (old) uploads.remove(old).catch(() => {});
+  };
+
+  return (
+    <div className="shrink-0">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
+        className="hidden"
+        onChange={(e) => handleFile(e.target.files?.[0])}
+      />
+      {image?.url ? (
+        <div className="relative group" style={{ width: size, height: size }}>
+          <img
+            src={image.url}
+            alt={image.name || '件图'}
+            title={image.name || ''}
+            className="w-full h-full object-contain bg-white border border-gray-200 rounded"
+          />
+          <div className="absolute inset-0 hidden group-hover:flex items-center justify-center gap-1 bg-black/45 rounded">
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              className="text-[10.5px] text-white px-1.5 py-0.5 rounded bg-white/20 hover:bg-white/30"
+            >
+              换
+            </button>
+            <button
+              type="button"
+              onClick={clear}
+              className="text-[10.5px] text-white px-1.5 py-0.5 rounded bg-white/20 hover:bg-white/30"
+            >
+              删
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={busy}
+          title="上传这一件的图纸或照片（会一起导到 Excel 报价单）"
+          style={{ width: size, height: size }}
+          className="flex items-center justify-center border border-dashed border-gray-300 rounded text-gray-400 hover:border-emerald-400 hover:text-emerald-600 transition disabled:opacity-50"
+        >
+          <span className="text-[11px] leading-none">{busy ? '上传中' : '＋ 件图'}</span>
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -288,7 +388,7 @@ export default function ConfiguredQuote() {
     for (const d of data.parameters ?? []) {
       if ((d.scope as string) === 'mold' && d.enabled !== false) p[d.name] = d.defaultValue ?? '';
     }
-    return { uid: uid(), code: '', name: `模具 ${i}`, materialCode: '', params: p, off: {}, manuals: {} };
+    return { uid: uid(), code: '', name: `模具 ${i}`, materialCode: '', params: p, off: {}, manuals: {}, image: null };
   }
   function seedPart(data: any, i: number, qtyDef: any = 0, qtyVar: string = qtyVarName): PartState {
     const p: Record<string, any> = {};
@@ -297,7 +397,7 @@ export default function ConfiguredQuote() {
         p[d.name] = d.defaultValue ?? '';
       }
     }
-    return { uid: uid(), code: '', name: `注塑件 ${i}`, materialCode: '', qty: qtyDef, params: p, off: {}, manuals: {} };
+    return { uid: uid(), code: '', name: `注塑件 ${i}`, materialCode: '', qty: qtyDef, params: p, off: {}, manuals: {}, image: null };
   }
 
   function prefillFromSource(data: any, paramsJson: any) {
@@ -341,6 +441,7 @@ export default function ConfiguredQuote() {
             params: p,
             off: m.off || {},
             manuals: m.manualAmounts || {},
+            image: m.image ?? null,
           };
         }),
       );
@@ -368,6 +469,7 @@ export default function ConfiguredQuote() {
             params: pp,
             off: p.off || {},
             manuals: p.manualAmounts || {},
+            image: p.image ?? null,
           };
         }),
       );
@@ -404,6 +506,20 @@ export default function ConfiguredQuote() {
     const moldsIn = molds.map((m) => {
       const mp = coerce(m.params);
       for (const [k, v] of Object.entries(m.off ?? {})) if (v) mp[k] = 0;
+
+      // 前/后模钢材：参数里存的是「材料编码」，这里换成材料库现价。
+      // 阶梯价按本套模具的钢材用量取，与「钢材单价」同一套逻辑，保证单价口径一致；
+      // 没选（空/0）时不写入，引擎会回落到「钢材单价」。
+      const steelKeys = (moldSteelVars.cfg?.priceVars as string[] | undefined) ?? [];
+      if (steelKeys.length) {
+        const w = sizeWeightKg(moldSteelVars.cfg, mp);
+        for (const key of steelKeys) {
+          if (m.off?.[key]) continue;
+          const mat = matByCode.get(String(m.params?.[key] ?? ''));
+          if (mat) mp[key] = pricePerKgOf(mat, w);
+        }
+      }
+
       if (m.materialCode) {
         const mat = matByCode.get(m.materialCode);
         if (mat) {
@@ -511,8 +627,16 @@ export default function ConfiguredQuote() {
           params: calcInput.cParams,
           off: commonOff,
         },
-        molds: calcInput.moldsIn.map((m, i) => ({ ...m, off: molds[i].off })),
-        parts: calcInput.partsIn.map((p, i) => ({ ...p, off: parts[i].off })),
+        molds: calcInput.moldsIn.map((m, i) => ({
+          ...m,
+          off: molds[i].off,
+          image: molds[i].image ?? null,
+        })),
+        parts: calcInput.partsIn.map((p, i) => ({
+          ...p,
+          off: parts[i].off,
+          image: parts[i].image ?? null,
+        })),
       });
       navigate(`/quotes/${created.id}`);
     } catch (e: any) {
@@ -584,6 +708,35 @@ export default function ConfiguredQuote() {
 
   const renderParamInput = (p: any, value: any, onChange: (v: any) => void) => {
     const opts: any[] = Array.isArray(p.options) ? p.options : [];
+
+    /**
+     * 材料库下拉：选项直接来自「材料中心」的某个分类（默认模具钢材）。
+     *
+     * 这里存的是**材料编码**而不是价格 —— 材料中心改价时，
+     * 选项文字和实际算出的钢材费都会跟着变，不需要改任何配置。
+     */
+    if (p.type === 'material') {
+      const cat =
+        p.options && !Array.isArray(p.options) && p.options.category
+          ? p.options.category
+          : '模具钢材';
+      const list = usableMaterials.filter((m: any) => m.category === cat);
+      return (
+        <select
+          value={String(value ?? '')}
+          onChange={(e) => onChange(e.target.value)}
+          className="mt-1 w-full border border-emerald-300 bg-emerald-50 text-emerald-900 rounded px-2.5 py-2 text-sm"
+        >
+          <option value="">按公共钢材单价</option>
+          {list.map((m: any) => (
+            <option key={m.id} value={m.code}>
+              {m.name} · {Math.round(pricePerKgOf(m, null) * 100) / 100} 元/kg
+            </option>
+          ))}
+        </select>
+      );
+    }
+
     const isSel = p.type === 'select' && opts.length > 0;
     if (isSel) {
       return (
@@ -880,7 +1033,13 @@ export default function ConfiguredQuote() {
             <div className="p-3.5 space-y-3">
               {molds.map((m, i) => (
                 <div key={m.uid} className="border border-gray-200 rounded-lg p-3">
-                  <div className="flex items-center gap-2 mb-2">
+                  <div className="flex items-start gap-2 mb-2">
+                    <ImageSlot
+                      image={m.image}
+                      onChange={(img) => setMold(i, { image: img })}
+                      onError={(msg) => fb.toast(msg, 'err')}
+                      size={48}
+                    />
                     <input
                       value={m.name}
                       onChange={(e) => setMold(i, { name: e.target.value })}
@@ -1032,7 +1191,13 @@ export default function ConfiguredQuote() {
             <div className="p-3.5 space-y-3">
               {parts.map((p, i) => (
                 <div key={p.uid} className="border border-gray-200 rounded-lg p-3">
-                  <div className="flex items-center gap-2 mb-2">
+                  <div className="flex items-start gap-2 mb-2">
+                    <ImageSlot
+                      image={p.image}
+                      onChange={(img) => setPart(i, { image: img })}
+                      onError={(msg) => fb.toast(msg, 'err')}
+                      size={48}
+                    />
                     <input
                       value={p.name}
                       onChange={(e) => setPart(i, { name: e.target.value })}

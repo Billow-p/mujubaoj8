@@ -1,6 +1,41 @@
 // 把报价单版本转成 Excel 视图模型（兼容新旧两种数据结构）
 
-import type { ExcelQuoteModel, ExcelLine } from './excel.js';
+import type { ExcelQuoteModel, ExcelLine, ExcelPieceImage } from './excel.js';
+
+/**
+ * 件图 —— 从报价快照里挑出挂图的那几件，配一句人能看懂的说明。
+ *
+ * 说明文字用「模具 1 · 模芯 500×400×150 · 2 穴」这种口径，
+ * 客户拿到报价单不用回头翻参数表就知道这图对的是哪件。
+ */
+function pickPieces(list: any[], kind: 'mold' | 'part'): ExcelPieceImage[] {
+  const out: ExcelPieceImage[] = [];
+  (list ?? []).forEach((it: any, i: number) => {
+    const url = it?.image?.url;
+    if (!url) return;
+    const p = (it?.params ?? {}) as Record<string, any>;
+    const bits: string[] = [];
+    if (kind === 'mold') {
+      const l = p['模芯长'];
+      const w = p['模芯宽'];
+      const h = p['模芯高'];
+      if (l && w && h) bits.push(`模芯 ${l}×${w}×${h}`);
+      if (p['腔数']) bits.push(`${p['腔数']} 穴`);
+      const steel = p['前模钢材'] || p['钢材单价'];
+      if (steel) bits.push(String(steel));
+    } else {
+      if (p['单件重量']) bits.push(`单件 ${p['单件重量']} kg`);
+      if (it?.qty) bits.push(`${it.qty} 件`);
+      if (p['原料单价']) bits.push(`料价 ${p['原料单价']} 元/kg`);
+    }
+    out.push({
+      label: it?.name || `${kind === 'mold' ? '模具' : '注塑件'} ${i + 1}`,
+      imageUrl: String(url),
+      caption: bits.join(' · '),
+    });
+  });
+  return out;
+}
 
 const MOLD_FEE_LABELS: Record<string, string> = {
   coreSteel: '模芯钢料费',
@@ -118,6 +153,8 @@ export function toExcelModel(quote: QuoteLike, version: VersionLike, moldTypeNam
       project: project.length ? project : [{ label: '产品', value: '—' }],
       moldLines,
       injectionLines,
+      moldPieces: pickPieces(params.molds, 'mold'),
+      partPieces: pickPieces(params.parts, 'part'),
       summary: {
         mold: Number(calc.moldSubtotal) || 0,
         injection: Number(calc.injectionSubtotal) || 0,

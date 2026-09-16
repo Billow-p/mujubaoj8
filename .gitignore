@@ -42,3 +42,5 @@ coverage/
 .docker/
 data/
 postgres-data/
+# 报价单件图（运行时上传，不进版本库）
+uploads/

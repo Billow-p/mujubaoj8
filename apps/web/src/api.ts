@@ -4,6 +4,18 @@ import axios from 'axios';
 
 const token = () => localStorage.getItem('mqs_token');
 
+/**
+ * 件图 —— 挂在模具 / 注塑件上的那张图。
+ * url 是相对路径（如 /uploads/ab12.png），直接当 <img src> 用。
+ */
+export interface QuoteImage {
+  url: string;
+  name?: string;
+  /** 来源：手工上传 / 3D 渲染截图 / Excel 内嵌图 */
+  source?: 'upload' | 'render3d' | 'excel';
+  uploadedAt?: string;
+}
+
 export const api = axios.create({
   baseURL: '/api',
 });
@@ -121,6 +133,8 @@ export const quotes = {
       manualAmounts?: Record<string, number>;
       /** 「不纳入计算」的参数/手填项名 */
       off?: Record<string, boolean>;
+      /** 件图（上传的图纸 / 3D 渲染图），会一起导出到 Excel 报价单 */
+      image?: QuoteImage | null;
     }[];
     parts: {
       code?: string;
@@ -131,6 +145,8 @@ export const quotes = {
       manualAmounts?: Record<string, number>;
       /** 「不纳入计算」的参数/手填项名 */
       off?: Record<string, boolean>;
+      /** 件图（同 molds[].image） */
+      image?: QuoteImage | null;
     }[];
   }) => api.post('/quotes/project', body).then((r) => r.data),
 
@@ -235,6 +251,22 @@ export const quoteItems = {
 };
 
 // 材料中心
+/**
+ * 件图上传（一期）。
+ * 上传返回 { url, name, size, mime }，把 url 挂到模具 / 注塑件上即可。
+ */
+export const uploads = {
+  upload: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api
+      .post('/uploads', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      .then((r) => r.data as QuoteImage & { size: number; mime: string });
+  },
+  remove: (url: string) =>
+    api.delete('/uploads', { params: { url } }).then((r) => r.data as { ok: boolean }),
+};
+
 export const materials = {
   list: () => api.get('/materials').then((r) => r.data),
   // moldTypeCodes 传空数组/不传 = 全部同步；传编码数组 = 只同步该类型相关材料

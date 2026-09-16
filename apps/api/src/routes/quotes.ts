@@ -964,6 +964,21 @@ export async function quoteRoutes(app: FastifyInstance) {
   app.post('/api/quotes/project', { preHandler: [app.authenticate] }, async (req, reply) => {
     const { companyId, userId } = req.user as any;
 
+    /**
+     * 件图：上传接口返回的文件信息，跟模具 / 注塑件一起存进报价快照。
+     * 打开报价单能看到，导出 Excel 报价单也能带上。
+     */
+    const QuoteImageSchema = z
+      .object({
+        url: z.string().min(1).max(300),
+        name: z.string().max(200).optional(),
+        /** 来源：手工上传 / 3D 渲染截图 / Excel 内嵌图 */
+        source: z.enum(['upload', 'render3d', 'excel']).optional(),
+        uploadedAt: z.string().max(40).optional(),
+      })
+      .nullable()
+      .optional();
+
     const body = z
       .object({
         moldTypeId: z.string().min(1),
@@ -993,6 +1008,8 @@ export async function quoteRoutes(app: FastifyInstance) {
               manualAmounts: z.record(z.number()).optional(),
               /** 「不纳入计算」的参数/手填项名 */
               off: z.record(z.boolean()).optional(),
+              /** 件图（上传的图纸/3D 渲染缩略图），会跟件一起导出到 Excel 报价单 */
+              image: QuoteImageSchema,
             }),
           )
           .optional()
@@ -1008,6 +1025,8 @@ export async function quoteRoutes(app: FastifyInstance) {
               manualAmounts: z.record(z.number()).optional(),
               /** 「不纳入计算」的参数/手填项名 */
               off: z.record(z.boolean()).optional(),
+              /** 件图（同 molds[].image） */
+              image: QuoteImageSchema,
             }),
           )
           .optional()

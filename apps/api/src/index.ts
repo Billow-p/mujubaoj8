@@ -3,8 +3,11 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
+import multipart from '@fastify/multipart';
+import staticPlugin from '@fastify/static';
 import { ZodError } from 'zod';
 import { authRoutes } from './routes/auth.js';
+import { uploadRoutes, uploadRoot } from './routes/uploads.js';
 import { calcRoutes } from './routes/calc.js';
 import { quoteRoutes } from './routes/quotes.js';
 import { customerRoutes } from './routes/customers.js';
@@ -33,6 +36,20 @@ async function bootstrap() {
 
   await app.register(cors, { origin: true, credentials: true });
   await app.register(jwt, { secret: process.env.JWT_SECRET || 'dev-secret-change-in-prod' });
+
+  // 件图上传（一期）：单文件、限 20MB、只收图片
+  await app.register(multipart, {
+    limits: { fileSize: 20 * 1024 * 1024, files: 1, fields: 10 },
+  });
+
+  // 上传的件图静态托管：nginx 把 /uploads 反代到本服务
+  await app.register(staticPlugin, {
+    root: uploadRoot(),
+    prefix: '/uploads/',
+    decorateReply: false,
+    cacheControl: true,
+    maxAge: '7d',
+  });
 
   // 鉴权装饰器
   app.decorate('authenticate', async (req: any, reply: any) => {
@@ -84,6 +101,7 @@ async function bootstrap() {
 
   // 注册路由
   await app.register(authRoutes);
+  await app.register(uploadRoutes);
   await app.register(calcRoutes);
   await app.register(quoteRoutes);
   await app.register(customerRoutes);
