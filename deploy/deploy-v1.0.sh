@@ -53,6 +53,20 @@ ssh -o StrictHostKeyChecking=no root@47.242.248.104 "
   tar xzf /tmp/mqs-v10.tar.gz -C $APP_DIR
   echo '解压完成'
 
+  # ---- 补齐新增依赖：只在缺包时安装，避免每次部署都全量重装 ----
+  cd $APP_DIR
+  if [ ! -d apps/api/node_modules/@fastify/multipart ] || [ ! -d apps/api/node_modules/@fastify/static ]; then
+    echo '==> 检测到缺失依赖，执行 pnpm install（跳过 postinstall，prisma 由后面显式 generate）'
+    pnpm install --ignore-scripts 2>&1 | tail -8
+  else
+    echo '依赖齐全，跳过安装'
+  fi
+
+  # ---- 件图上传目录：服务里 ProtectSystem=full，必须出现在 ReadWritePaths 才能写 ----
+  mkdir -p $APP_DIR/apps/api/uploads
+  chmod 755 $APP_DIR/apps/api/uploads
+  echo '件图目录就绪：' \$(ls -d $APP_DIR/apps/api/uploads)
+
   # ---- 清理历史构建产物：只保留 index.html 当前引用的那一个 JS / CSS ----
   # 旧产物仍可被访问（/assets/ 配了 30 天 immutable 缓存），
   # 浏览器可能一直复用旧入口导致「代码已更新但页面没变」，这里每次部署后强制清掉。
@@ -99,6 +113,9 @@ ssh -o StrictHostKeyChecking=no root@47.242.248.104 "
   set -e
   cp $APP_DIR/deploy/nginx.conf /etc/nginx/conf.d/ycwl-chat.conf
   nginx -t && systemctl reload nginx
+  # 服务单元（含件图目录写权限 ReadWritePaths）也可能变，先同步再重启
+  cp $APP_DIR/deploy/mqs-api.service /etc/systemd/system/mqs-api.service
+  systemctl daemon-reload
   systemctl restart mqs-api
   sleep 3
   systemctl is-active mqs-api

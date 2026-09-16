@@ -19,6 +19,8 @@ NoNewPrivileges=true
 ProtectSystem=full
 ProtectHome=true
 PrivateTmp=true
+# 报价单件图落盘目录：ProtectSystem=full 下 /opt 默认只读，必须显式放行
+ReadWritePaths=/opt/mold-quote-system/apps/api/uploads
 MemoryMax=600M
 
 [Install]
