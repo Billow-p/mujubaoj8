@@ -276,6 +276,28 @@ export const uploads = {
       })
       .then((r) => r.data as ExcelImagesResult);
   },
+  /** 从 Word 询价单里抠出内嵌图片 */
+  extractWord: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api
+      .post('/uploads/word', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120_000,
+      })
+      .then((r) => r.data as WordImagesResult);
+  },
+  /** 上报一条识别日志（让服务端也知道前端这边发生了什么） */
+  logRecog: (body: {
+    kind: string;
+    fileName: string;
+    fileSize: number;
+    outcome: 'ok' | 'empty' | 'unsupported' | 'failed';
+    extracted?: number;
+    reason?: string;
+    detail?: string;
+    step?: string;
+  }) => api.post('/uploads/recog-log', body).then((r) => r.data).catch(() => ({ ok: false })),
 };
 
 /** Excel 内嵌图提取结果 */
@@ -294,6 +316,25 @@ export interface ExcelImagesResult {
   fileName: string;
   sheets: { name: string; rowCount: number }[];
   images: ExcelImageItem[];
+  skipped: number;
+  notes: string[];
+}
+
+/** Word 内嵌图提取结果 */
+export interface WordImageItem {
+  id: number;
+  para: number;
+  name: string;
+  dataUrl: string;
+  paraText: string[];
+  altText: string;
+  suggestedName: string;
+  suggestedKind: 'mold' | 'part';
+}
+export interface WordImagesResult {
+  fileName: string;
+  paraCount: number;
+  images: WordImageItem[];
   skipped: number;
   notes: string[];
 }

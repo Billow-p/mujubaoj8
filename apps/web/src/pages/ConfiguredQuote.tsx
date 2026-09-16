@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Drawing3DImport, type Apply3DItem } from '../components/Drawing3DImport';
-import { ExcelImageImport, type ApplyImageItem } from '../components/ExcelImageImport';
+import { SmartImport, type ApplyItem } from '../components/SmartImport';
 import { configApi, materials as materialsApi, quotes, uploads, type QuoteImage } from '../api';
 import { uploadImage, humanSize } from '../utils/image';
 import { useFeedback } from '../components/feedback';
@@ -755,7 +754,12 @@ export default function ConfiguredQuote() {
    * 用一次性函数式更新（而不是循环里反复 setMold），
    * 这样多个件指向同一个目标时也不会互相覆盖。
    */
-  const apply3DItems = (items: Apply3DItem[]) => {
+  /**
+   * 智能识别结果落地 —— 3D / Excel / Word / 图片统一走这里。
+   * 用一次性函数式更新（而不是循环里反复 setMold），
+   * 这样多个件指向同一个目标时也不会互相覆盖。
+   */
+  const applyImportItems = (items: ApplyItem[]) => {
     let created = 0;
     let updated = 0;
 
@@ -769,6 +773,7 @@ export default function ConfiguredQuote() {
           if (idx < 0) continue;
           next[idx] = {
             ...next[idx],
+            name: it.name || next[idx].name,
             params: { ...next[idx].params, ...it.params },
             ...(it.image ? { image: it.image } : {}),
           };
@@ -792,11 +797,12 @@ export default function ConfiguredQuote() {
       for (const it of items) {
         if (it.kind !== 'part') continue;
         if (it.target.mode === 'update') {
-          const uid = it.target.uid; // 先取出来，否则闭包里类型收窄会失效
+          const uid = it.target.uid;
           const idx = next.findIndex((p) => p.uid === uid);
           if (idx < 0) continue;
           next[idx] = {
             ...next[idx],
+            name: it.name || next[idx].name,
             params: { ...next[idx].params, ...it.params },
             ...(it.image ? { image: it.image } : {}),
           };
@@ -815,61 +821,7 @@ export default function ConfiguredQuote() {
       return next;
     });
 
-    fb.toast(`3D 导入完成：新建 ${created} 个，更新 ${updated} 个`);
-  };
-
-  /** Excel 内嵌图落地：只带图，参数靠人自己填（列映射是三期的事） */
-  const applyImageItems = (items: ApplyImageItem[]) => {
-    let created = 0;
-    let updated = 0;
-
-    setMolds((arr) => {
-      const next = [...arr];
-      for (const it of items) {
-        if (it.kind !== 'mold') continue;
-        if (it.target.mode === 'update') {
-          const uid = it.target.uid; // 先取出来，闭包里才保得住类型收窄
-          const idx = next.findIndex((m) => m.uid === uid);
-          if (idx < 0) continue;
-          next[idx] = {
-            ...next[idx],
-            name: it.name || next[idx].name,
-            ...(it.image ? { image: it.image } : {}),
-          };
-          updated++;
-        } else {
-          const nm = seedMold(cfg, next.length + 1);
-          next.push({ ...nm, name: it.name || nm.name, image: it.image ?? null });
-          created++;
-        }
-      }
-      return next;
-    });
-
-    setParts((arr) => {
-      const next = [...arr];
-      for (const it of items) {
-        if (it.kind !== 'part') continue;
-        if (it.target.mode === 'update') {
-          const uid = it.target.uid;
-          const idx = next.findIndex((p) => p.uid === uid);
-          if (idx < 0) continue;
-          next[idx] = {
-            ...next[idx],
-            name: it.name || next[idx].name,
-            ...(it.image ? { image: it.image } : {}),
-          };
-          updated++;
-        } else {
-          const np = seedPart(cfg, next.length + 1);
-          next.push({ ...np, name: it.name || np.name, image: it.image ?? null });
-          created++;
-        }
-      }
-      return next;
-    });
-
-    fb.toast(`图片导入完成：新建 ${created} 个，更新 ${updated} 个`);
+    fb.toast(`导入完成：新建 ${created} 个，更新 ${updated} 个`);
   };
   const setPart = (i: number, patch: Partial<PartState>) =>
     setParts((arr) => arr.map((p, idx) => (idx === i ? { ...p, ...patch } : p)));
@@ -1215,25 +1167,14 @@ export default function ConfiguredQuote() {
             </div>
           )}
 
-          {/* 3D 图纸识别：解析出真实体积尺寸 → 给建议 → 确认后落到件上 */}
+          {/* 智能识别：3D / Excel / Word / 图片统一入口，识别后确认再落到件上 */}
           <div className="mb-3">
-            <Drawing3DImport
+            <SmartImport
               molds={molds.map((m) => ({ uid: m.uid, name: m.name }))}
               parts={parts.map((p) => ({ uid: p.uid, name: p.name }))}
               moldDensity={steelDensity}
               partDensity={plasticDensity}
-              onApply={apply3DItems}
-              onError={(msg) => fb.toast(msg, 'err')}
-              onInfo={(msg) => fb.toast(msg)}
-            />
-          </div>
-
-          {/* Excel 询价单：把表格里贴的图按行归到件上 */}
-          <div className="mb-3">
-            <ExcelImageImport
-              molds={molds.map((m) => ({ uid: m.uid, name: m.name }))}
-              parts={parts.map((p) => ({ uid: p.uid, name: p.name }))}
-              onApply={applyImageItems}
+              onApply={applyImportItems}
               onError={(msg) => fb.toast(msg, 'err')}
               onInfo={(msg) => fb.toast(msg)}
             />
