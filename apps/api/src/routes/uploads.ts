@@ -11,9 +11,12 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { prisma } from '../db.js';
+import { extractExcelImages } from '../services/excelImages.js';
 
 /** 单张图上限 20MB —— 报价单件图用不到更大 */
 const MAX_BYTES = 20 * 1024 * 1024;
+/** Excel 里可能塞很多图，放宽到 30MB */
+const MAX_EXCEL_BYTES = 30 * 1024 * 1024;
 
 const ALLOWED_MIME: Record<string, string> = {
   'image/png': '.png',
@@ -78,6 +81,63 @@ export async function uploadRoutes(app: FastifyInstance) {
       size: buf.length,
       mime: data.mimetype,
     };
+  });
+
+  // ---------------------------------------------------------------
+  // 从 Excel 询价单里提取内嵌图片（二期）
+  //
+  // 客户经常发「一张 Excel，左边品名、右边贴图」。这里把图抠出来，
+  // 并带上它锚在哪一行、那一行写了什么 —— 前端据此建议「这张图属于哪个件」。
+  // 不做列映射（那是三期的事），只解决图片归位。
+  // ---------------------------------------------------------------
+  app.post('/api/uploads/excel', { preHandler: [app.authenticate] }, async (req, reply) => {
+    if (!(req as any).isMultipart || !(req as any).isMultipart()) {
+      return reply.code(400).send({ error: '请以 multipart/form-data 方式上传' });
+    }
+
+    let data: any;
+    try {
+      data = await (req as any).file({ limits: { fileSize: MAX_EXCEL_BYTES } });
+    } catch (e: any) {
+      if (e?.code === 'FST_REQ_FILE_TOO_LARGE') {
+        return reply.code(413).send({ error: 'Excel 太大（上限 30MB）' });
+      }
+      throw e;
+    }
+    if (!data) return reply.code(400).send({ error: '没有收到文件' });
+
+    const name = String(data.filename || '').toLowerCase();
+    if (!name.endsWith('.xlsx')) {
+      await data.toBuffer().catch(() => {});
+      return reply.code(400).send({
+        error: '只支持 .xlsx 格式',
+        hint: '老版本 .xls 里的图片读不出来，请用 Excel 另存为 .xlsx 再上传',
+      });
+    }
+
+    let buf: Buffer;
+    try {
+      buf = await data.toBuffer();
+    } catch (e: any) {
+      if (e?.code === 'FST_REQ_FILE_TOO_LARGE') {
+        return reply.code(413).send({ error: 'Excel 太大（上限 30MB）' });
+      }
+      throw e;
+    }
+    if (!buf.length) return reply.code(400).send({ error: '文件内容为空' });
+
+    try {
+      // Buffer → ArrayBuffer，注意用 slice 取真实片段，别把整个内存池传进去
+      const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+      const result = await extractExcelImages(ab, data.filename || '询价单.xlsx');
+      return result;
+    } catch (e: any) {
+      req.log?.error?.(e, 'extractExcelImages failed');
+      return reply.code(400).send({
+        error: '读取 Excel 失败：' + (e?.message || '文件可能已损坏'),
+        hint: '如果是加密文件或老版 .xls，请另存为普通 .xlsx 再试',
+      });
+    }
   });
 
   // ---------------------------------------------------------------

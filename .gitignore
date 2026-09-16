@@ -44,3 +44,7 @@ data/
 postgres-data/
 # 报价单件图（运行时上传，不进版本库）
 uploads/
+
+# OpenCascade 运行时（构建时从 node_modules 复制，不进版本库）
+apps/web/public/occt/occt-import-js.js
+apps/web/public/occt/occt-import-js.wasm

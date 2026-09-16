@@ -265,7 +265,38 @@ export const uploads = {
   },
   remove: (url: string) =>
     api.delete('/uploads', { params: { url } }).then((r) => r.data as { ok: boolean }),
+  /** 从 Excel 询价单里抠出内嵌图片（二期） */
+  extractExcel: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api
+      .post('/uploads/excel', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120_000,
+      })
+      .then((r) => r.data as ExcelImagesResult);
+  },
 };
+
+/** Excel 内嵌图提取结果 */
+export interface ExcelImageItem {
+  id: number;
+  sheetName: string;
+  row: number;
+  col: number;
+  name: string;
+  dataUrl: string;
+  rowText: string[];
+  suggestedName: string;
+  suggestedKind: 'mold' | 'part';
+}
+export interface ExcelImagesResult {
+  fileName: string;
+  sheets: { name: string; rowCount: number }[];
+  images: ExcelImageItem[];
+  skipped: number;
+  notes: string[];
+}
 
 export const materials = {
   list: () => api.get('/materials').then((r) => r.data),

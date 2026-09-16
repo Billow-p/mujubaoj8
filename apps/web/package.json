@@ -4,25 +4,28 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "node scripts/copy-occt.mjs && vite",
+    "build": "node scripts/copy-occt.mjs && tsc -b && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@mqs/shared": "workspace:*",
     "@mqs/calc-engine": "workspace:*",
+    "@mqs/shared": "workspace:*",
+    "axios": "^1.7.2",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.378.0",
+    "occt-import-js": "0.0.23",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.23.1",
-    "zustand": "^4.5.2",
-    "axios": "^1.7.2",
-    "clsx": "^2.1.1",
     "tailwind-merge": "^2.3.0",
-    "lucide-react": "^0.378.0"
+    "three": "0.186.0",
+    "zustand": "^4.5.2"
   },
   "devDependencies": {
     "@types/react": "^18.3.2",
     "@types/react-dom": "^18.3.0",
+    "@types/three": "0.186.0",
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.4.19",
     "postcss": "^8.4.38",

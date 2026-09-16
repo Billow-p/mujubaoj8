@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Drawing3DImport, type Apply3DItem } from '../components/Drawing3DImport';
+import { ExcelImageImport, type ApplyImageItem } from '../components/ExcelImageImport';
 import { configApi, materials as materialsApi, quotes, uploads, type QuoteImage } from '../api';
 import { uploadImage, humanSize } from '../utils/image';
 import { useFeedback } from '../components/feedback';
@@ -736,6 +738,139 @@ export default function ConfiguredQuote() {
 
   const setMold = (i: number, patch: Partial<MoldState>) =>
     setMolds((arr) => arr.map((m, idx) => (idx === i ? { ...m, ...patch } : m)));
+
+  /** 算模具重量用的钢材密度（取当前第一套模具的参数，兜底 7.85） */
+  const steelDensity = (() => {
+    const v = Number(molds[0]?.params?.['钢材密度']);
+    return Number.isFinite(v) && v > 0 ? v : 7.85;
+  })();
+  /** 算单件重量用的塑料密度（取材料库里第一种塑料，兜底 ABS 的 1.05） */
+  const plasticDensity = (() => {
+    const m = matList.find((x: any) => x.category === '塑料原料' && Number(x.density) > 0);
+    return m ? Number(m.density) : 1.05;
+  })();
+
+  /**
+   * 3D 图纸解析结果落地：解析出的参数 + 渲染缩略图，一起写到对应的件上。
+   * 用一次性函数式更新（而不是循环里反复 setMold），
+   * 这样多个件指向同一个目标时也不会互相覆盖。
+   */
+  const apply3DItems = (items: Apply3DItem[]) => {
+    let created = 0;
+    let updated = 0;
+
+    setMolds((arr) => {
+      const next = [...arr];
+      for (const it of items) {
+        if (it.kind !== 'mold') continue;
+        if (it.target.mode === 'update') {
+          const uid = it.target.uid; // 先取出来，否则闭包里类型收窄会失效
+          const idx = next.findIndex((m) => m.uid === uid);
+          if (idx < 0) continue;
+          next[idx] = {
+            ...next[idx],
+            params: { ...next[idx].params, ...it.params },
+            ...(it.image ? { image: it.image } : {}),
+          };
+          updated++;
+        } else {
+          const nm = seedMold(cfg, next.length + 1);
+          next.push({
+            ...nm,
+            name: it.name || nm.name,
+            params: { ...nm.params, ...it.params },
+            image: it.image ?? null,
+          });
+          created++;
+        }
+      }
+      return next;
+    });
+
+    setParts((arr) => {
+      const next = [...arr];
+      for (const it of items) {
+        if (it.kind !== 'part') continue;
+        if (it.target.mode === 'update') {
+          const uid = it.target.uid; // 先取出来，否则闭包里类型收窄会失效
+          const idx = next.findIndex((p) => p.uid === uid);
+          if (idx < 0) continue;
+          next[idx] = {
+            ...next[idx],
+            params: { ...next[idx].params, ...it.params },
+            ...(it.image ? { image: it.image } : {}),
+          };
+          updated++;
+        } else {
+          const np = seedPart(cfg, next.length + 1);
+          next.push({
+            ...np,
+            name: it.name || np.name,
+            params: { ...np.params, ...it.params },
+            image: it.image ?? null,
+          });
+          created++;
+        }
+      }
+      return next;
+    });
+
+    fb.toast(`3D 导入完成：新建 ${created} 个，更新 ${updated} 个`);
+  };
+
+  /** Excel 内嵌图落地：只带图，参数靠人自己填（列映射是三期的事） */
+  const applyImageItems = (items: ApplyImageItem[]) => {
+    let created = 0;
+    let updated = 0;
+
+    setMolds((arr) => {
+      const next = [...arr];
+      for (const it of items) {
+        if (it.kind !== 'mold') continue;
+        if (it.target.mode === 'update') {
+          const uid = it.target.uid; // 先取出来，闭包里才保得住类型收窄
+          const idx = next.findIndex((m) => m.uid === uid);
+          if (idx < 0) continue;
+          next[idx] = {
+            ...next[idx],
+            name: it.name || next[idx].name,
+            ...(it.image ? { image: it.image } : {}),
+          };
+          updated++;
+        } else {
+          const nm = seedMold(cfg, next.length + 1);
+          next.push({ ...nm, name: it.name || nm.name, image: it.image ?? null });
+          created++;
+        }
+      }
+      return next;
+    });
+
+    setParts((arr) => {
+      const next = [...arr];
+      for (const it of items) {
+        if (it.kind !== 'part') continue;
+        if (it.target.mode === 'update') {
+          const uid = it.target.uid;
+          const idx = next.findIndex((p) => p.uid === uid);
+          if (idx < 0) continue;
+          next[idx] = {
+            ...next[idx],
+            name: it.name || next[idx].name,
+            ...(it.image ? { image: it.image } : {}),
+          };
+          updated++;
+        } else {
+          const np = seedPart(cfg, next.length + 1);
+          next.push({ ...np, name: it.name || np.name, image: it.image ?? null });
+          created++;
+        }
+      }
+      return next;
+    });
+
+    fb.toast(`图片导入完成：新建 ${created} 个，更新 ${updated} 个`);
+  };
   const setPart = (i: number, patch: Partial<PartState>) =>
     setParts((arr) => arr.map((p, idx) => (idx === i ? { ...p, ...patch } : p)));
 
@@ -1079,6 +1214,30 @@ export default function ConfiguredQuote() {
               )}
             </div>
           )}
+
+          {/* 3D 图纸识别：解析出真实体积尺寸 → 给建议 → 确认后落到件上 */}
+          <div className="mb-3">
+            <Drawing3DImport
+              molds={molds.map((m) => ({ uid: m.uid, name: m.name }))}
+              parts={parts.map((p) => ({ uid: p.uid, name: p.name }))}
+              moldDensity={steelDensity}
+              partDensity={plasticDensity}
+              onApply={apply3DItems}
+              onError={(msg) => fb.toast(msg, 'err')}
+              onInfo={(msg) => fb.toast(msg)}
+            />
+          </div>
+
+          {/* Excel 询价单：把表格里贴的图按行归到件上 */}
+          <div className="mb-3">
+            <ExcelImageImport
+              molds={molds.map((m) => ({ uid: m.uid, name: m.name }))}
+              parts={parts.map((p) => ({ uid: p.uid, name: p.name }))}
+              onApply={applyImageItems}
+              onError={(msg) => fb.toast(msg, 'err')}
+              onInfo={(msg) => fb.toast(msg)}
+            />
+          </div>
 
           {/* 模具列表 */}
           <div className="bg-white border border-gray-200 rounded-lg">

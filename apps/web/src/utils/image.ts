@@ -143,3 +143,16 @@ export function humanSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
+
+/**
+ * data URL → File。
+ * 3D 渲染截图、Excel 内嵌图都要走这条路，才能复用上面的上传与压缩逻辑。
+ */
+export function dataUrlToFile(dataUrl: string, name: string): File | null {
+  const m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl);
+  if (!m) return null;
+  const bin = atob(m[2]);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new File([bytes], name, { type: m[1] });
+}
