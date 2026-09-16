@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { configApi, materials as materialsApi, quotes, uploads, type QuoteImage } from '../api';
+import { uploadImage, humanSize } from '../utils/image';
 import { useFeedback } from '../components/feedback';
 import { calculateQuoteProject } from '@mqs/calc-engine';
 import type { QuoteItemDef } from '@mqs/shared';
@@ -82,38 +83,39 @@ function OffToggle({ off, onToggle }: { off: boolean; onToggle: () => void }) {
 }
 
 /**
- * 件图槽 —— 卡片上的缩略图 + 上传 / 替换 / 删除。
+ * 件图槽 —— 卡片上的缩略图 + 上传 / 替换 / 删除 / 放大查看。
  *
- * 报价单最终是给客户看的：光有参数分不清「哪套模具、哪个件」，
- * 把图纸或实物照片挂在件上，导出的 Excel 报价单也带上，一眼就明白。
+ * 这是「手点上传」的**兜底通道**：二期会从 Excel 内嵌图、3D 渲染图批量灌进来，
+ * 两条路都走 utils/image 里的 uploadImage()，所以这里只负责交互，
+ * 压缩 / 转码 / 格式兼容一概不在这里管。
  */
 function ImageSlot({
   image,
   onChange,
   onError,
-  size = 72,
+  onInfo,
+  size = 48,
 }: {
   image?: QuoteImage | null;
   onChange: (img: QuoteImage | null) => void;
   onError: (msg: string) => void;
+  onInfo?: (msg: string) => void;
   size?: number;
 }) {
   const [busy, setBusy] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [zoom, setZoom] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const handleFile = async (f: File | undefined) => {
+  const take = async (f?: File | null) => {
     if (!f) return;
     setBusy(true);
     try {
-      const img = await uploads.upload(f);
-      onChange({
-        url: img.url,
-        name: img.name,
-        source: 'upload',
-        uploadedAt: new Date().toISOString(),
-      });
+      const img = await uploadImage(f, { source: 'upload' });
+      onChange(img);
+      onInfo?.(`件图已上传（${humanSize(f.size)}）`);
     } catch (e: any) {
-      onError('图片上传失败：' + (e.response?.data?.error || e.message));
+      onError(e?.response?.data?.error || e?.message || '图片上传失败');
     } finally {
       setBusy(false);
       if (inputRef.current) inputRef.current.value = '';
@@ -127,35 +129,57 @@ function ImageSlot({
     if (old) uploads.remove(old).catch(() => {});
   };
 
+  const dropProps = {
+    onDragOver: (e: React.DragEvent) => {
+      if (e.dataTransfer?.types?.includes('Files')) {
+        e.preventDefault();
+        setDragOver(true);
+      }
+    },
+    onDragLeave: () => setDragOver(false),
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragOver(false);
+      const files = Array.from(e.dataTransfer?.files ?? []);
+      if (!files.length) return;
+      if (files.length > 1) onInfo?.(`一次只能放一张，已取「${files[0].name}」`);
+      take(files[0]);
+    },
+  };
+
   return (
-    <div className="shrink-0">
+    <div className="shrink-0" {...dropProps}>
       <input
         ref={inputRef}
         type="file"
         accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
         className="hidden"
-        onChange={(e) => handleFile(e.target.files?.[0])}
+        onChange={(e) => take(e.target.files?.[0])}
       />
+
       {image?.url ? (
         <div className="relative group" style={{ width: size, height: size }}>
           <img
             src={image.url}
             alt={image.name || '件图'}
-            title={image.name || ''}
-            className="w-full h-full object-contain bg-white border border-gray-200 rounded"
+            title={`${image.name || '件图'}（点击放大 / 拖入新图可替换）`}
+            className={`w-full h-full object-contain bg-white border rounded cursor-zoom-in transition ${
+              dragOver ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-gray-200'
+            }`}
+            onClick={() => setZoom(true)}
           />
-          <div className="absolute inset-0 hidden group-hover:flex items-center justify-center gap-1 bg-black/45 rounded">
+          <div className="absolute inset-0 hidden group-hover:flex items-center justify-center gap-1 bg-black/45 rounded pointer-events-none">
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
-              className="text-[10.5px] text-white px-1.5 py-0.5 rounded bg-white/20 hover:bg-white/30"
+              className="pointer-events-auto text-[10.5px] text-white px-1.5 py-0.5 rounded bg-white/20 hover:bg-white/30"
             >
               换
             </button>
             <button
               type="button"
               onClick={clear}
-              className="text-[10.5px] text-white px-1.5 py-0.5 rounded bg-white/20 hover:bg-white/30"
+              className="pointer-events-auto text-[10.5px] text-white px-1.5 py-0.5 rounded bg-white/20 hover:bg-white/30"
             >
               删
             </button>
@@ -166,12 +190,61 @@ function ImageSlot({
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={busy}
-          title="上传这一件的图纸或照片（会一起导到 Excel 报价单）"
+          title="点这里选图，或直接把图片拖进来（会一起导到 Excel 报价单）"
           style={{ width: size, height: size }}
-          className="flex items-center justify-center border border-dashed border-gray-300 rounded text-gray-400 hover:border-emerald-400 hover:text-emerald-600 transition disabled:opacity-50"
+          className={`flex items-center justify-center border border-dashed rounded transition disabled:opacity-50 ${
+            dragOver
+              ? 'border-emerald-500 bg-emerald-50 text-emerald-600'
+              : 'border-gray-300 text-gray-400 hover:border-emerald-400 hover:text-emerald-600'
+          }`}
         >
-          <span className="text-[11px] leading-none">{busy ? '上传中' : '＋ 件图'}</span>
+          <span className="text-[11px] leading-none text-center">
+            {busy ? '上传中' : dragOver ? '放开' : '＋ 件图'}
+          </span>
         </button>
+      )}
+
+      {zoom && image?.url && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-8"
+          onClick={() => setZoom(false)}
+        >
+          <div className="max-w-[92vw] max-h-[92vh] bg-white rounded-lg p-3" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={image.url}
+              alt={image.name || '件图'}
+              className="max-w-[86vw] max-h-[80vh] object-contain"
+            />
+            <div className="mt-2 flex items-center justify-between gap-4 text-xs text-gray-500">
+              <span className="truncate">{image.name || '件图'}</span>
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setZoom(false);
+                    inputRef.current?.click();
+                  }}
+                  className="text-gray-600 hover:text-gray-900"
+                >
+                  换一张
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setZoom(false);
+                    clear();
+                  }}
+                  className="text-red-500 hover:text-red-700"
+                >
+                  删除
+                </button>
+                <button type="button" onClick={() => setZoom(false)} className="text-gray-600 hover:text-gray-900">
+                  关闭
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1038,6 +1111,7 @@ export default function ConfiguredQuote() {
                       image={m.image}
                       onChange={(img) => setMold(i, { image: img })}
                       onError={(msg) => fb.toast(msg, 'err')}
+                      onInfo={(msg) => fb.toast(msg)}
                       size={48}
                     />
                     <input
@@ -1196,6 +1270,7 @@ export default function ConfiguredQuote() {
                       image={p.image}
                       onChange={(img) => setPart(i, { image: img })}
                       onError={(msg) => fb.toast(msg, 'err')}
+                      onInfo={(msg) => fb.toast(msg)}
                       size={48}
                     />
                     <input

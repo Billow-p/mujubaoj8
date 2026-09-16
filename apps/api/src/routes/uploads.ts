@@ -10,6 +10,7 @@ import type { FastifyInstance } from 'fastify';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { prisma } from '../db.js';
 
 /** 单张图上限 20MB —— 报价单件图用不到更大 */
 const MAX_BYTES = 20 * 1024 * 1024;
@@ -80,7 +81,11 @@ export async function uploadRoutes(app: FastifyInstance) {
   });
 
   // ---------------------------------------------------------------
-  // 删除一张件图（换图 / 移除时调用；文件不存在也算成功，保持幂等）
+  // 删除一张件图（换图 / 移除时调用）
+  //
+  // 关键：报价单版本是**快照**。用户换图时，旧图可能还挂在历史版本上，
+  // 直接删文件会让老版本报价单的图裂掉。所以先查引用，有人用就只解除引用、
+  // 不删文件（留成孤儿，宁可占点磁盘也不能让历史单据坏掉）。
   // ---------------------------------------------------------------
   app.delete('/api/uploads', { preHandler: [app.authenticate] }, async (req, reply) => {
     const url = String((req.query as any)?.url || '');
@@ -89,6 +94,28 @@ export async function uploadRoutes(app: FastifyInstance) {
     if (!filename || !/^[a-f0-9]{20}\.(png|jpg|webp|gif|bmp)$/i.test(filename)) {
       return reply.code(400).send({ error: '文件名不合法' });
     }
+
+    const { companyId } = req.user as any;
+
+    // 还有报价版本引用它 → 保留文件
+    let stillUsed = 0;
+    try {
+      const rows = await prisma.$queryRaw<{ n: number }[]>`
+        SELECT count(*)::int AS n
+        FROM "QuoteVersion" v
+        JOIN "Quote" q ON q.id = v."quoteId"
+        WHERE q."companyId" = ${companyId}
+          AND v."paramsJson"::text LIKE ${'%' + url + '%'}
+      `;
+      stillUsed = Number(rows?.[0]?.n ?? 0);
+    } catch {
+      // 查询失败按「有人用」处理，宁可留垃圾也不要删坏历史单据
+      stillUsed = 1;
+    }
+    if (stillUsed > 0) {
+      return { ok: true, kept: true, reason: '该图仍被报价单版本引用，已解除引用但不删除文件' };
+    }
+
     const full = path.join(uploadRoot(), filename);
     if (fs.existsSync(full)) {
       try {
@@ -97,6 +124,6 @@ export async function uploadRoutes(app: FastifyInstance) {
         /* 删除失败不影响业务，忽略 */
       }
     }
-    return { ok: true };
+    return { ok: true, kept: false };
   });
 }
