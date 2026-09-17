@@ -1423,29 +1423,30 @@ export default function ConfiguredQuote() {
 
                   {/* 费用项（来自配置中心）—— 加什么就看得见什么 */}
                   {/* 待填费用：配置中心里「手填金额」类型的项。公式类的不在这儿铺开 —— 看右侧「实时算价」 */}
-                  {manualItems('mold').length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-dashed border-gray-200">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-[12px] font-medium text-gray-600">待填费用</span>
-                        <span className="text-[11px] text-gray-400">
-                          配置中心设为「手填金额」的 {manualItems('mold').length} 项
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-x-4 gap-y-3">
-                        {manualItems('mold').map((it: any) => (
-                          <div key={it.id ?? it.name} className="min-w-0">
-                            {renderManualField(
-                              it.name,
-                              m.manuals[it.name],
-                              (v) => setMold(i, { manuals: { ...m.manuals, [it.name]: v } }),
-                              !!m.off[it.name],
-                              () => toggleMoldOff(i, it.name),
-                            )}
-                          </div>
-                        ))}
-                      </div>
+                  {/* 区间常驻：没有手填项时也留一行说明，避免「配置中心加了项、报价页没反应」被误判成同步坏了 */}
+                  <div className="mt-3 pt-3 border-t border-dashed border-gray-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[12px] font-medium text-gray-600">待填费用</span>
+                      <span className="text-[11px] text-gray-400">
+                        {manualItems('mold').length > 0
+                          ? `配置中心设为「手填金额」的 ${manualItems('mold').length} 项`
+                          : '暂无 —— 配置中心「要收哪些费用」里设为「报价时手填」的项目会出现在这里'}
+                      </span>
                     </div>
-                  )}
+                    <div className="grid grid-cols-3 gap-x-4 gap-y-3">
+                      {manualItems('mold').map((it: any) => (
+                        <div key={it.id ?? it.name} className="min-w-0">
+                          {renderManualField(
+                            it.name,
+                            m.manuals[it.name],
+                            (v) => setMold(i, { manuals: { ...m.manuals, [it.name]: v } }),
+                            !!m.off[it.name],
+                            () => toggleMoldOff(i, it.name),
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
 
                 </div>
               ))}
@@ -1611,29 +1612,30 @@ export default function ConfiguredQuote() {
 
                   {/* 费用项（来自配置中心）—— 加什么就看得见什么 */}
                   {/* 待填费用：配置中心里「手填金额」类型的项。公式类的不在这儿铺开 —— 看右侧「实时算价」 */}
-                  {manualItems('injection').length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-dashed border-gray-200">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-[12px] font-medium text-gray-600">待填费用</span>
-                        <span className="text-[11px] text-gray-400">
-                          配置中心设为「手填金额」的 {manualItems('injection').length} 项
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-x-4 gap-y-3">
-                        {manualItems('injection').map((it: any) => (
-                          <div key={it.id ?? it.name} className="min-w-0">
-                            {renderManualField(
-                              it.name,
-                              p.manuals[it.name],
-                              (v) => setPart(i, { manuals: { ...p.manuals, [it.name]: v } }),
-                              !!p.off[it.name],
-                              () => togglePartOff(i, it.name),
-                            )}
-                          </div>
-                        ))}
-                      </div>
+                  {/* 区间常驻：没有手填项时也留一行说明，避免「配置中心加了项、报价页没反应」被误判成同步坏了 */}
+                  <div className="mt-3 pt-3 border-t border-dashed border-gray-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[12px] font-medium text-gray-600">待填费用</span>
+                      <span className="text-[11px] text-gray-400">
+                        {manualItems('injection').length > 0
+                          ? `配置中心设为「手填金额」的 ${manualItems('injection').length} 项`
+                          : '暂无 —— 配置中心「要收哪些费用」里设为「报价时手填」的项目会出现在这里'}
+                      </span>
                     </div>
-                  )}
+                    <div className="grid grid-cols-3 gap-x-4 gap-y-3">
+                      {manualItems('injection').map((it: any) => (
+                        <div key={it.id ?? it.name} className="min-w-0">
+                          {renderManualField(
+                            it.name,
+                            p.manuals[it.name],
+                            (v) => setPart(i, { manuals: { ...p.manuals, [it.name]: v } }),
+                            !!p.off[it.name],
+                            () => togglePartOff(i, it.name),
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
 
                 </div>
               ))}

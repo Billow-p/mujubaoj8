@@ -117,6 +117,9 @@ async function main() {
   check('配置中心的预置项也在右侧明细里（设计费）', text().includes('设计费'));
   check('左栏只留「待填费用」区（手填金额类）', text().includes('待填费用'));
 
+  // 方案B：无手填项时该区也要常驻，给空态说明（消除「配置中心加了项、报价页没反应」的误判）
+  check('「待填费用」区标题常驻（无手填项时也在）', (html().match(/待填费用/g) ?? []).length >= 1);
+
   // 手填金额类（calcType=manual）以前在报价页没有任何输入入口 —— 必须是可填的
   const manualLabel = (Array.from(container.querySelectorAll('label')) as any[]).find((l) =>
     (l.textContent || '').includes('配置中心新增的手填费'),

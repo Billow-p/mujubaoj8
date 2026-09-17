@@ -56,12 +56,19 @@ function sourceHint(it: any): string {
 }
 
 const emptyTerm = () => ({ text: '', enabled: true });
+/**
+ * 新增费用项默认「报价时手填」。
+ *
+ * 为什么默认 manual：在配置中心「要收哪些费用」里点「+ 加一项」，意图几乎都是
+ * 「想在报价单上填这一笔」。默认给 manual，加完立刻在报价页长出输入框；
+ * 想设成固定金额/工时/公式，再手动改计算方式即可。
+ */
 const emptyItem = (): any => ({
   name: '新费用',
   category: '自定义',
   scope: 'mold',
-  calcType: 'fixed',
-  calcConfig: { amount: 0 },
+  calcType: 'manual',
+  calcConfig: {},
   perUnit: false,
   enabled: true,
 });
@@ -739,6 +746,9 @@ export default function ConfigCenter() {
               <span className="w-5 h-5 rounded-full bg-gray-900 text-white text-[11px] flex items-center justify-center">2</span>
               <span className="font-semibold text-sm">要收哪些费用</span>
               <span className="text-[12px] text-gray-400">{items.length} 项</span>
+              <span className="text-[11px] text-gray-400">
+                · 计算方式选「报价时手填」的 → 出现在报价单上让人填；其余在报价页右侧「实时算价」里显示
+              </span>
             </div>
           </div>
           <div className="p-3.5">
@@ -803,6 +813,20 @@ export default function ConfigCenter() {
                       />
                       <span className="flex-1 text-[13.5px] font-medium truncate">{it.name}</span>
                       <span className="text-[11.5px] text-gray-500 bg-gray-100 px-2 py-0.5 rounded whitespace-nowrap">{meta?.n ?? it.calcType}</span>
+                      {/* 去向角标：让「加了这项，报价页会怎样」一眼可见，避免以为没同步 */}
+                      {it.enabled === false ? (
+                        <span className="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded whitespace-nowrap" title="已停用：不计入算价，也不出现在报价页">
+                          已停用
+                        </span>
+                      ) : it.calcType === 'manual' ? (
+                        <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded whitespace-nowrap" title="计算方式是「报价时手填」：会在报价单上出现输入框，由报价员当场填金额">
+                          → 报价页待填
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded whitespace-nowrap" title="金额由配置中心的算法算出：在报价页右侧「实时算价 → 费用明细」里显示，报价单上不出现输入框">
+                          → 算价明细
+                        </span>
+                      )}
                       <span className="text-[13.5px] font-semibold tabular-nums whitespace-nowrap">{val}</span>
                     </div>
 
