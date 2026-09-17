@@ -83,6 +83,7 @@ async function main() {
 
   // 模具组默认展开 → 参数照旧可编辑
   check('模具参数照旧可编辑（腔数）', html().includes('腔数'));
+  check('「系数」黄色提示块已删除', !text().includes('下拉参数的数字不是金额'));
 
   // ② 保存不丢 scope（回归测试）—— 趁模具组还展开着先做
   const nameInput = inputs().find((i) => i.value === '腔数');

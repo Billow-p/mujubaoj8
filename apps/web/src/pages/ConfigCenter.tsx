@@ -834,12 +834,6 @@ export default function ConfigCenter() {
                     </div>
                   );
                 })}
-                <div className="text-[11px] text-amber-700 leading-snug bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
-                  <b>下拉参数的数字不是金额，是「系数」—— 公式会拿它去乘。</b>
-                  例如运输费 = 重量 × 运费单价 × 这里的数字，所以填 300 会变成 300 倍运费；
-                  想固定加一笔钱，请在中间「要收哪些费用」里加「手填金额」类型的项。
-                </div>
-                <p className="text-[11.5px] text-gray-400 pt-1">这些是报价时填的数字，改这里右边立刻重算</p>
               </div>
             )}
 

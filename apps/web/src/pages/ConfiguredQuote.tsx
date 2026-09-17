@@ -441,46 +441,34 @@ export default function ConfiguredQuote() {
   const injectionDefs = useMemo(() => params.filter((p) => (p.scope as string) === 'injection'), [cfg]);
 
   /**
-   * 「运输区域」—— 整单一个值的下拉参数。
-   * 它原来属于配置中心的「公共参数（整单共享一份）」分组，那个分组已按需求删除，
-   * 于是它失去了编辑入口。现在按需求收进报价页的「其他价格」板块里编辑（整单统一）。
-   * 值仍写回 commonParams，和其它整单参数一样参与算价（运输费公式里用到它）。
+   * 整单参数（scope=common）：运输区域、运输箱长/宽/高、运费单价…
+   *
+   * 这些原来在配置中心的「公共参数（整单共享一份）」分组里，那个分组已按需求删除，
+   * 于是它们失去了编辑入口。现在统一收进报价页最底下的「其他价格」板块。
+   *
+   * 为什么不写死「运输区域」一个字段：**配置中心里新增或改动的整单参数要能自动出现**，
+   * 每加一个参数就改一次报价页代码是走不长的。
    */
-  const transportZoneDef = useMemo(() => {
-    const list = (cfg?.parameters ?? []).filter((p: any) => p.enabled !== false);
-    return (
-      list.find((p: any) => p.name === '运输区域') ??
-      list.find(
-        (p: any) =>
-          (p.scope as string) === 'common' && p.group === '运输' && p.type === 'select',
-      ) ??
-      null
-    );
-  }, [cfg]);
+  const commonDefs = useMemo(
+    () =>
+      (cfg?.parameters ?? []).filter(
+        (p: any) => p.enabled !== false && (p.scope as string) === 'common',
+      ),
+    [cfg],
+  );
 
   /**
-   * 配置中心「要收哪些费用」里的项，按套（mold）/ 按件（injection）拆开。
+   * 配置中心「要收哪些费用」里、类型是「手填金额」的项 —— 这些要在报价页填。
    *
-   * 这些项以前只出现在右栏折叠的「费用明细」里，而且金额常常是 0 ——
-   * 用户在配置中心点「+ 加一项」、保存、回到报价页，左栏卡片毫无变化，
-   * 就会以为「配置中心加了项，报价表里没生效」。
-   * 所以现在直接列进模具 / 注塑件卡片：
-   *   · 手填金额类 → 给输入框（落到 state.manuals，会随报价单一起存）
-   *   · 其它类型   → 显示配置中心公式算出来的值（只读，改公式去配置中心）
+   * 只留手填类：公式类（模芯钢材费 / CNC / 设计费…）不在这儿铺开，
+   * 它们的金额看右侧「实时算价 → 费用明细」就够，铺一堆 ¥0 / 未设值 只会让卡片变吵。
+   * 手填类必须有输入框，否则配置中心里设成「手填金额」的项在报价页根本没地方填
+   * （落到 state.manuals，随报价单一起存）。
    */
-  const scopeItems = (scope: 'mold' | 'injection') =>
-    (cfg?.items ?? []).filter((it: any) => it.scope === scope && it.enabled !== false);
   const manualItems = (scope: 'mold' | 'injection') =>
-    scopeItems(scope).filter((it: any) => it.calcType === 'manual');
-  const autoItems = (scope: 'mold' | 'injection') =>
-    scopeItems(scope).filter((it: any) => it.calcType !== 'manual');
-
-  /** 某个费用项在某套模具 / 某个注塑件上算出来的那一行（右栏明细同源） */
-  const lineOfItem = (
-    rows: any[] | undefined,
-    idx: number,
-    name: string,
-  ): any | undefined => (rows?.[idx]?.lines ?? []).find((l: any) => l.name === name);
+    (cfg?.items ?? []).filter(
+      (it: any) => it.scope === scope && it.enabled !== false && it.calcType === 'manual',
+    );
 
   // 数量参数名（注塑数量 / 压铸数量 / 成型数量…）
   const qtyVarName = useMemo(() => {
@@ -1441,52 +1429,28 @@ export default function ConfiguredQuote() {
                   )}
 
                   {/* 费用项（来自配置中心）—— 加什么就看得见什么 */}
-                  {(manualItems('mold').length > 0 || autoItems('mold').length > 0) && (
+                  {/* 待填费用：配置中心里「手填金额」类型的项。公式类的不在这儿铺开 —— 看右侧「实时算价」 */}
+                  {manualItems('mold').length > 0 && (
                     <div className="mt-3 pt-3 border-t border-dashed border-gray-200">
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="text-[12px] font-medium text-gray-600">费用项</span>
+                        <span className="text-[12px] font-medium text-gray-600">待填费用</span>
                         <span className="text-[11px] text-gray-400">
-                          来自配置中心「要收哪些费用」·共 {scopeItems('mold').length} 项
+                          配置中心设为「手填金额」的 {manualItems('mold').length} 项
                         </span>
                       </div>
-                      {manualItems('mold').length > 0 && (
-                        <div className="grid grid-cols-3 gap-x-4 gap-y-3">
-                          {manualItems('mold').map((it: any) => (
-                            <div key={it.id ?? it.name} className="min-w-0">
-                              {renderManualField(
-                                it.name,
-                                m.manuals[it.name],
-                                (v) => setMold(i, { manuals: { ...m.manuals, [it.name]: v } }),
-                                !!m.off[it.name],
-                                () => toggleMoldOff(i, it.name),
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {autoItems('mold').length > 0 && (
-                        <div className="grid grid-cols-3 gap-x-4 gap-y-0.5 mt-1">
-                          {autoItems('mold').map((it: any) => {
-                            const line = lineOfItem(result?.moldResults, i, it.name);
-                            return (
-                              <div
-                                key={it.id ?? it.name}
-                                className="flex items-baseline justify-between gap-2 text-[12px] min-w-0"
-                                title={`按配置中心「${it.name}」的算法自动算，改算法请去配置中心`}
-                              >
-                                <span className="text-gray-500 truncate">{it.name}</span>
-                                <span
-                                  className={`tabular-nums shrink-0 ${
-                                    line?.error ? 'text-red-600' : 'text-gray-700'
-                                  }`}
-                                >
-                                  {line?.error ? '缺参数' : money(line?.value ?? 0)}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                      <div className="grid grid-cols-3 gap-x-4 gap-y-3">
+                        {manualItems('mold').map((it: any) => (
+                          <div key={it.id ?? it.name} className="min-w-0">
+                            {renderManualField(
+                              it.name,
+                              m.manuals[it.name],
+                              (v) => setMold(i, { manuals: { ...m.manuals, [it.name]: v } }),
+                              !!m.off[it.name],
+                              () => toggleMoldOff(i, it.name),
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 
@@ -1653,52 +1617,28 @@ export default function ConfiguredQuote() {
                   </div>
 
                   {/* 费用项（来自配置中心）—— 加什么就看得见什么 */}
-                  {(manualItems('injection').length > 0 || autoItems('injection').length > 0) && (
+                  {/* 待填费用：配置中心里「手填金额」类型的项。公式类的不在这儿铺开 —— 看右侧「实时算价」 */}
+                  {manualItems('injection').length > 0 && (
                     <div className="mt-3 pt-3 border-t border-dashed border-gray-200">
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="text-[12px] font-medium text-gray-600">费用项</span>
+                        <span className="text-[12px] font-medium text-gray-600">待填费用</span>
                         <span className="text-[11px] text-gray-400">
-                          来自配置中心「要收哪些费用」·共 {scopeItems('injection').length} 项
+                          配置中心设为「手填金额」的 {manualItems('injection').length} 项
                         </span>
                       </div>
-                      {manualItems('injection').length > 0 && (
-                        <div className="grid grid-cols-3 gap-x-4 gap-y-3">
-                          {manualItems('injection').map((it: any) => (
-                            <div key={it.id ?? it.name} className="min-w-0">
-                              {renderManualField(
-                                it.name,
-                                p.manuals[it.name],
-                                (v) => setPart(i, { manuals: { ...p.manuals, [it.name]: v } }),
-                                !!p.off[it.name],
-                                () => togglePartOff(i, it.name),
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {autoItems('injection').length > 0 && (
-                        <div className="grid grid-cols-3 gap-x-4 gap-y-0.5 mt-1">
-                          {autoItems('injection').map((it: any) => {
-                            const line = lineOfItem(result?.partResults, i, it.name);
-                            return (
-                              <div
-                                key={it.id ?? it.name}
-                                className="flex items-baseline justify-between gap-2 text-[12px] min-w-0"
-                                title={`按配置中心「${it.name}」的算法自动算，改算法请去配置中心`}
-                              >
-                                <span className="text-gray-500 truncate">{it.name}</span>
-                                <span
-                                  className={`tabular-nums shrink-0 ${
-                                    line?.error ? 'text-red-600' : 'text-gray-700'
-                                  }`}
-                                >
-                                  {line?.error ? '缺参数' : money(line?.value ?? 0)}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                      <div className="grid grid-cols-3 gap-x-4 gap-y-3">
+                        {manualItems('injection').map((it: any) => (
+                          <div key={it.id ?? it.name} className="min-w-0">
+                            {renderManualField(
+                              it.name,
+                              p.manuals[it.name],
+                              (v) => setPart(i, { manuals: { ...p.manuals, [it.name]: v } }),
+                              !!p.off[it.name],
+                              () => togglePartOff(i, it.name),
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 
@@ -1718,30 +1658,26 @@ export default function ConfiguredQuote() {
               <span className="text-[12px] font-normal text-gray-500">利润前计入总价</span>
             </div>
             <div className="p-3.5">
-              {/* 整单参数：运输区域（原「公共参数」分组已删，按需求并入这里编辑） */}
-              {transportZoneDef && (
+              {/* 整单参数（scope=common）—— 配置中心新增/改动的整单参数会自动出现在这里 */}
+              {commonDefs.length > 0 && (
                 <div className="mb-3 pb-3 border-b border-dashed border-gray-200">
-                  <label className="flex items-center gap-3">
-                    <span className="text-[13px] text-gray-700 shrink-0">
-                      {transportZoneDef.name}
-                    </span>
-                    <select
-                      value={String(commonParams[transportZoneDef.name] ?? '')}
-                      onChange={(e) =>
-                        setCommonParams((s) => ({ ...s, [transportZoneDef.name]: e.target.value }))
-                      }
-                      className="flex-1 min-w-0 border border-gray-300 rounded px-2.5 py-2 text-sm"
-                    >
-                      {(transportZoneDef.options ?? []).map((o: any) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <p className="text-[11px] text-gray-400 mt-1">
-                    整单统一 · 影响「{transportZoneDef.name === '运输区域' ? '运输费' : transportZoneDef.name}」的计算
-                  </p>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[12px] font-medium text-gray-600">整单参数</span>
+                    <span className="text-[11px] text-gray-400">来自配置中心 · 整单统一</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-x-4 gap-y-3">
+                    {commonDefs.map((p: any) => (
+                      <div key={p.id ?? p.name} className="min-w-0">
+                        {renderField(
+                          p,
+                          commonParams[p.name],
+                          (v) => setCommonParams((s) => ({ ...s, [p.name]: v })),
+                          !!commonOff[p.name],
+                          () => toggleCommonOff(p.name),
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
               <ExtrasEditor

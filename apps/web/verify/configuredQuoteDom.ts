@@ -65,11 +65,9 @@ async function main() {
   check('整页渲染成功（有「实时算价」）', text().includes('实时算价'));
   check('渲染出「客户信息」', text().includes('客户信息'));
 
-  // —— 运输参数：独立的「公共参数」板块已删除，只剩「运输区域」并收进「其他价格」—— 
-  check('箱长/宽/高 不再可填', !html().includes('运输箱长') && !html().includes('运输箱宽') && !html().includes('运输箱高'));
-  check('运费单价 不再可填', !html().includes('运费单价'));
+  // —— 没有独立的「公共参数」板块：整单参数统一收进最底下的「其他价格」——
+  check('没有独立的「公共参数」板块', !text().includes('公共参数'));
   check('「运输信息」标题已移除', !text().includes('运输信息'));
-  check('「公共参数」板块不存在', !text().includes('公共参数'));
 
   // —— 其他价格：存在，且挪到页面最底下（客户信息、注塑件 之后） ——
   const iOther = html().indexOf('其他价格');
@@ -87,6 +85,10 @@ async function main() {
     (el.textContent || '').includes('广东省内'),
   );
   check('「运输区域」是可编辑下拉（含省内外选项）', !!zoneSel);
+  check('「整单参数」区标题存在', text().includes('整单参数'));
+  const iPackLen = html().indexOf('运输箱长');
+  check('运输箱长 也并入「其他价格」（不再是无处可改）', iPackLen > iOther && iOther >= 0);
+  check('运费单价 也在「其他价格」里可改', html().indexOf('运费单价') > iOther);
   if (zoneSel) {
     const setSel = Object.getOwnPropertyDescriptor(
       (dom.window as any).HTMLSelectElement.prototype,
@@ -105,14 +107,13 @@ async function main() {
   check('没有「注塑附加费」板块', !text().includes('注塑附加费'));
   check('注塑件卡片仍能正常渲染（材料/数量/单件重量）', !!iPartParam);
 
-  // —— 配置中心「+ 加一项」的项，报价页必须一眼看见；手填类必须能填 ——
+  // —— 公式类费用项：不在左栏卡片里铺开，只体现在右侧「实时算价」明细 ——
   const iRight = html().indexOf('实时算价');
   const iNewMold = html().indexOf('配置中心新增的模具费');
-  check('新增的模具费用项出现在左栏模具卡片里', iNewMold >= 0 && iRight >= 0 && iNewMold < iRight);
-  check('新增的注塑费用项出现在左栏注塑件卡片里', html().indexOf('配置中心新增的注塑费') >= 0);
-  check('费用项区标了「来自配置中心」', text().includes('来自配置中心'));
-  check('配置中心预置项照旧出现（设计费）', text().includes('设计费'));
-  check('公式类费用项显示算出来的值（¥ 500）', text().includes('¥ 500'));
+  check('公式类费用项不在左栏卡片里铺开（只在右侧算价里）', iRight >= 0 && iNewMold > iRight);
+  check('公式类费用项在右侧明细里能算出值（¥ 500）', html().includes('¥ 500'));
+  check('配置中心的预置项也在右侧明细里（设计费）', text().includes('设计费'));
+  check('左栏只留「待填费用」区（手填金额类）', text().includes('待填费用'));
 
   // 手填金额类（calcType=manual）以前在报价页没有任何输入入口 —— 必须是可填的
   const manualLabel = (Array.from(container.querySelectorAll('label')) as any[]).find((l) =>
