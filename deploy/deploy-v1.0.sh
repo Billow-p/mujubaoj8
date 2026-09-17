@@ -110,6 +110,8 @@ ssh -o StrictHostKeyChecking=no root@47.242.248.104 "
   node scripts/migrate-revert-price-group.mjs
   echo '==> [6.12/8] 清理材料库历史重复 code（只删零引用记录，幂等）'
   node scripts/migrate-dedup-materials.mjs
+  echo '==> [6.13/8] 对齐绑定材料的价格与材料库现价（幂等）'
+  node scripts/migrate-sync-bound-material-prices.mjs
 "
 
 echo "==> [7/8] 更新 Nginx 配置并重启服务"
