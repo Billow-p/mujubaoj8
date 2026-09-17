@@ -474,6 +474,16 @@ export default function ConfiguredQuote() {
       (it: any) => it.scope === scope && it.enabled !== false && it.calcType === 'manual',
     );
 
+  /**
+   * 「计价单价」参数（单价 / 密度 / 损耗率 / 系数 / 费率）。
+   * 它们在配置中心「要收哪些费用」板块维护，报价页只做只读展示 ——
+   * 单价是公司统一价，不该每单手改；但也不能不显示，否则报价员看不懂钱是怎么算出来的。
+   */
+  const priceParams = useMemo(
+    () => (cfg?.parameters ?? []).filter((p: any) => p.enabled !== false && p.group === '计价单价'),
+    [cfg],
+  );
+
   // 数量参数名（注塑数量 / 压铸数量 / 成型数量…）
   const qtyVarName = useMemo(() => {
     const hit = params.find((p) => QTY_VAR_CANDIDATES.includes(p.name));
@@ -1693,6 +1703,29 @@ export default function ConfiguredQuote() {
           <div className="px-3.5 pt-2 pb-1 text-[11.5px] text-gray-400">
             点「费用明细」可看到每一项是怎么算出来的，改任何参数都能对上账
           </div>
+          {/* 计价单价（只读）：单价属公司统一价，在配置中心维护 —— 这里只展示，避免报价员以为能改 */}
+          {priceParams.length > 0 && (
+            <div className="px-3.5 pt-2">
+              <div className="rounded-lg border border-blue-200 bg-blue-50/40 px-2.5 py-2">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[11.5px] font-medium text-gray-700">计价单价</span>
+                  <span className="text-[10.5px] text-blue-600">来自配置中心 · 报价时不可改</span>
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                  {priceParams.map((p: any) => (
+                    <div key={p.id ?? p.name} className="flex justify-between text-[11px] gap-2">
+                      <span className="text-gray-500 truncate" title={p.name}>{p.name}</span>
+                      <span className="tabular-nums shrink-0 text-gray-700">
+                        {p.defaultValue === '' || p.defaultValue == null
+                          ? <span className="text-gray-400">未设值</span>
+                          : String(p.defaultValue)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
           <div className="p-3.5 pt-1.5 max-h-[520px] overflow-y-auto">
             <div className="text-[12px] font-semibold text-gray-500 mb-1">模具费用</div>
             {(result?.moldResults ?? []).map((m: any, i: number) => (

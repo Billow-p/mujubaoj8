@@ -129,6 +129,38 @@ async function main() {
   check('「→ 算价明细」角标已删除', !text().includes('→ 算价明细'));
   check('「要收哪些费用」标题行说明去向规则', text().includes('计算方式选「报价时手填」的'));
 
+  // 「计价单价」移组：产品数据只填「量」，价/系数类参数统一挪到「要收哪些费用」板块顶部
+  const priceBlock = Array.from(container.querySelectorAll('span,div')).find(
+    (el: any) => (el.textContent || '').trim() === '计价单价',
+  );
+  check('「要收哪些费用」板块里有「计价单价」区块', !!priceBlock);
+  check('「计价单价」区块说明「产品数据只填数量尺寸」', text().includes('产品数据只填数量尺寸'));
+
+  // 左侧「产品数据」两组里不应再出现价类参数
+  const PRODUCT_GROUPS = ['模具参数', '注塑参数'];
+  let priceLeak: string[] = [];
+  for (const gname of PRODUCT_GROUPS) {
+    const heads = Array.from(container.querySelectorAll('span,div,button')).filter(
+      (el: any) => (el.textContent || '').trim() === gname,
+    );
+    const head = heads[0];
+    if (!head) continue;
+    // 取该分组标题所在的容器（卡片），在其范围内找 input
+    let card: any = head;
+    for (let i = 0; i < 6 && card?.parentElement; i++) {
+      card = card.parentElement;
+      if (card.querySelectorAll('input').length >= 3) break;
+    }
+    if (!card) continue;
+    const labels = Array.from(card.querySelectorAll('label,span,div'))
+      .map((el: any) => (el.textContent || '').trim())
+      .filter((t: string) => t.length > 1 && t.length < 20);
+    for (const kw of ['钢材单价', '原料单价', '机台时薪', '运费单价', '损耗率', '系数']) {
+      if (labels.some((t: string) => t.includes(kw))) priceLeak.push(`${gname}/${kw}`);
+    }
+  }
+  check('产品数据里不再出现价类/系数参数', priceLeak.length === 0);
+
   await act(async () => { root.unmount(); });
   dom.window.close();
 
