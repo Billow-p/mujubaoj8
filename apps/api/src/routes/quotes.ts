@@ -1031,6 +1031,41 @@ export async function quoteRoutes(app: FastifyInstance) {
           )
           .optional()
           .default([]),
+        // 附加费用项（模具钢材 / 注塑件 / 其他费用 三个板块各自动态增删）
+        extras: z
+          .object({
+            moldExtras: z
+              .array(
+                z.object({
+                  id: z.string().min(1),
+                  name: z.string().min(1),
+                  amount: z.number(),
+                  note: z.string().optional(),
+                }),
+              )
+              .optional(),
+            injectionExtras: z
+              .array(
+                z.object({
+                  id: z.string().min(1),
+                  name: z.string().min(1),
+                  amount: z.number(),
+                  note: z.string().optional(),
+                }),
+              )
+              .optional(),
+            otherExtras: z
+              .array(
+                z.object({
+                  id: z.string().min(1),
+                  name: z.string().min(1),
+                  amount: z.number(),
+                  note: z.string().optional(),
+                }),
+              )
+              .optional(),
+          })
+          .optional(),
       })
       .parse(req.body);
 
@@ -1225,6 +1260,13 @@ export async function quoteRoutes(app: FastifyInstance) {
       },
       molds,
       parts,
+      extras: body.extras
+        ? {
+            moldExtras: body.extras.moldExtras ?? [],
+            injectionExtras: body.extras.injectionExtras ?? [],
+            otherExtras: body.extras.otherExtras ?? [],
+          }
+        : undefined,
     };
 
     const result = calculateQuoteProject(input);
@@ -1293,6 +1335,8 @@ export async function quoteRoutes(app: FastifyInstance) {
                 };
               }),
               items: defs,
+              // 附加费用项（三板块动态增删）—— 随报价快照一起落库，重新报价可原样复现
+              extras: body.extras ?? null,
             } as any,
             calcResultJson: result as any,
             businessTermsJson: terms.map((t, i) => ({

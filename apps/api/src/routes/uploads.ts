@@ -12,6 +12,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { prisma } from '../db.js';
 import { extractExcelImages } from '../services/excelImages.js';
+import { importQuoteExcel } from '../services/excelImport.js';
 import { extractWordImages } from '../services/wordImages.js';
 import { writeRecogLog, type RecogOutcome } from '../services/recogLog.js';
 
@@ -391,4 +392,58 @@ export async function uploadRoutes(app: FastifyInstance) {
     }
     return { ok: true, kept: false };
   });
+  // ---------------------------------------------------------------
+  // 三期：Excel 参数表 → 报价参数（列映射）
+  //
+  // 和 /api/uploads/excel（只抠图）不同，这条把参数行读成报价参数结构，
+  // 前端拿到预览后一键填进报价页。认不到的列进 unmatched，界面提示人工确认。
+  // ---------------------------------------------------------------
+  app.post('/api/uploads/excel-params', { preHandler: [app.authenticate] }, async (req, reply) => {
+    if (!(req as any).isMultipart || !(req as any).isMultipart()) {
+      return reply.code(400).send({ error: '请以 multipart/form-data 方式上传' });
+    }
+    let data: any;
+    try {
+      data = await (req as any).file({ limits: { fileSize: MAX_EXCEL_BYTES } });
+    } catch (e: any) {
+      if (e?.code === 'FST_REQ_FILE_TOO_LARGE') {
+        return recogFail(req, reply, { kind: 'excel', fileName: '(未知)', fileSize: 0, status: 413, message: 'Excel 太大（上限 30MB）', suggestion: '删掉不必要的行或拆成几个文件分别上传', step: 'read-file' });
+      }
+      throw e;
+    }
+    if (!data) return recogFail(req, reply, { kind: 'excel', fileName: '(未知)', fileSize: 0, status: 400, message: '没有收到文件', suggestion: '重新选择文件后再上传', step: 'read-file' });
+
+    const fname = String(data.filename || '参数表.xlsx');
+    const lower = fname.toLowerCase();
+    if (!lower.endsWith('.xlsx')) {
+      await data.toBuffer().catch(() => {});
+      const isOld = lower.endsWith('.xls');
+      return recogFail(req, reply, { kind: 'excel', fileName: fname, fileSize: 0, status: 415, message: isOld ? '老版 .xls 暂不支持参数映射' : `不支持 .${(lower.split('.').pop() || '?')} 格式`, suggestion: isOld ? '用 Excel 打开 → 另存为 .xlsx 再上传' : '目前只支持 .xlsx 参数表', step: 'check-ext' });
+    }
+
+    let buf: Buffer;
+    try {
+      buf = await data.toBuffer();
+    } catch (e: any) {
+      if (e?.code === 'FST_REQ_FILE_TOO_LARGE') {
+        return recogFail(req, reply, { kind: 'excel', fileName: fname, fileSize: 0, status: 413, message: 'Excel 太大（上限 30MB）', suggestion: '删掉不必要的行或拆成几个文件分别上传', step: 'read-file' });
+      }
+      throw e;
+    }
+    if (!buf.length) {
+      return recogFail(req, reply, { kind: 'excel', fileName: fname, fileSize: 0, status: 400, message: '文件内容是空的（0 字节）', suggestion: '请重新导出一次', outcome: 'empty', step: 'read-file' });
+    }
+
+    try {
+      const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+      const res = await importQuoteExcel(ab, fname);
+      writeRecogLog({ kind: 'excel', fileName: fname, fileSize: buf.length, outcome: 'ok', extracted: res.molds.length + res.parts.length, reason: '参数表映射' }, (req.user as any)?.userId);
+      return res;
+    } catch (e: any) {
+      const msg = String(e?.message || '');
+      const encrypted = /encrypt|password|protect/i.test(msg);
+      return recogFail(req, reply, { kind: 'excel', fileName: fname, fileSize: buf.length, status: 400, message: encrypted ? '这个 Excel 被加密或设置了保护，读不出内容' : '读取 Excel 失败：' + (msg || '文件可能已损坏'), suggestion: encrypted ? '去掉文件密码后重新上传' : '用 Excel 重新打开并另存为 .xlsx 再试', detail: msg, step: 'map' });
+    }
+  });
+
 }

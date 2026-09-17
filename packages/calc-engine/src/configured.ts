@@ -491,9 +491,33 @@ export function calculateQuoteProject(input: QuoteProjectInput): QuoteProjectRes
     };
   });
 
-  const moldSubtotal = round2(moldResults.reduce((s, m) => s + m.subtotal, 0));
-  const injectionSubtotal = round2(partResults.reduce((s, p) => s + p.total, 0));
-  const subtotal = round2(moldSubtotal + injectionSubtotal);
+  // 附加费用项（模具钢材 / 注塑件 / 其他费用 三个板块各自动态增删）
+  const extrasIn = input.extras ?? { moldExtras: [], injectionExtras: [], otherExtras: [] };
+  const moldExtras = extrasIn.moldExtras ?? [];
+  const injectionExtras = extrasIn.injectionExtras ?? [];
+  const otherExtras = extrasIn.otherExtras ?? [];
+  const moldExtrasTotal = round2(
+    moldExtras.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+  );
+  const injectionExtrasUnit = round2(
+    injectionExtras.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+  );
+  const otherExtrasTotal = round2(
+    otherExtras.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+  );
+
+  // 注塑附加费按单件计，乘总数量后并入注塑小计
+  const totalQty = partResults.reduce((s, p) => s + (p.qty || 0), 0);
+  const injectionExtrasTotal = round2(injectionExtrasUnit * totalQty);
+
+  const moldSubtotal = round2(
+    moldResults.reduce((s, m) => s + m.subtotal, 0) + moldExtrasTotal,
+  );
+  const injectionSubtotal = round2(
+    partResults.reduce((s, p) => s + p.total, 0) + injectionExtrasTotal,
+  );
+  // 其他费用作为整单级自由费用，计入总小计（利润前）
+  const subtotal = round2(moldSubtotal + injectionSubtotal + otherExtrasTotal);
   const profit = Math.round(subtotal * profitRate);
   const tax = Math.round((subtotal + profit) * taxRate);
   const total = subtotal + profit + tax;
@@ -510,5 +534,28 @@ export function calculateQuoteProject(input: QuoteProjectInput): QuoteProjectRes
     taxRate,
     tax,
     total,
+    moldExtrasTotal,
+    injectionExtrasUnit,
+    otherExtrasTotal,
+    extras: {
+      moldExtras: moldExtras.map((e) => ({
+        id: e.id,
+        name: e.name,
+        amount: Number(e.amount) || 0,
+        note: e.note,
+      })),
+      injectionExtras: injectionExtras.map((e) => ({
+        id: e.id,
+        name: e.name,
+        amount: Number(e.amount) || 0,
+        note: e.note,
+      })),
+      otherExtras: otherExtras.map((e) => ({
+        id: e.id,
+        name: e.name,
+        amount: Number(e.amount) || 0,
+        note: e.note,
+      })),
+    },
   };
 }

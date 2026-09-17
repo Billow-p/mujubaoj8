@@ -3,15 +3,93 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { SmartImport, type ApplyItem } from '../components/SmartImport';
 import { configApi, materials as materialsApi, quotes, uploads, type QuoteImage } from '../api';
 import { uploadImage, humanSize } from '../utils/image';
+import { applyImportedParams } from '../utils/importParams';
 import { useFeedback } from '../components/feedback';
 import { calculateQuoteProject } from '@mqs/calc-engine';
-import type { QuoteItemDef } from '@mqs/shared';
+import type { QuoteItemDef, ExtraItem, QuoteExtras } from '@mqs/shared';
 import { QTY_VAR_CANDIDATES, resolveMaterialPrice } from '@mqs/shared';
 
 const money = (n: number) => '¥ ' + Math.round(n || 0).toLocaleString('zh-CN');
 const money2 = (n: number) =>
   '¥ ' + (Number(n) || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const uid = () => Math.random().toString(36).slice(2, 9);
+
+// 动态附加费用编辑器（模具钢材 / 注塑件 / 其他费用 三个板块复用）
+function ExtrasEditor({
+  title,
+  unitHint,
+  items,
+  onAdd,
+  onRemove,
+  onChange,
+}: {
+  title: string;
+  unitHint?: string;
+  items: ExtraItem[];
+  onAdd: () => void;
+  onRemove: (id: string) => void;
+  onChange: (id: string, patch: Partial<ExtraItem>) => void;
+}) {
+  const total = items.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  return (
+    <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50/60 p-3">
+      {(title || unitHint) && (
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[13px] font-medium text-gray-700">
+            {title}
+            {unitHint && <span className="ml-1 text-[11px] text-gray-400 font-normal">{unitHint}</span>}
+          </div>
+          <div className="text-[12px] text-gray-500">小计 {money(total)}</div>
+        </div>
+      )}
+      {items.length === 0 ? (
+        <div className="text-[12px] text-gray-400 mb-2">暂无费用，点右上方「+ 新增费用」添加一行</div>
+      ) : (
+        <div className="space-y-2 mb-2">
+          {items.map((e) => (
+            <div key={e.id} className="flex items-center gap-2">
+              <input
+                value={e.name}
+                onChange={(ev) => onChange(e.id, { name: ev.target.value })}
+                placeholder="费用名称"
+                className="flex-1 min-w-0 border border-gray-300 rounded px-2 py-1.5 text-[13px]"
+              />
+              <input
+                type="number"
+                step="any"
+                value={e.amount}
+                onChange={(ev) => onChange(e.id, { amount: Number(ev.target.value) || 0 })}
+                placeholder="金额"
+                className="w-24 border border-gray-300 rounded px-2 py-1.5 text-[13px] text-right tabular-nums"
+              />
+              <input
+                value={e.note ?? ''}
+                onChange={(ev) => onChange(e.id, { note: ev.target.value })}
+                placeholder="备注"
+                className="flex-1 min-w-0 border border-gray-300 rounded px-2 py-1.5 text-[13px]"
+              />
+              <button
+                type="button"
+                onClick={() => onRemove(e.id)}
+                className="shrink-0 text-[12px] text-red-500 hover:text-red-700 px-1"
+                title="删除这一行"
+              >
+                删除
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={onAdd}
+        className="text-[12px] border border-gray-300 bg-white px-2.5 py-1 rounded hover:bg-gray-100"
+      >
+        + 新增费用
+      </button>
+    </div>
+  );
+}
 
 /**
  * 材料单位 → kg 换算系数。
@@ -264,6 +342,7 @@ export default function ConfiguredQuote() {
   const [molds, setMolds] = useState<MoldState[]>([]);
   const [parts, setParts] = useState<PartState[]>([]);
   const [customer, setCustomer] = useState({ name: '', phone: '', productName: '' });
+  const [extras, setExtras] = useState<QuoteExtras>({ moldExtras: [], injectionExtras: [], otherExtras: [] });
   const [matList, setMatList] = useState<any[]>([]);
   /** 右栏「费用明细」展开状态（m0/m1=模具，p0/p1=注塑件） */
   const [detailOpen, setDetailOpen] = useState<Record<string, boolean>>({});
@@ -359,6 +438,11 @@ export default function ConfiguredQuote() {
 
   const params: any[] = (cfg?.parameters ?? []).filter((p: any) => p.enabled !== false);
   const commonDefs = useMemo(() => params.filter((p) => (p.scope as string) === 'common'), [cfg]);
+  /** 公共参数只保留「运输」相关项（运输箱长/宽/高、运费单价、运输区域），其余不再展示 */
+  const transportDefs = useMemo(
+    () => commonDefs.filter((p) => /运输|运费|箱|区域/.test(String(p.name ?? ''))),
+    [commonDefs],
+  );
   const moldDefs = useMemo(() => params.filter((p) => (p.scope as string) === 'mold'), [cfg]);
   const injectionDefs = useMemo(() => params.filter((p) => (p.scope as string) === 'injection'), [cfg]);
 
@@ -446,16 +530,21 @@ export default function ConfiguredQuote() {
     return [...g.entries()] as [string, any[]][];
   }, [usableMaterials]);
 
-  const manualMoldItems = useMemo(
-    () => (cfg?.items ?? []).filter((it: any) => it.enabled !== false && it.calcType === 'manual' && it.scope === 'mold'),
-    [cfg],
-  );
-  const manualInjItems = useMemo(
-    () => (cfg?.items ?? []).filter((it: any) => it.enabled !== false && it.calcType === 'manual' && it.scope === 'injection'),
-    [cfg],
-  );
-
   const matByCode = useMemo(() => new Map(matList.map((m) => [m.code, m])), [matList]);
+
+  // —— 动态附加费用（模具钢材 / 注塑件 / 其他费用 三个板块各自动态增删） ——
+  const addExtra = (bucket: keyof QuoteExtras) =>
+    setExtras((e) => ({
+      ...e,
+      [bucket]: [...(e[bucket] ?? []), { id: uid(), name: '', amount: 0, note: '' }],
+    }));
+  const removeExtra = (bucket: keyof QuoteExtras, id: string) =>
+    setExtras((e) => ({ ...e, [bucket]: (e[bucket] ?? []).filter((x) => x.id !== id) }));
+  const patchExtra = (bucket: keyof QuoteExtras, id: string, patch: Partial<ExtraItem>) =>
+    setExtras((e) => ({
+      ...e,
+      [bucket]: (e[bucket] ?? []).map((x) => (x.id === id ? { ...x, ...patch } : x)),
+    }));
 
   function seedMold(data: any, i: number): MoldState {
     const p: Record<string, any> = {};
@@ -550,6 +639,11 @@ export default function ConfiguredQuote() {
     } else {
       setParts([seedPart(data, 1, qd, qv)]);
     }
+
+    // 回显已保存的附加费用（模具钢材 / 注塑件 / 其他费用 三个板块各自动态增删）
+    setExtras(
+      paramsJson.extras ?? { moldExtras: [], injectionExtras: [], otherExtras: [] },
+    );
   }
 
   /**
@@ -677,8 +771,9 @@ export default function ConfiguredQuote() {
       },
       molds: calcInput.moldsIn,
       parts: calcInput.partsIn,
+      extras,
     });
-  }, [cfg, calcInput, qtyVarName]);
+  }, [cfg, calcInput, qtyVarName, extras]);
 
   const submit = async () => {
     if (!cfg) return;
@@ -693,6 +788,7 @@ export default function ConfiguredQuote() {
         customerName: customer.name.trim(),
         customerPhone: customer.phone.trim() || undefined,
         productName: customer.productName.trim() || undefined,
+        extras,
         common: {
           profitRate: cfg.moldType.profitRate,
           taxRate: cfg.moldType.taxRate,
@@ -823,6 +919,28 @@ export default function ConfiguredQuote() {
 
     fb.toast(`导入完成：新建 ${created} 个，更新 ${updated} 个`);
   };
+
+  /**
+   * 三期：Excel 参数表（列映射）导入适配。
+   * 纯映射逻辑在 utils/importParams（便于脱机单测），这里只负责落状态 + 提示。
+   * 利润/税仍「以配置中心为主」——提交时取 cfg.moldType。
+   */
+  const applyImportParams = (data: any) => {
+    const r = applyImportedParams(data, cfg, qtyVarName, qtyDefault);
+    if (r.molds.length) setMolds(r.molds);
+    if (r.parts.length) setParts(r.parts);
+    setCommonParams(r.commonParams);
+    if (data.common?.off) setCommonOff(data.common.off);
+    if (r.otherExtras.length) setExtras((e) => ({ ...e, otherExtras: r.otherExtras }));
+
+    const warn =
+      (data.unmatched?.length ? `；${data.unmatched.length} 列未识别，请人工核对` : '') +
+      (data.warnings?.length ? `；${data.warnings.length} 条提示` : '');
+    fb.toast(
+      `参数表导入完成：模具 ${r.counts.molds} 套 · 注塑件 ${r.counts.parts} 个 · 其他费用 ${r.counts.otherExtras} 项${warn}`,
+    );
+  };
+
   const setPart = (i: number, patch: Partial<PartState>) =>
     setParts((arr) => arr.map((p, idx) => (idx === i ? { ...p, ...patch } : p)));
 
@@ -1070,6 +1188,20 @@ export default function ConfiguredQuote() {
         </button>
       </div>
 
+      {/* 智能识别：3D / Excel / Word / 图片 / 询价表 统一入口，置于客户信息之上 */}
+      <div className="mb-3">
+        <SmartImport
+          molds={molds.map((m) => ({ uid: m.uid, name: m.name }))}
+          parts={parts.map((p) => ({ uid: p.uid, name: p.name }))}
+          moldDensity={steelDensity}
+          partDensity={plasticDensity}
+          onApply={applyImportItems}
+          onImportParams={applyImportParams}
+          onError={(msg) => fb.toast(msg, 'err')}
+          onInfo={(msg) => fb.toast(msg)}
+        />
+      </div>
+
       <div className="grid gap-3.5 items-start" style={{ gridTemplateColumns: 'minmax(0,1fr) 400px' }}>
         {/* 左：填数据 */}
         <div className="space-y-3.5">
@@ -1121,8 +1253,8 @@ export default function ConfiguredQuote() {
             )}
           </div>
 
-          {/* 公共参数 */}
-          {commonDefs.length > 0 && (
+          {/* 运输信息（原公共参数只保留运输相关：运输箱长/宽/高、运费单价、运输区域） */}
+          {transportDefs.length > 0 && (
             <div className="bg-white border border-gray-200 rounded-lg">
               <div
                 onClick={() => toggleSec('common')}
@@ -1132,12 +1264,12 @@ export default function ConfiguredQuote() {
                 title={secOpen.common ? '点击折叠' : '点击展开'}
               >
                 <span className="text-gray-400 text-[10px]">{secOpen.common ? '▼' : '▶'}</span>
-                <span className="font-semibold text-sm">公共参数（整单共享）</span>
-                <span className="text-[11.5px] text-gray-400">{commonDefs.length} 项</span>
+                <span className="font-semibold text-sm">运输信息</span>
+                <span className="text-[11.5px] text-gray-400">{transportDefs.length} 项</span>
               </div>
               {secOpen.common && (
               <div className="p-3.5 grid grid-cols-3 gap-x-4 gap-y-3">
-                {commonDefs.map((p) => {
+                {transportDefs.map((p) => {
                   const md = materialDriven(p.name, true);
                   const shown =
                     commonParams[p.name] === '' || commonParams[p.name] == null
@@ -1166,19 +1298,6 @@ export default function ConfiguredQuote() {
               )}
             </div>
           )}
-
-          {/* 智能识别：3D / Excel / Word / 图片统一入口，识别后确认再落到件上 */}
-          <div className="mb-3">
-            <SmartImport
-              molds={molds.map((m) => ({ uid: m.uid, name: m.name }))}
-              parts={parts.map((p) => ({ uid: p.uid, name: p.name }))}
-              moldDensity={steelDensity}
-              partDensity={plasticDensity}
-              onApply={applyImportItems}
-              onError={(msg) => fb.toast(msg, 'err')}
-              onInfo={(msg) => fb.toast(msg)}
-            />
-          </div>
 
           {/* 模具列表 */}
           <div className="bg-white border border-gray-200 rounded-lg">
@@ -1302,26 +1421,21 @@ export default function ConfiguredQuote() {
                       })}
                     </div>
                   )}
-                  {manualMoldItems.length > 0 && (
-                    <div className="grid grid-cols-3 gap-x-4 gap-y-3 mt-3 pt-3 border-t border-gray-100">
-                      {manualMoldItems.map((it: any) => (
-                        <div key={it.id ?? it.name} className="min-w-0">
-                          {renderManualField(
-                            `${it.name}（元）`,
-                            m.manuals[it.name],
-                            (v) => setMold(i, { manuals: { ...m.manuals, [it.name]: v } }),
-                            !!m.off[it.name],
-                            () => toggleMoldOff(i, it.name),
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+
                 </div>
               ))}
               {molds.length === 0 && (
                 <p className="text-center text-gray-400 text-sm py-4">暂无模具，点右上角「加一套模具」</p>
               )}
+              {/* 模具附加费：可自由增删（标准件、滑块斜顶、热处理等不再预置，按需添加） */}
+              <ExtrasEditor
+                title="模具附加费"
+                unitHint="计入模具小计"
+                items={extras.moldExtras}
+                onAdd={() => addExtra('moldExtras')}
+                onRemove={(id) => removeExtra('moldExtras', id)}
+                onChange={(id, patch) => patchExtra('moldExtras', id, patch)}
+              />
             </div>
             )}
           </div>
@@ -1478,28 +1592,40 @@ export default function ConfiguredQuote() {
                         );
                       })}
                   </div>
-                  {manualInjItems.length > 0 && (
-                    <div className="grid grid-cols-3 gap-x-4 gap-y-3 mt-3 pt-3 border-t border-gray-100">
-                      {manualInjItems.map((it: any) => (
-                        <div key={it.id ?? it.name} className="min-w-0">
-                          {renderManualField(
-                            `${it.name}（元/件）`,
-                            p.manuals[it.name],
-                            (v) => setPart(i, { manuals: { ...p.manuals, [it.name]: v } }),
-                            !!p.off[it.name],
-                            () => togglePartOff(i, it.name),
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+
                 </div>
               ))}
               {parts.length === 0 && (
                 <p className="text-center text-gray-400 text-sm py-4">暂无注塑件，点右上角「加 1 件」</p>
               )}
+              {/* 注塑附加费：整段注塑的可自由增删费用（后加工、模具分摊等不再预置，按需添加） */}
+              <ExtrasEditor
+                title="注塑附加费"
+                unitHint="单件价，×总量计入"
+                items={extras.injectionExtras}
+                onAdd={() => addExtra('injectionExtras')}
+                onRemove={(id) => removeExtra('injectionExtras', id)}
+                onChange={(id, patch) => patchExtra('injectionExtras', id, patch)}
+              />
             </div>
             )}
+          </div>
+
+          {/* 其他费用：整单级自由费用，可增删（运输附加费等放这里） */}
+          <div className="bg-white border border-gray-200 rounded-lg">
+            <div className="px-3.5 py-3 border-b border-gray-200 font-semibold text-sm flex items-center justify-between">
+              <span>其他费用（整单级）</span>
+              <span className="text-[12px] font-normal text-gray-500">利润前计入总价</span>
+            </div>
+            <div className="p-3.5">
+              <ExtrasEditor
+                title=""
+                items={extras.otherExtras ?? []}
+                onAdd={() => addExtra('otherExtras')}
+                onRemove={(id) => removeExtra('otherExtras', id)}
+                onChange={(id, patch) => patchExtra('otherExtras', id, patch)}
+              />
+            </div>
           </div>
         </div>
 
@@ -1609,6 +1735,24 @@ export default function ConfiguredQuote() {
               <span>注塑合计</span>
               <span className="tabular-nums">{money(result?.injectionSubtotal ?? 0)}</span>
             </div>
+            {result && (result.moldExtrasTotal > 0 || (extras.moldExtras?.length ?? 0) > 0) && (
+              <div className="flex justify-between text-[12px] text-gray-400 py-0.5 pl-3">
+                <span>└ 模具附加费（{extras.moldExtras?.length ?? 0} 项）</span>
+                <span className="tabular-nums">{money(result?.moldExtrasTotal ?? 0)}</span>
+              </div>
+            )}
+            {result && (result.injectionExtrasUnit > 0 || (extras.injectionExtras?.length ?? 0) > 0) && (
+              <div className="flex justify-between text-[12px] text-gray-400 py-0.5 pl-3">
+                <span>└ 注塑附加费（单件 × 总量）</span>
+                <span className="tabular-nums">{money(result?.injectionExtrasUnit ?? 0)}/件</span>
+              </div>
+            )}
+            {result && (result.otherExtrasTotal > 0 || (extras.otherExtras?.length ?? 0) > 0) && (
+              <div className="flex justify-between text-[13px] text-gray-600 py-0.5">
+                <span>其他费用（整单）</span>
+                <span className="tabular-nums">{money(result?.otherExtrasTotal ?? 0)}</span>
+              </div>
+            )}
             <div className="flex justify-between text-[13px] text-gray-600 py-0.5">
               <span>不含税小计</span>
               <span className="tabular-nums">{money(result?.subtotal ?? 0)}</span>

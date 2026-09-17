@@ -38,6 +38,7 @@ interface Props {
   moldDensity?: number;
   partDensity?: number;
   onApply: (items: ApplyItem[]) => void;
+  onImportParams?: (data: any) => void;
   onError: (msg: string) => void;
   onInfo: (msg: string) => void;
 }
@@ -88,6 +89,7 @@ export function SmartImport({
   moldDensity = 7.85,
   partDensity = 1.05,
   onApply,
+  onImportParams,
   onError,
   onInfo,
 }: Props) {
@@ -101,6 +103,10 @@ export function SmartImport({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const seq = useRef(0);
   const loggerRef = useRef(new RecogLogger(setLog));
+  const [paramsOpen, setParamsOpen] = useState(false);
+  const [paramsBusy, setParamsBusy] = useState('');
+  const [paramsPreview, setParamsPreview] = useState<any>(null);
+  const [paramsErr, setParamsErr] = useState('');
 
   // 截图用的隐藏 viewer（3D 渲染缩略图）
   const shotRef = useRef<Model3DViewerHandle | null>(null);
@@ -294,6 +300,29 @@ export function SmartImport({
       fr.readAsDataURL(file);
     });
 
+  // ---------------- 三期：参数表导入 ----------------
+
+  const handleParamsFile = async (file: File) => {
+    setParamsBusy('解析中…');
+    setParamsErr('');
+    try {
+      const r = await uploads.importParams(file);
+      setParamsPreview(r);
+      report({ kind: 'excel', fileName: file.name, fileSize: file.size, outcome: 'ok', extracted: (r.molds?.length || 0) + (r.parts?.length || 0), reason: '参数表映射' });
+    } catch (e: any) {
+      const msg = e.response?.data?.error || e.message || '解析失败';
+      setParamsErr(msg + (e.response?.data?.suggestion ? '（' + e.response.data.suggestion + '）' : ''));
+      report({ kind: 'excel', fileName: file.name, fileSize: file.size, outcome: 'failed', reason: msg, step: 'api' });
+    } finally {
+      setParamsBusy('');
+    }
+  };
+  const handleParamsApply = () => {
+    if (paramsPreview && onImportParams) onImportParams(paramsPreview);
+    setParamsOpen(false);
+    setParamsPreview(null);
+  };
+
   // ---------------- 主流程 ----------------
 
   const handleFiles = async (files: File[]) => {
@@ -414,6 +443,13 @@ export function SmartImport({
             3D 数模 / Excel / Word / 截图 / 照片，拖进来就行
           </span>
         </div>
+        <button
+          type="button"
+          onClick={() => setParamsOpen((v) => !v)}
+          className="text-[11px] px-2 py-1 rounded border border-emerald-300 text-emerald-600 hover:bg-emerald-50"
+        >
+          {paramsOpen ? '返回识别' : '参数表导入'}
+        </button>
         {total > 0 && (
           <div className="flex items-center gap-2">
             {log.length > 0 && (
@@ -462,6 +498,40 @@ export function SmartImport({
           )}
         </span>
       </div>
+
+      {paramsOpen && (
+        <div className="mt-3 border border-emerald-200 rounded bg-emerald-50/40 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[12px] font-medium text-emerald-700">参数表导入（三期 · Excel 列映射）</div>
+            <button type="button" onClick={() => { setParamsOpen(false); setParamsPreview(null); setParamsErr(''); }} className="text-[11px] text-gray-400 hover:text-gray-600">收起</button>
+          </div>
+          {!paramsPreview && !paramsBusy && (
+            <label className="flex items-center justify-center py-4 border-2 border-dashed border-emerald-300 rounded cursor-pointer hover:bg-emerald-50">
+              <input type="file" accept=".xlsx" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleParamsFile(f); e.currentTarget.value = ''; }} />
+              <span className="text-[12px] text-gray-500">选择参数表 .xlsx（或 <a href={"/templates/报价参数导入模板.xlsx"} download className="text-emerald-600 underline">下载模板</a>）</span>
+            </label>
+          )}
+          {paramsBusy && <div className="text-[12px] text-gray-500 py-3">正在解析参数表…</div>}
+          {paramsErr && <div className="text-[12px] text-red-600 bg-red-50 rounded p-2">{paramsErr}</div>}
+          {paramsPreview && (
+            <div className="space-y-2">
+              <div className="text-[12px] text-gray-700">
+                识别到：<b>{paramsPreview.molds.length}</b> 套模具 · <b>{paramsPreview.parts.length}</b> 个注塑件 · <b>{paramsPreview.extras?.otherExtras?.length ?? 0}</b> 项其他费用
+              </div>
+              {paramsPreview.unmatched.length > 0 && (
+                <div className="text-[11px] text-amber-600">未识别列（请人工确认）：{paramsPreview.unmatched.map((u: any) => u.column).join('、')}</div>
+              )}
+              {paramsPreview.warnings.length > 0 && (
+                <div className="text-[11px] text-amber-600">{paramsPreview.warnings.join('；')}</div>
+              )}
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={() => setParamsPreview(null)} className="px-3 py-1.5 text-[12px] text-gray-500 border border-gray-200 rounded hover:bg-gray--50">重新选</button>
+                <button type="button" onClick={handleParamsApply} className="px-3 py-1.5 text-[12px] text-white bg-emerald-600 rounded hover:bg-emerald-700">确认导入到报价页</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 日志（可展开） */}
       {logOpen && log.length > 0 && (

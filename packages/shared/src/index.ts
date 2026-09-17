@@ -127,8 +127,9 @@ export interface ExtraItem {
 
 // 附加费用项集合
 export interface QuoteExtras {
-  moldExtras: ExtraItem[];       // 加在模具费上的固定金额
-  injectionExtras: ExtraItem[];  // 加在注塑单件上的单价（按首单数量乘入总价）
+  moldExtras: ExtraItem[];       // 加在模具费上的固定金额（模具钢材板块动态增删）
+  injectionExtras: ExtraItem[];  // 加在注塑单件上的单价（注塑件板块动态增删）
+  otherExtras?: ExtraItem[];     // 整单级自由费用（其他费用板块动态增删，利润前计入）
 }
 
 // 商务条款覆盖（每条独立开关 + 文字）
@@ -460,6 +461,8 @@ export interface QuoteProjectInput {
   common: QuoteProjectCommon;
   molds: QuoteProjectMold[];
   parts: QuoteProjectPart[];
+  /** 附加费用项（模具钢材 / 注塑件 / 其他费用 三个板块各自动态增删） */
+  extras?: QuoteExtras;
 }
 
 export interface QuoteProjectMoldResult {
@@ -495,6 +498,15 @@ export interface QuoteProjectResult {
   taxRate: number;
   tax: number;
   total: number;
+  // 附加费用项合计与回显
+  moldExtrasTotal: number;        // 模具附加费（计入模具小计）
+  injectionExtrasUnit: number;    // 注塑附加费单件合计（×总数量计入注塑小计）
+  otherExtrasTotal: number;       // 其他费用（整单级，计入总小计，利润前）
+  extras?: {
+    moldExtras: { id: string; name: string; amount: number; note?: string }[];
+    injectionExtras: { id: string; name: string; amount: number; note?: string }[];
+    otherExtras: { id: string; name: string; amount: number; note?: string }[];
+  };
 }
 
 // 计算方式的中文说明（前后端共用）

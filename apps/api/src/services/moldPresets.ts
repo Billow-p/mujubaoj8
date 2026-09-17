@@ -224,16 +224,9 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { name: 'EDM放电费', category: 'CNC', scope: 'mold', calcType: 'qty', calcConfig: { src: 'EDM工时', price: 220 } },
       { name: '线切割费', category: 'CNC', scope: 'mold', calcType: 'qty', calcConfig: { src: '线切割长度', price: 8 } },
       { name: '抛光省模费', category: '表面处理', scope: 'mold', calcType: 'qty', calcConfig: { src: '抛光工时', price: 120 } },
-      // 这几项没有客观计量，报价时手填金额，不填就是 0
-      { name: '标准件费', category: '标准件', scope: 'mold', calcType: 'manual' },
-      { name: '滑块斜顶镶件', category: '自定义', scope: 'mold', calcType: 'manual' },
-      { name: '热处理费', category: '热处理', scope: 'mold', calcType: 'manual' },
-      { name: '表面处理费', category: '表面处理', scope: 'mold', calcType: 'manual' },
       // 运输费：广东省内免运费（区域系数 0）；省外按「实际重量与体积重量取大者 × 单价」
       // 体积重量 = 长 × 宽 × 高 ÷ 6000（物流行业通用材积系数，单位 kg）
       { name: '运输费', category: '运输', scope: 'mold', calcType: 'formula', expression: FREIGHT_EXPR },
-      // 运输附加费：区域系数解决不了的固定加价（如加急、木箱、保险）在这里手填，不填为 0
-      { name: '运输附加费', category: '运输', scope: 'mold', calcType: 'manual' },
 
       // ------- 注塑费用（按件计价：单件成本 × 注塑数量） -------
       // 材料单价与损耗率都来自材料库（选了牌号就按牌号走，没选则用配置里的固定值）
@@ -242,8 +235,6 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       // 机台费：主流算法 —— 时薪 ÷ 每小时产出。周期越短、腔数越多，单件越便宜
       { name: '机台费', category: '注塑加工', scope: 'injection', calcType: 'formula', perUnit: true,
         expression: '机台时薪 * 成型周期 / 3600 / 腔数' },
-      { name: '后加工费', category: '后加工', scope: 'injection', calcType: 'manual', perUnit: true },
-      { name: '模具分摊费', category: '模具分摊', scope: 'injection', calcType: 'manual', perUnit: true },
       { name: '包装费', category: '注塑包装', scope: 'injection', calcType: 'fixed', perUnit: true,
         calcConfig: { amount: 0.05 } },
     ],
@@ -316,20 +307,13 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { name: '设计费', category: '自定义', scope: 'mold', calcType: 'fixed', calcConfig: { amount: 6000 } },
       { name: '强冷却回路', category: '自定义', scope: 'mold', calcType: 'fixed', calcConfig: { amount: 12000 } },
       { name: '真空阀与管路', category: '自定义', scope: 'mold', calcType: 'fixed', calcConfig: { amount: 18000 } },
-      { name: '标准件费', category: '标准件', scope: 'mold', calcType: 'manual' },
-      { name: '滑块斜顶镶件', category: '自定义', scope: 'mold', calcType: 'manual' },
-      { name: '热处理费', category: '热处理', scope: 'mold', calcType: 'manual' },
-      { name: '表面处理费', category: '表面处理', scope: 'mold', calcType: 'manual' },
       { name: '运输费', category: '运输', scope: 'mold', calcType: 'formula', expression: FREIGHT_EXPR },
-      { name: '运输附加费', category: '运输', scope: 'mold', calcType: 'manual' },
       // —— 按件费用 ——
       // 压铸机加工费（模具侧机加工）沿用既有项；「压铸成型费」是每压一模的机台成本
       { name: '压铸成型费', category: '压铸加工', scope: 'injection', calcType: 'formula', perUnit: true,
         expression: '机台时薪 * 压铸周期 / 3600 / 腔数' },
       { name: '产品合金费', category: '压铸材料', scope: 'injection', calcType: 'weight', perUnit: true,
         calcConfig: { wVar: '单件重量', priceVar: '合金单价', loss: 0.08, lossVar: '合金损耗率' } },
-      { name: '去毛刺费', category: '后加工', scope: 'injection', calcType: 'manual', perUnit: true },
-      { name: '模具分摊费', category: '模具分摊', scope: 'injection', calcType: 'manual', perUnit: true },
       { name: '包装费', category: '压铸包装', scope: 'injection', calcType: 'fixed', perUnit: true,
         calcConfig: { amount: 0.08 } },
     ],
@@ -398,16 +382,12 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { name: '抛光省模费', category: '表面处理', scope: 'mold', calcType: 'qty', calcConfig: { src: '抛光工时', price: 120 } },
       { name: '模架费', category: '模架', scope: 'mold', calcType: 'qty', calcConfig: { src: '模架规格', price: 1 } },
       { name: '试模费', category: '试模', scope: 'mold', calcType: 'qty', calcConfig: { src: '腔数', price: 3000 } },
-      { name: '标准件费', category: '标准件', scope: 'mold', calcType: 'manual' },
-      { name: '热处理费', category: '热处理', scope: 'mold', calcType: 'manual' },
-      { name: '表面处理费', category: '表面处理', scope: 'mold', calcType: 'manual' },
       // —— 双色特有 ——
       { name: '旋转转盘机构', category: '自定义', scope: 'mold', calcType: 'fixed', calcConfig: { amount: 86000 } },
       { name: '第一套热流道', category: '热流道', scope: 'mold', calcType: 'qty', calcConfig: { src: '热流道点数', price: 8000 } },
       { name: '第二套热流道', category: '热流道', scope: 'mold', calcType: 'qty', calcConfig: { src: '热流道点数', price: 8000 } },
       { name: '双色合模调试', category: '试模', scope: 'mold', calcType: 'fixed', calcConfig: { amount: 12000 } },
       { name: '运输费', category: '运输', scope: 'mold', calcType: 'formula', expression: FREIGHT_EXPR },
-      { name: '运输附加费', category: '运输', scope: 'mold', calcType: 'manual' },
       // —— 按件费用 ——
       { name: '硬胶材料费', category: '注塑材料', scope: 'injection', calcType: 'weight', perUnit: true,
         calcConfig: { wVar: '硬胶重量', priceVar: '硬胶单价', loss: 0.05, lossVar: '硬胶损耗率' } },
@@ -415,8 +395,6 @@ export const MOLD_PRESETS: PresetMoldType[] = [
         calcConfig: { wVar: '软胶重量', priceVar: '软胶单价', loss: 0.06, lossVar: '软胶损耗率' } },
       { name: '机台费', category: '注塑加工', scope: 'injection', calcType: 'formula', perUnit: true,
         expression: '机台时薪 * 成型周期 / 3600 / 腔数' },
-      { name: '后加工费', category: '后加工', scope: 'injection', calcType: 'manual', perUnit: true },
-      { name: '模具分摊费', category: '模具分摊', scope: 'injection', calcType: 'manual', perUnit: true },
       { name: '包装费', category: '注塑包装', scope: 'injection', calcType: 'fixed', perUnit: true,
         calcConfig: { amount: 0.05 } },
     ],
@@ -481,17 +459,12 @@ export const MOLD_PRESETS: PresetMoldType[] = [
       { name: '试模费', category: '试模', scope: 'mold', calcType: 'qty', calcConfig: { src: '腔数', price: 2500 } },
       { name: '设计费', category: '自定义', scope: 'mold', calcType: 'fixed', calcConfig: { amount: 5000 } },
       { name: '模具结构费', category: '自定义', scope: 'mold', calcType: 'fixed', calcConfig: { amount: 8000 } },
-      { name: '标准件费', category: '标准件', scope: 'mold', calcType: 'manual' },
-      { name: '表面处理费', category: '表面处理', scope: 'mold', calcType: 'manual' },
       { name: '运输费', category: '运输', scope: 'mold', calcType: 'formula', expression: FREIGHT_EXPR },
-      { name: '运输附加费', category: '运输', scope: 'mold', calcType: 'manual' },
       // —— 按件费用 ——
       { name: '橡胶材料费', category: '硫化材料', scope: 'injection', calcType: 'weight', perUnit: true,
         calcConfig: { wVar: '单件重量', priceVar: '橡胶单价', loss: 0.08, lossVar: '橡胶损耗率' } },
       { name: '硫化加工费', category: '硫化加工', scope: 'injection', calcType: 'formula', perUnit: true,
         expression: '机台时薪 * 硫化周期 / 3600 / 腔数' },
-      { name: '去飞边费', category: '后加工', scope: 'injection', calcType: 'manual', perUnit: true },
-      { name: '模具分摊费', category: '模具分摊', scope: 'injection', calcType: 'manual', perUnit: true },
       { name: '包装费', category: '硫化包装', scope: 'injection', calcType: 'fixed', perUnit: true,
         calcConfig: { amount: 0.05 } },
     ],

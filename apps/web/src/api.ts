@@ -116,6 +116,12 @@ export const quotes = {
     customerName: string;
     customerPhone?: string;
     productName?: string;
+    /** 附加费用项（模具钢材 / 注塑件 / 其他费用 三个板块各自动态增删） */
+    extras?: {
+      moldExtras?: { id?: string; name: string; amount: number; note?: string }[];
+      injectionExtras?: { id?: string; name: string; amount: number; note?: string }[];
+      otherExtras?: { id?: string; name: string; amount: number; note?: string }[];
+    };
     common: {
       profitRate?: number;
       taxRate?: number;
@@ -275,6 +281,17 @@ export const uploads = {
         timeout: 120_000,
       })
       .then((r) => r.data as ExcelImagesResult);
+  },
+  /** 三期：Excel 参数表 → 报价参数（列映射） */
+  importParams: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api
+      .post('/uploads/excel-params', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120_000,
+      })
+      .then((r) => r.data as any);
   },
   /** 从 Word 询价单里抠出内嵌图片 */
   extractWord: (file: File) => {
