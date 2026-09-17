@@ -38,18 +38,38 @@ function cellText(v: any): string {
   return '';
 }
 
-/** 数值解析：支持千分位、货币符号、括号包裹单位；非数字返回 undefined */
+/**
+ * 数值解析：支持千分位、货币符号、括号包裹单位；非数字返回 undefined。
+ * 「5%」按 0.05 计 —— 比例列若把百分比当 5 用，损耗率/利润率会被放大 100 倍。
+ */
 function toNumber(v: any): number | undefined {
   if (v == null || v === '') return undefined;
   if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
-  const s = String(v)
-    .replace(/[¥$￥,\s]/g, '')
+  const raw = String(v);
+  const isPercent = raw.includes('%');
+  const s = raw
+    .replace(/[¥$￥,\s%]/g, '')
     .replace(/[（(].*[)）]/g, '') // 去掉括号及括号内（如「(mm)」）
-    .replace(/[a-zA-Z一-龥%]/g, '') // 去掉单位文字
+    .replace(/[a-zA-Z一-龥]/g, '') // 去掉单位文字
     .trim();
   if (s === '' || s === '-' || s === '.') return undefined;
   const n = Number(s);
-  return Number.isFinite(n) ? n : undefined;
+  if (!Number.isFinite(n)) return undefined;
+  return isPercent ? n / 100 : n;
+}
+
+/**
+ * 比例类参数超过 1 时大概率是「把百分比当小数填了」（如损耗率填 5 而非 0.05）。
+ * 这类错会让报价离谱，必须提示人工确认。按 code 命名规律判定，不写死清单。
+ */
+function warnHighRates(params: Record<string, any>, where: string, warnings: string[]) {
+  for (const [code, v] of Object.entries(params ?? {})) {
+    if (typeof v !== 'number') continue;
+    if (!/rate/i.test(code) || !/loss|profit|tax/i.test(code)) continue;
+    if (v <= 1) continue;
+    const msg = `${where}「${code}」= ${v}，比例参数应填小数（如 5% 填 0.05），请确认`;
+    if (warnings.length < 50 && !warnings.includes(msg)) warnings.push(msg);
+  }
 }
 
 /** 列头归一化：小写、去空格、去括号及内容 */
@@ -95,10 +115,15 @@ function resolveMaterialCode(raw: string): string {
   for (const m of KNOWN_MATERIALS) {
     if (m.code.toUpperCase() === up) return m.code;
   }
-  for (const m of KNOWN_MATERIALS) {
-    const codeUp = m.code.toUpperCase();
-    if (s.toUpperCase().includes(codeUp) || m.name.includes(s) || codeUp.includes(s.toUpperCase())) {
-      return m.code;
+  // 模糊匹配必须限长：否则「钢」「S」「1」这种短串会命中第一个沾边的牌号（S→ABS、1→718H）
+  if (s.length >= 2) {
+    for (const m of KNOWN_MATERIALS) {
+      const codeUp = m.code.toUpperCase();
+      const hit =
+        s.toUpperCase().includes(codeUp) ||                       // 值里含牌号：如「S136 镜面钢」
+        m.name.includes(s) ||                                      // 值本身是牌号中文名的一部分
+        (s.length >= 3 && codeUp.includes(s.toUpperCase()));       // 值短于牌号：如「718」→718H
+      if (hit) return m.code;
     }
   }
   return s; // 没识别成已知材料，原样返回，前端/引擎再决定
@@ -188,6 +213,23 @@ function identifySheet(name: string): 'mold' | 'part' | 'common' | 'other' | 'un
   return 'unknown';
 }
 
+/**
+ * 单表退化（既没命名 Sheet、又只有一张数据表）时判角色：
+ * 看表头能命中哪套字典的**不同字段**更多。命中数相同时偏向「模具」。
+ * 修正前这里一律按注塑件解析，一张纯模具表会被喂进 INJ_COL_MAP 得出空结果。
+ */
+function guessRole(headers: string[]): 'mold' | 'part' {
+  const hits = (matcher: (h: string) => string | null) => {
+    const seen = new Set<string>();
+    for (const h of headers) {
+      const c = matcher(h);
+      if (c) seen.add(c);
+    }
+    return seen.size;
+  };
+  return hits(MOLD_COL_MAP) >= hits(INJ_COL_MAP) ? 'mold' : 'part';
+}
+
 // ------------------------------------------------------------------ 输出结构
 
 export interface ImportedMold {
@@ -250,10 +292,6 @@ function readRows(ws: ExcelJS.Worksheet): { headers: string[]; rows: any[][] } {
   return { headers, rows };
 }
 
-function isBlankRow(row: any[]): boolean {
-  return row.every((v) => cellText(v) === '');
-}
-
 /** 把一行按 matcher 映射到 {code: value}，材料列走 resolveMaterialCode */
 function mapRow(
   row: any[],
@@ -304,7 +342,23 @@ export async function importQuoteExcel(buffer: ArrayBuffer, fileName: string): P
     sheetRows: [],
   };
 
-  // 单 sheet 退化：若只有一个数据 sheet，尝试按「板块标记行」分段
+  // 同一列会在每一行重复命中 —— 去重后再返回，
+  // 否则 100 行的表会把「未匹配列」刷 100 遍，接口和界面都被撑爆
+  const seenMatched = new Set<string>();
+  const seenUnmatched = new Set<string>();
+  const onMatched = (m: { sheet: string; column: string; code: string }) => {
+    const k = `${m.sheet}\u0000${m.column}\u0000${m.code}`;
+    if (seenMatched.has(k)) return;
+    seenMatched.add(k);
+    result.matched.push(m);
+  };
+  const onUnmatched = (u: { sheet: string; column: string }) => {
+    const k = `${u.sheet}\u0000${u.column}`;
+    if (seenUnmatched.has(k)) return;
+    seenUnmatched.add(k);
+    result.unmatched.push(u);
+  };
+
   const dataSheets = wb.worksheets.filter((ws) => ws.rowCount >= 1 && ws.columnCount >= 1);
   const named = dataSheets.filter((ws) => identifySheet(ws.name) !== 'unknown');
 
@@ -315,24 +369,26 @@ export async function importQuoteExcel(buffer: ArrayBuffer, fileName: string): P
         ? [dataSheets[0]]
         : [];
 
-  if (named.length === 0 && dataSheets.length === 1) {
-    result.warnings.push(
-      '未识别到「模具清单 / 注塑件清单 / 公共参数 / 其他费用」等命名 Sheet，已按单个数据表尝试解析；' +
-        '建议下载官方模板填写，列名对齐更准。',
-    );
-  }
-
   for (const ws of sheetsToProcess) {
-    const role = named.length >= 1 ? identifySheet(ws.name) : 'auto';
     const sheetName = ws.name;
     const { headers, rows } = readRows(ws);
     if (!headers.length) continue;
+    // 命名 Sheet 按名字判角色；单表退化时按表头命中数猜「模具 / 注塑件」
+    const role = named.length >= 1 ? identifySheet(ws.name) : guessRole(headers);
     result.sheetRows.push({ name: sheetName, rows: rows.length });
+
+    if (named.length === 0) {
+      result.warnings.push(
+        `未识别到命名的 Sheet（模具清单 / 注塑件清单 / 公共参数 / 其他费用），已把「${sheetName}」按「${
+          role === 'mold' ? '模具清单' : '注塑件清单'
+        }」解析；建议下载官方模板填写，识别更准。`,
+      );
+    }
 
     // ---------- 其他费用：自由费用行 ----------
     if (role === 'other') {
       for (const row of rows) {
-        const mapped = mapRow(row, headers, OTHER_COL_MAP, new Set(), sheetName, (m) => result.matched.push(m), (u) => result.unmatched.push(u));
+        const mapped = mapRow(row, headers, OTHER_COL_MAP, new Set(), sheetName, onMatched, onUnmatched);
         const name = String(mapped.name ?? '').trim();
         const amount = Number(mapped.amount ?? 0);
         if (!name) continue;
@@ -350,7 +406,7 @@ export async function importQuoteExcel(buffer: ArrayBuffer, fileName: string): P
     if (role === 'common') {
       const row = rows[0];
       if (!row) continue;
-      const mapped = mapRow(row, headers, COMMON_COL_MAP, new Set(), sheetName, (m) => result.matched.push(m), (u) => result.unmatched.push(u));
+      const mapped = mapRow(row, headers, COMMON_COL_MAP, new Set(), sheetName, onMatched, onUnmatched);
       if (mapped.profitRate !== undefined) result.common.profitRate = mapped.profitRate;
       if (mapped.taxRate !== undefined) result.common.taxRate = mapped.taxRate;
       if (mapped.qtyVarName !== undefined) result.common.qtyVarName = String(mapped.qtyVarName);
@@ -358,6 +414,11 @@ export async function importQuoteExcel(buffer: ArrayBuffer, fileName: string): P
         if (k === 'profitRate' || k === 'taxRate' || k === 'qtyVarName') continue;
         result.common.params[k] = mapped[k];
       }
+      warnHighRates(
+        { profitRate: mapped.profitRate, taxRate: mapped.taxRate },
+        `公共参数（${sheetName}）`,
+        result.warnings,
+      );
       continue;
     }
 
@@ -370,14 +431,15 @@ export async function importQuoteExcel(buffer: ArrayBuffer, fileName: string): P
         isMold ? MOLD_COL_MAP : INJ_COL_MAP,
         MATERIAL_CODES,
         sheetName,
-        (m) => result.matched.push(m),
-        (u) => result.unmatched.push(u),
+        onMatched,
+        onUnmatched,
       );
       const name = String(mapped.name ?? '').trim() || (isMold ? `模具 ${result.molds.length + 1}` : `注塑件 ${result.parts.length + 1}`);
       const materialCode = mapped.materialCode ? String(mapped.materialCode) : undefined;
 
       if (isMold) {
         const { code, name: _n, materialCode: _m, ...params } = mapped;
+        warnHighRates(params, sheetName, result.warnings);
         result.molds.push({
           code: mapped.code ? String(mapped.code) : undefined,
           name,
@@ -387,6 +449,7 @@ export async function importQuoteExcel(buffer: ArrayBuffer, fileName: string): P
       } else {
         const qty = Number(mapped.injectionQty ?? 0);
         const { code, name: _n, materialCode: _m, injectionQty, ...params } = mapped;
+        warnHighRates(params, sheetName, result.warnings);
         result.parts.push({
           code: mapped.code ? String(mapped.code) : undefined,
           name,

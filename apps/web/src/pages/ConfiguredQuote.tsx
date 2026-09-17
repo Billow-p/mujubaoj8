@@ -14,6 +14,40 @@ const money2 = (n: number) =>
   '¥ ' + (Number(n) || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const uid = () => Math.random().toString(36).slice(2, 9);
 
+/**
+ * 自定义栏：用户在某一套模具 / 某一个注塑件下自己补的「名称 + 值」。
+ * 只存本报价单（随报价快照落 paramsJson），不参与算价、也不写回配置中心。
+ * 落库时序列化进 params.__fields（字符串）—— 因为接口 zod 里 params 只收 number|string。
+ */
+interface CustomField {
+  id: string;
+  name: string;
+  value: string;
+}
+const encodeFields = (list?: CustomField[]): string => {
+  const kept = (list ?? []).filter((f) => String(f.name ?? '').trim() !== '');
+  return kept.length
+    ? JSON.stringify(kept.map((f) => ({ name: f.name.trim(), value: f.value ?? '' })))
+    : '';
+};
+const decodeFields = (raw: any): CustomField[] => {
+  if (typeof raw !== 'string' || !raw.trim()) return [];
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((x: any) => x && typeof x.name === 'string')
+      .map((x: any) => ({ id: uid(), name: x.name, value: x.value == null ? '' : String(x.value) }));
+  } catch {
+    return [];
+  }
+};
+/** 提交时把自定义栏塞回 params（算价用的 params 是纯数字，不掺这个） */
+const withFields = (params: Record<string, number>, fields?: CustomField[]) => {
+  const enc = encodeFields(fields);
+  return enc ? { ...params, __fields: enc } : params;
+};
+
 // 动态附加费用编辑器（模具钢材 / 注塑件 / 其他费用 三个板块复用）
 function ExtrasEditor({
   title,
@@ -103,6 +137,65 @@ const kgFactorOf = (unit?: string | null): number | null => {
   return null;
 };
 
+/** 「自定义栏」编辑器：名称 + 值，可增可删（模具 / 注塑件卡片共用） */
+function FieldsEditor({
+  fields,
+  onAdd,
+  onRemove,
+  onChange,
+}: {
+  fields: CustomField[];
+  onAdd: () => void;
+  onRemove: (id: string) => void;
+  onChange: (id: string, patch: Partial<CustomField>) => void;
+}) {
+  return (
+    <div className="mt-3 border-t border-dashed border-gray-200 pt-2">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[11.5px] text-gray-500">自定义栏（只存本报价单，不参与算价）</span>
+        <button
+          type="button"
+          onClick={onAdd}
+          className="text-[11.5px] text-emerald-600 hover:text-emerald-700"
+        >
+          ＋ 添加一栏
+        </button>
+      </div>
+      {fields.length === 0 ? (
+        <p className="text-[11px] text-gray-400">
+          需要补充额外信息（如客户指定品牌、表面处理要求）时，点「＋ 添加一栏」自己填。
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {fields.map((f) => (
+            <div key={f.id} className="flex items-center gap-2">
+              <input
+                value={f.name}
+                onChange={(e) => onChange(f.id, { name: e.target.value })}
+                placeholder="名称"
+                className="w-44 shrink-0 border border-gray-300 rounded px-2 py-1 text-[12.5px]"
+              />
+              <input
+                value={f.value}
+                onChange={(e) => onChange(f.id, { value: e.target.value })}
+                placeholder="值"
+                className="flex-1 min-w-0 border border-gray-300 rounded px-2 py-1 text-[12.5px]"
+              />
+              <button
+                type="button"
+                onClick={() => onRemove(f.id)}
+                className="shrink-0 text-[11.5px] text-red-500 hover:text-red-700"
+              >
+                删除
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface MoldState {
   uid: string;
   code: string;
@@ -118,6 +211,8 @@ interface MoldState {
   manuals: Record<string, number>;
   /** 件图：这一套模具对应的图纸/实物照片，会一起导出到 Excel 报价单 */
   image?: QuoteImage | null;
+  /** 自定义栏（名称 + 值），只存本报价单 */
+  fields?: CustomField[];
 }
 interface PartState {
   uid: string;
@@ -131,6 +226,8 @@ interface PartState {
   manuals: Record<string, number>;
   /** 件图：这一个注塑件的图纸/实物照片 */
   image?: QuoteImage | null;
+  /** 自定义栏（名称 + 值），只存本报价单 */
+  fields?: CustomField[];
 }
 
 /**
@@ -438,9 +535,12 @@ export default function ConfiguredQuote() {
 
   const params: any[] = (cfg?.parameters ?? []).filter((p: any) => p.enabled !== false);
   const commonDefs = useMemo(() => params.filter((p) => (p.scope as string) === 'common'), [cfg]);
-  /** 公共参数只保留「运输」相关项（运输箱长/宽/高、运费单价、运输区域），其余不再展示 */
-  const transportDefs = useMemo(
-    () => commonDefs.filter((p) => /运输|运费|箱|区域/.test(String(p.name ?? ''))),
+  /**
+   * 公共参数里只留「运输区域」一个可填项（按需求：其余不再让用户填）。
+   * 箱长/宽/高、运费单价虽然不展示，值仍按配置中心默认值参与算价（以配置中心为准）。
+   */
+  const zoneDefs = useMemo(
+    () => commonDefs.filter((p) => /区域/.test(String(p.name ?? ''))),
     [commonDefs],
   );
   const moldDefs = useMemo(() => params.filter((p) => (p.scope as string) === 'mold'), [cfg]);
@@ -551,7 +651,7 @@ export default function ConfiguredQuote() {
     for (const d of data.parameters ?? []) {
       if ((d.scope as string) === 'mold' && d.enabled !== false) p[d.name] = d.defaultValue ?? '';
     }
-    return { uid: uid(), code: '', name: `模具 ${i}`, materialCode: '', params: p, off: {}, manuals: {}, image: null };
+    return { uid: uid(), code: '', name: `模具 ${i}`, materialCode: '', params: p, off: {}, manuals: {}, image: null, fields: [] };
   }
   function seedPart(data: any, i: number, qtyDef: any = 0, qtyVar: string = qtyVarName): PartState {
     const p: Record<string, any> = {};
@@ -560,7 +660,7 @@ export default function ConfiguredQuote() {
         p[d.name] = d.defaultValue ?? '';
       }
     }
-    return { uid: uid(), code: '', name: `注塑件 ${i}`, materialCode: '', qty: qtyDef, params: p, off: {}, manuals: {}, image: null };
+    return { uid: uid(), code: '', name: `注塑件 ${i}`, materialCode: '', qty: qtyDef, params: p, off: {}, manuals: {}, image: null, fields: [] };
   }
 
   function prefillFromSource(data: any, paramsJson: any) {
@@ -605,6 +705,7 @@ export default function ConfiguredQuote() {
             off: m.off || {},
             manuals: m.manualAmounts || {},
             image: m.image ?? null,
+            fields: decodeFields(m.params?.__fields),
           };
         }),
       );
@@ -633,6 +734,7 @@ export default function ConfiguredQuote() {
             off: p.off || {},
             manuals: p.manualAmounts || {},
             image: p.image ?? null,
+            fields: decodeFields(p.params?.__fields),
           };
         }),
       );
@@ -799,11 +901,13 @@ export default function ConfiguredQuote() {
         },
         molds: calcInput.moldsIn.map((m, i) => ({
           ...m,
+          params: withFields(m.params, molds[i].fields),
           off: molds[i].off,
           image: molds[i].image ?? null,
         })),
         parts: calcInput.partsIn.map((p, i) => ({
           ...p,
+          params: withFields(p.params, parts[i].fields),
           off: parts[i].off,
           image: parts[i].image ?? null,
         })),
@@ -933,7 +1037,13 @@ export default function ConfiguredQuote() {
     if (data.common?.off) setCommonOff(data.common.off);
     if (r.otherExtras.length) setExtras((e) => ({ ...e, otherExtras: r.otherExtras }));
 
+    // 利润/税率以配置中心为准（提交时取 cfg.moldType），Excel 里填了也不覆盖 —— 明确告知，别让用户以为生效了
+    const rateNote =
+      data.common?.profitRate !== undefined || data.common?.taxRate !== undefined
+        ? '；利润/税率以配置中心为准，未覆盖'
+        : '';
     const warn =
+      rateNote +
       (data.unmatched?.length ? `；${data.unmatched.length} 列未识别，请人工核对` : '') +
       (data.warnings?.length ? `；${data.warnings.length} 条提示` : '');
     fb.toast(
@@ -961,6 +1071,22 @@ export default function ConfiguredQuote() {
     setMolds((arr) => arr.map((m, idx) => (idx === i ? { ...m, off: { ...m.off, [name]: !m.off[name] } } : m)));
   const togglePartOff = (i: number, name: string) =>
     setParts((arr) => arr.map((p, idx) => (idx === i ? { ...p, off: { ...p.off, [name]: !p.off[name] } } : p)));
+
+  // ---------- 自定义栏（增 / 删 / 改）----------
+  const addField = (kind: 'mold' | 'part', i: number) => {
+    const item = { id: uid(), name: '', value: '' };
+    if (kind === 'mold') setMolds((arr) => arr.map((m, idx) => (idx === i ? { ...m, fields: [...(m.fields ?? []), item] } : m)));
+    else setParts((arr) => arr.map((p, idx) => (idx === i ? { ...p, fields: [...(p.fields ?? []), item] } : p)));
+  };
+  const removeField = (kind: 'mold' | 'part', i: number, id: string) => {
+    if (kind === 'mold') setMolds((arr) => arr.map((m, idx) => (idx === i ? { ...m, fields: (m.fields ?? []).filter((f) => f.id !== id) } : m)));
+    else setParts((arr) => arr.map((p, idx) => (idx === i ? { ...p, fields: (p.fields ?? []).filter((f) => f.id !== id) } : p)));
+  };
+  const patchField = (kind: 'mold' | 'part', i: number, id: string, patch: Partial<CustomField>) => {
+    const apply = (fields?: CustomField[]) => (fields ?? []).map((f) => (f.id === id ? { ...f, ...patch } : f));
+    if (kind === 'mold') setMolds((arr) => arr.map((m, idx) => (idx === i ? { ...m, fields: apply(m.fields) } : m)));
+    else setParts((arr) => arr.map((p, idx) => (idx === i ? { ...p, fields: apply(p.fields) } : p)));
+  };
 
   /**
    * 选/换材料牌号。
@@ -1205,6 +1331,61 @@ export default function ConfiguredQuote() {
       <div className="grid gap-3.5 items-start" style={{ gridTemplateColumns: 'minmax(0,1fr) 400px' }}>
         {/* 左：填数据 */}
         <div className="space-y-3.5">
+          {/* 顶部两块：运输区域 + 其他价格（按需求置于客户信息之上） */}
+          {zoneDefs.length > 0 && (
+            <div className="bg-white border border-gray-200 rounded-lg">
+              <div className="px-3.5 py-3 border-b border-gray-200 flex items-center gap-2">
+                <span className="font-semibold text-sm">运输区域</span>
+                <span className="text-[11.5px] text-gray-400">影响运费系数</span>
+              </div>
+              <div className="p-3.5 grid grid-cols-3 gap-x-4 gap-y-3">
+                {zoneDefs.map((p) => {
+                  const md = materialDriven(p.name, true);
+                  const shown =
+                    commonParams[p.name] === '' || commonParams[p.name] == null
+                      ? '—'
+                      : String(commonParams[p.name]);
+                  return (
+                    <div key={p.id ?? p.name} className="min-w-0">
+                      {md === 'locked'
+                        ? readonlyField(p.name, shown, '材料库带入')
+                        : renderField(
+                            p,
+                            commonParams[p.name],
+                            (v) => setCommonParams((s) => ({ ...s, [p.name]: v })),
+                            !!commonOff[p.name],
+                            () => toggleCommonOff(p.name),
+                            md === 'partial' ? (
+                              <span className="block mt-1 text-[10.5px] text-amber-700 leading-tight">
+                                已有模具/注塑件选了牌号；此值只对「没选牌号」的那些生效
+                              </span>
+                            ) : undefined,
+                          )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 其他价格：整单级自由费用，可增删（原「其他费用（整单级）」，按需求移到顶部） */}
+          <div className="bg-white border border-gray-200 rounded-lg">
+            <div className="px-3.5 py-3 border-b border-gray-200 font-semibold text-sm flex items-center justify-between">
+              <span>其他价格</span>
+              <span className="text-[12px] font-normal text-gray-500">利润前计入总价</span>
+            </div>
+            <div className="p-3.5">
+              <ExtrasEditor
+                title=""
+                unitHint="整单级，可自由增删"
+                items={extras.otherExtras ?? []}
+                onAdd={() => addExtra('otherExtras')}
+                onRemove={(id) => removeExtra('otherExtras', id)}
+                onChange={(id, patch) => patchExtra('otherExtras', id, patch)}
+              />
+            </div>
+          </div>
+
           {/* 客户信息 */}
           <div className="bg-white border border-gray-200 rounded-lg">
             <div
@@ -1252,52 +1433,6 @@ export default function ConfiguredQuote() {
             </div>
             )}
           </div>
-
-          {/* 运输信息（原公共参数只保留运输相关：运输箱长/宽/高、运费单价、运输区域） */}
-          {transportDefs.length > 0 && (
-            <div className="bg-white border border-gray-200 rounded-lg">
-              <div
-                onClick={() => toggleSec('common')}
-                className={`px-3.5 py-3 flex items-center gap-2 cursor-pointer select-none hover:bg-gray-50 ${
-                  secOpen.common ? 'border-b border-gray-200' : ''
-                }`}
-                title={secOpen.common ? '点击折叠' : '点击展开'}
-              >
-                <span className="text-gray-400 text-[10px]">{secOpen.common ? '▼' : '▶'}</span>
-                <span className="font-semibold text-sm">运输信息</span>
-                <span className="text-[11.5px] text-gray-400">{transportDefs.length} 项</span>
-              </div>
-              {secOpen.common && (
-              <div className="p-3.5 grid grid-cols-3 gap-x-4 gap-y-3">
-                {transportDefs.map((p) => {
-                  const md = materialDriven(p.name, true);
-                  const shown =
-                    commonParams[p.name] === '' || commonParams[p.name] == null
-                      ? '—'
-                      : String(commonParams[p.name]);
-                  return (
-                    <div key={p.id ?? p.name} className="min-w-0">
-                      {md === 'locked'
-                        ? readonlyField(p.name, shown, '材料库带入')
-                        : renderField(
-                            p,
-                            commonParams[p.name],
-                            (v) => setCommonParams((s) => ({ ...s, [p.name]: v })),
-                            !!commonOff[p.name],
-                            () => toggleCommonOff(p.name),
-                            md === 'partial' ? (
-                              <span className="block mt-1 text-[10.5px] text-amber-700 leading-tight">
-                                已有模具/注塑件选了牌号；此值只对「没选牌号」的那些生效
-                              </span>
-                            ) : undefined,
-                          )}
-                    </div>
-                  );
-                })}
-              </div>
-              )}
-            </div>
-          )}
 
           {/* 模具列表 */}
           <div className="bg-white border border-gray-200 rounded-lg">
@@ -1422,6 +1557,12 @@ export default function ConfiguredQuote() {
                     </div>
                   )}
 
+                  <FieldsEditor
+                    fields={m.fields ?? []}
+                    onAdd={() => addField('mold', i)}
+                    onRemove={(id) => removeField('mold', i, id)}
+                    onChange={(id, patch) => patchField('mold', i, id, patch)}
+                  />
                 </div>
               ))}
               {molds.length === 0 && (
@@ -1593,6 +1734,12 @@ export default function ConfiguredQuote() {
                       })}
                   </div>
 
+                  <FieldsEditor
+                    fields={p.fields ?? []}
+                    onAdd={() => addField('part', i)}
+                    onRemove={(id) => removeField('part', i, id)}
+                    onChange={(id, patch) => patchField('part', i, id, patch)}
+                  />
                 </div>
               ))}
               {parts.length === 0 && (
@@ -1609,23 +1756,6 @@ export default function ConfiguredQuote() {
               />
             </div>
             )}
-          </div>
-
-          {/* 其他费用：整单级自由费用，可增删（运输附加费等放这里） */}
-          <div className="bg-white border border-gray-200 rounded-lg">
-            <div className="px-3.5 py-3 border-b border-gray-200 font-semibold text-sm flex items-center justify-between">
-              <span>其他费用（整单级）</span>
-              <span className="text-[12px] font-normal text-gray-500">利润前计入总价</span>
-            </div>
-            <div className="p-3.5">
-              <ExtrasEditor
-                title=""
-                items={extras.otherExtras ?? []}
-                onAdd={() => addExtra('otherExtras')}
-                onRemove={(id) => removeExtra('otherExtras', id)}
-                onChange={(id, patch) => patchExtra('otherExtras', id, patch)}
-              />
-            </div>
           </div>
         </div>
 

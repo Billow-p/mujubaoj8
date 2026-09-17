@@ -524,6 +524,12 @@ export function SmartImport({
               {paramsPreview.warnings.length > 0 && (
                 <div className="text-[11px] text-amber-600">{paramsPreview.warnings.join('；')}</div>
               )}
+              {(paramsPreview.common?.profitRate !== undefined ||
+                paramsPreview.common?.taxRate !== undefined) && (
+                <div className="text-[11px] text-amber-600">
+                  Excel 里的利润率/税率以配置中心为准，本次不覆盖
+                </div>
+              )}
               <div className="flex justify-end gap-2 pt-1">
                 <button type="button" onClick={() => setParamsPreview(null)} className="px-3 py-1.5 text-[12px] text-gray-500 border border-gray-200 rounded hover:bg-gray--50">重新选</button>
                 <button type="button" onClick={handleParamsApply} className="px-3 py-1.5 text-[12px] text-white bg-emerald-600 rounded hover:bg-emerald-700">确认导入到报价页</button>

@@ -68,8 +68,20 @@ async function buildTemplate() {
   wb.creator = '模具注塑报价系统';
   const info = wb.addWorksheet('说明');
   info.columns = [{ width: 100 }];
-  ['报价参数导入模板（三期 · Excel 列映射）', '', '用法：按下面 4 个 Sheet 填数据，上传到「智能识别 → 参数表导入」即可一键生成报价参数。']
-    .forEach((t, i) => { info.getCell(i + 1, 1).value = t; });
+  [
+    '报价参数导入模板（三期 · Excel 列映射）',
+    '',
+    '用法：按下面 4 个 Sheet 填数据，上传到「智能识别 → 参数表导入」即可一键生成报价参数。',
+    '· 模具清单：每行一套模具（前/后模钢材、模芯长宽高、腔数、热流道、滑块斜顶、寿命…）',
+    '· 注塑件清单：每行一个注塑件（材料、单件重量、数量、机台时薪、周期、损耗率…）',
+    '· 公共参数：整单一份（运输箱长/宽/高、运费单价、运输区域）',
+    '· 其他费用：每行一条自由费用（名称 + 金额 + 备注）',
+    '',
+    '列名会自动识别（支持「模芯长 / 模芯长度 / CoreLength」等多种写法）；钢材/材料可填编码或中文名。',
+    '比例类参数请填小数：5% 写 0.05（写「5%」也能识别，但写「5」会被当成 500% 并给出提示）。',
+    '利润率 / 税率即使填了也以「配置中心」为准，本表不会覆盖。',
+    '识别不到的列会提示你人工确认，不会悄悄丢数据。',
+  ].forEach((t, i) => { const c = info.getCell(i + 1, 1); c.value = t; c.font = i === 0 ? { size: 13, bold: true } : { size: 11 }; });
   const mold = wb.addWorksheet('模具清单'); mold.addRow(MOLD_HEADERS); mold.addRow(MOLD_ROW);
   const inj = wb.addWorksheet('注塑件清单'); inj.addRow(INJ_HEADERS); inj.addRow(INJ_ROW);
   const common = wb.addWorksheet('公共参数'); common.addRow(COMMON_HEADERS); common.addRow(COMMON_ROW);

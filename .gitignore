@@ -51,3 +51,6 @@ apps/web/public/occt/occt-import-js.wasm
 
 # vite 临时文件
 apps/web/vite.config.ts.timestamp-*.mjs
+
+# 一次性验证脚本的临时导出物
+outputs/
