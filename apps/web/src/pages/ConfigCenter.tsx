@@ -291,7 +291,7 @@ export default function ConfigCenter() {
             // 材料库价格模式：绑定参数的价格由同步灌入，只读展示
             <div
               className="flex-1 min-w-0 border border-blue-200 bg-blue-50 rounded px-1.5 py-0.5 text-[12px] text-blue-900 text-right tabular-nums"
-              title="材料库价格模式已开启：该价格由「同步预置配置」按材料库现价刷新"
+              title="材料库价格模式已开启：该价格由材料库现价刷新，改价请去材料库"
             >
               {p.defaultValue === '' || p.defaultValue == null
                 ? <span className="text-blue-400">待同步（材料库未设价）</span>
@@ -315,7 +315,7 @@ export default function ConfigCenter() {
           <p className="text-[10.5px] text-blue-600 mt-0.5 pl-1 leading-snug">
             绑定材料「{boundMat?.name ?? p.materialCode}」
             {boundMat != null && <> · 材料库现价 ¥{Number(boundMat.currentPrice).toFixed(2)}/{boundMat.unit || 'kg'}</>}
-            {priceMode ? ' · 点「同步预置配置」全量刷新' : ' · 同步时只补空价'}
+            {priceMode ? ' · 保存即按材料库现价刷新' : ' · 保存不覆盖已填价'}
           </p>
         )}
 
