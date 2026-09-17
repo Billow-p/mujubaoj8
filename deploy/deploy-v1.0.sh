@@ -108,6 +108,8 @@ ssh -o StrictHostKeyChecking=no root@47.242.248.104 "
   node scripts/migrate-mold-params-v2.mjs
   echo '==> [6.11/8] 撤销「计价单价」分组（参数回归材料/注塑/运输等原分组）'
   node scripts/migrate-revert-price-group.mjs
+  echo '==> [6.12/8] 清理材料库历史重复 code（只删零引用记录，幂等）'
+  node scripts/migrate-dedup-materials.mjs
 "
 
 echo "==> [7/8] 更新 Nginx 配置并重启服务"
