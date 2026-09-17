@@ -8,10 +8,12 @@ import type { ExcelQuoteModel, ExcelLine, ExcelPieceImage } from './excel.js';
  * 说明文字用「模具 1 · 模芯 500×400×150 · 2 穴」这种口径，
  * 客户拿到报价单不用回头翻参数表就知道这图对的是哪件。
  */
-function pickPieces(list: any[], kind: 'mold' | 'part'): ExcelPieceImage[] {
+function pickPieces(list: any[], kind: 'mold' | 'part', resultList?: any[]): ExcelPieceImage[] {
   const out: ExcelPieceImage[] = [];
   (list ?? []).forEach((it: any, i: number) => {
-    const url = it?.image?.url;
+    // 图可能挂在「入参这一层」，也可能被挪进 calc 结果那一层 —— 两边都找一遍。
+    // 早期只认 it.image，result 里放图的报价单导出时就是没图。
+    const url = it?.image?.url ?? resultList?.[i]?.image?.url;
     if (!url) return;
     const p = (it?.params ?? {}) as Record<string, any>;
     const bits: string[] = [];
@@ -35,6 +37,34 @@ function pickPieces(list: any[], kind: 'mold' | 'part'): ExcelPieceImage[] {
     });
   });
   return out;
+}
+
+/**
+ * 兜底：参数里没有 molds/parts 数组时（配置驱动单实例、老结构），
+ * 从 features / 顶层 image 字段捞一张图出来，别让用户白传。
+ *
+ * 一个报价单只有一个「整单件图」的时候，就放在第一段费用下面。
+ */
+function pickSinglePiece(params: any, calc: any): ExcelPieceImage | null {
+  const candidates = [
+    params?.image,
+    calc?.image,
+    params?.pieceImage,
+    calc?.pieceImage,
+    ...(Array.isArray(calc?.images) ? calc.images : []),
+  ];
+  for (const c of candidates) {
+    const url = typeof c === 'string' ? c : c?.url;
+    if (!url) continue;
+    const name =
+      params?.productName || params?.moldName || calc?.productName || calc?.moldName || '本单件图';
+    const bits: string[] = [];
+    const v = params?.values ?? {};
+    if (v.singleWeightKg) bits.push(`单件 ${v.singleWeightKg} kg`);
+    else if (params?.singleWeightKg) bits.push(`单件 ${params.singleWeightKg} kg`);
+    return { label: String(name), imageUrl: String(url), caption: bits.join(' · ') };
+  }
+  return null;
 }
 
 const MOLD_FEE_LABELS: Record<string, string> = {
@@ -153,8 +183,8 @@ export function toExcelModel(quote: QuoteLike, version: VersionLike, moldTypeNam
       project: project.length ? project : [{ label: '产品', value: '—' }],
       moldLines,
       injectionLines,
-      moldPieces: pickPieces(params.molds, 'mold'),
-      partPieces: pickPieces(params.parts, 'part'),
+      moldPieces: pickPieces(params.molds, 'mold', calc.moldResults),
+      partPieces: pickPieces(params.parts, 'part', calc.partResults),
       summary: {
         mold: Number(calc.moldSubtotal) || 0,
         injection: Number(calc.injectionSubtotal) || 0,
@@ -227,6 +257,11 @@ export function toExcelModel(quote: QuoteLike, version: VersionLike, moldTypeNam
 
     if (params.productName) project.unshift({ label: '产品名称', value: String(params.productName) });
 
+    // 配置驱动单实例：没有 molds/parts 数组，整单只可能有一张件图（产品图/3D 渲染图）。
+    // 有图时按段落到「注塑件」下面 —— 单实例报价通常是注塑件场景。
+    const single = pickSinglePiece(params, calc);
+    const injectionPieces = single ? [single] : [];
+
     return {
       company: params.company,
       quoteNo: quote.quoteNo,
@@ -237,6 +272,8 @@ export function toExcelModel(quote: QuoteLike, version: VersionLike, moldTypeNam
       project: project.length ? project : [{ label: '产品', value: '—' }],
       moldLines,
       injectionLines,
+      moldPieces: [],
+      partPieces: injectionPieces,
       summary: {
         mold: Number(calc.mold) || 0,
         injection: Number(calc.injection) || 0,
@@ -283,6 +320,9 @@ export function toExcelModel(quote: QuoteLike, version: VersionLike, moldTypeNam
   if (qty) project.push({ label: '首单数量', value: `${qty.toLocaleString('zh-CN')} 件` });
   if (params.singleWeightKg) project.push({ label: '单件重量', value: `${params.singleWeightKg} kg` });
 
+  // 老结构（11 项模具费）：同样补上整单件图兜底，别让用户上传的图在导出时凭空消失
+  const legacySingle = pickSinglePiece(params, calc);
+
   return {
     company: params.company,
     quoteNo: quote.quoteNo,
@@ -293,6 +333,8 @@ export function toExcelModel(quote: QuoteLike, version: VersionLike, moldTypeNam
     project,
     moldLines,
     injectionLines,
+    moldPieces: [],
+    partPieces: legacySingle ? [legacySingle] : [],
     summary: {
       mold: Number(sum.moldIncVat) || 0,
       injection: Number(sum.injectionIncVat) || 0,

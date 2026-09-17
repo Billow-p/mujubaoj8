@@ -11,6 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { prisma } from '../db.js';
+import { uploadRoot } from '../services/uploadRoot.js';
 import { extractExcelImages } from '../services/excelImages.js';
 import { importQuoteExcel } from '../services/excelImport.js';
 import { extractWordImages } from '../services/wordImages.js';
@@ -29,13 +30,9 @@ const ALLOWED_MIME: Record<string, string> = {
   'image/bmp': '.bmp',
 };
 
-/** 上传根目录（打包后取 exe 同级目录，开发取当前工作目录） */
-export function uploadRoot(): string {
-  const base = (process as any).pkg ? path.dirname(process.execPath) : process.cwd();
-  const dir = path.join(base, 'uploads');
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
+// uploadRoot 已挪到 services/uploadRoot.ts（导出链路要复用，且那边不能带 Prisma）。
+// 这里 re-export 保持既有引用不破。
+export { uploadRoot } from '../services/uploadRoot.js';
 
 /** 识别失败的统一出口：记日志 + 给前端「人话原因」和「怎么改」 */
 function recogFail(

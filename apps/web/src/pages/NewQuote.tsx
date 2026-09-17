@@ -212,18 +212,22 @@ export default function NewQuote() {
         input,
       });
       // 3. 自动下载 Excel（不阻塞导航）
+      //    失败不再只写 console —— 用户报「报完价没法导出」就是因为这里完全无声。
+      let exportNote = '';
       try {
-        await quotes.exportExcel(created.id);
+        const r = await quotes.exportExcel(created.id);
+        if (r.imageWarnings.length) exportNote = '；' + r.imageWarnings.join('；');
       } catch (e: any) {
-        // 这里刻意只告警不弹错：报价单已经建好了，下载失败不该打断主流程
-        console.warn('Excel 下载失败，可稍后手动重试：' + (e?.message || e));
+        // 报价单已经建好了，下载失败不该打断主流程，但必须让用户知道并知道怎么补
+        exportNote = `；Excel 没能自动下载（${e?.message || '未知原因'}），可在报价单页面点「导出 Excel」重试`;
       }
       const okMsg = input.customerEmail
-        ? `已生成报价单 ${created.quoteNo}，邮件已${created.emailSent ? '发送' : '尝试发送'}至 ${input.customerEmail}（${created.emailSent ? '成功' : (created.emailError || '失败')})`
-        : `已生成报价单 ${created.quoteNo}（草稿）`;
+        ? `已生成报价单 ${created.quoteNo}，邮件已${created.emailSent ? '发送' : '尝试发送'}至 ${input.customerEmail}（${created.emailSent ? '成功' : (created.emailError || '失败')})${exportNote}`
+        : `已生成报价单 ${created.quoteNo}（草稿）${exportNote}`;
       setSuccessMsg(okMsg);
+      if (exportNote) setError(''); // 成功提示里已经带了说明，别再叠一层红字
       // 短暂停留后跳走
-      setTimeout(() => navigate('/'), 1200);
+      setTimeout(() => navigate('/'), exportNote ? 3000 : 1200);
     } catch (e: any) {
       setError(e.response?.data?.error || '保存失败');
     } finally {

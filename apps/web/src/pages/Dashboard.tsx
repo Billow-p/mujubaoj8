@@ -42,7 +42,8 @@ export default function Dashboard() {
   const handleExport = async (id: string) => {
     setExporting(id);
     try {
-      await quotes.exportExcel(id);
+      const r = await quotes.exportExcel(id);
+      if (r.imageWarnings.length) fb.toast('已导出，但' + r.imageWarnings.join('；'), 'warn');
     } catch (e: any) {
       // exportExcel 已把 Blob 里的后端错误还原成 message，这里直接用它
       fb.toast('导出失败：' + (e?.message || '未知错误'), 'err');

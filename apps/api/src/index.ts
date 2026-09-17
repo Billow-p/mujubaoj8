@@ -40,7 +40,13 @@ async function bootstrap() {
     // 导出 Excel 要读 content-disposition 取文件名。CORS 白名单之外的头
     // 浏览器不会交给 JS，不显式 expose 的话前端永远拿到 undefined，
     // 只能退回一个通用文件名（用户看到的就是「导出没反应/文件名不对」）。
-    exposedHeaders: ['Content-Disposition', 'Content-Length'],
+    exposedHeaders: [
+      'Content-Disposition',
+      'Content-Length',
+      // 导出时件图掉了要让前端能提示（否则又是一个静默失败）
+      'X-Image-Warnings',
+      'X-Image-Warning-Text',
+    ],
   });
   await app.register(jwt, { secret: process.env.JWT_SECRET || 'dev-secret-change-in-prod' });
 

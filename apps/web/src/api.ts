@@ -186,7 +186,11 @@ export const quotes = {
   versions: (id: string) => api.get(`/quotes/${id}/versions`).then((r) => r.data),
 
   // 导出 Excel（返回 Blob）
-  exportExcel: async (id: string): Promise<void> => {
+  //
+  // 返回值带上件图告警：后端的 `X-Image-Warnings` 说明有几张图没能写进报价单
+  // （WEBP / 文件丢失 / 读写失败）。以前这类问题在服务端被静默吞掉，
+  // 用户的体验就是「我明明传了图，导出的 Excel 里没有」却完全不知道原因。
+  exportExcel: async (id: string): Promise<{ imageWarnings: string[] }> => {
     let resp;
     try {
       resp = await api.get(`/quotes/${id}/export-excel`, {
@@ -243,6 +247,24 @@ export const quotes = {
     document.body.removeChild(a);
     // 立刻 revoke 会让部分浏览器来不及取数据（下载变成 0 字节），延后释放
     setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+    // 件图告警：单据照常下载了，但得告诉用户哪几张图没进去
+    const warnCount = Number(resp.headers['x-image-warnings'] || 0);
+    const imageWarnings: string[] = [];
+    if (warnCount > 0) {
+      const raw = (resp.headers['x-image-warning-text'] as string) || '';
+      let text = '';
+      try {
+        text = raw ? decodeURIComponent(raw) : '';
+      } catch {
+        text = raw;
+      }
+      imageWarnings.push(
+        text ||
+          `有 ${warnCount} 张件图没能写进报价单（格式不支持或文件已丢失），请重新上传 PNG / JPG 后再导出`,
+      );
+    }
+    return { imageWarnings };
   },
 };
 

@@ -72,6 +72,11 @@ function run(file, env = {}) {
   return spawnSync(process.execPath, [file], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, ...env } }).status ?? 1;
 }
 
+/** 在指定 cwd 下跑（件图相关验证要 uploadRoot 落在 apps/api/uploads） */
+function runIn(file, cwd, env = {}) {
+  return spawnSync(process.execPath, [file], { cwd, stdio: 'inherit', env: { ...process.env, ...env } }).status ?? 1;
+}
+
 function jsdomEnv() {
   if (process.env.MQS_JSDOM_NODE_PATH) return { NODE_PATH: process.env.MQS_JSDOM_NODE_PATH };
   const home = process.env.USERPROFILE || process.env.HOME || '';
@@ -88,6 +93,10 @@ mkdirSync(OUTDIR, { recursive: true });
 console.log('▶ 打包验证产物…');
 bundle(path.join(ROOT, 'apps/api/src/services/excelImport.ts'), path.join(OUTDIR, 'excelImport.cjs'), ['exceljs']);
 bundle(path.join(ROOT, 'apps/web/src/utils/importParams.ts'), path.join(OUTDIR, 'importParams.cjs'));
+// 导出件图验证要用到这两个（导出链路的「快照 → 视图模型 → xlsx」）
+bundle(path.join(ROOT, 'apps/api/src/services/excel.ts'), path.join(OUTDIR, 'excel.cjs'), ['exceljs']);
+bundle(path.join(ROOT, 'apps/api/src/services/quoteModel.ts'), path.join(OUTDIR, 'quoteModel.cjs'), ['exceljs']);
+bundle(path.join(ROOT, 'apps/api/src/services/uploadRoot.ts'), path.join(OUTDIR, 'uploadRoot.cjs'));
 
 let code = 0;
 
@@ -141,6 +150,12 @@ if (!hasJsdom(env)) {
       .join(path.delimiter),
   });
 }
+
+console.log('\n▶ [6/6] 报价单导出「件图」（无浏览器）：3 种快照结构 + 坏图不再静默跳过');
+// 件图要从 uploadRoot()（= cwd/uploads）读，所以在 apps/api 下跑
+code |= runIn(path.join(ROOT, 'apps/api/scripts/verify-export-images.mjs'), path.join(ROOT, 'apps', 'api'), {
+  NODE_PATH: path.join(ROOT, 'apps', 'api', 'node_modules'),
+});
 
 console.log('\n' + '='.repeat(56));
 console.log(code === 0 ? '✅ 全部验证通过' : '❌ 存在失败项');

@@ -4,7 +4,8 @@
  * 把客户发来的「报价参数 Excel」直接读成报价所需的参数结构：
  *   - 模具清单 Sheet   → QuoteProjectMold[]   （code / name / materialCode / params）
  *   - 注塑件清单 Sheet → QuoteProjectPart[]   （code / name / materialCode / qty / params）
- *   - 公共参数 Sheet   → QuoteProjectCommon    （利润/税/运输箱/运费/区域，整单一份）
+ *   - 整单参数 Sheet   → QuoteProjectCommon    （利润/税/运输箱/运费/区域，整单一份）
+ *                        （老叫法「公共参数」继续兼容）
  *   - 其他费用 Sheet   → QuoteExtras.otherExtras（自由费用行）
  *
  * 设计要点：
@@ -208,7 +209,9 @@ function identifySheet(name: string): 'mold' | 'part' | 'common' | 'other' | 'un
   const n = normHeader(name);
   if (/模具清单|模具参数|molds?/.test(n) && !/注塑/.test(n)) return 'mold';
   if (/注塑件清单|注塑件|件清单|parts?|injection/.test(n)) return 'part';
-  if (/公共参数|公共|参数|common|运输/.test(n)) return 'common';
+  // 「整单参数」是 2026-09 起的正式叫法（配置中心已废除「公共参数」分组）。
+  // 老叫法「公共参数」必须继续认 —— 用户手上的历史表格不能失效。
+  if (/整单参数|整单|公共参数|公共|参数|common|运输/.test(n)) return 'common';
   if (/其他费用|其他|费用|other|extra/.test(n)) return 'other';
   return 'unknown';
 }
@@ -379,7 +382,7 @@ export async function importQuoteExcel(buffer: ArrayBuffer, fileName: string): P
 
     if (named.length === 0) {
       result.warnings.push(
-        `未识别到命名的 Sheet（模具清单 / 注塑件清单 / 公共参数 / 其他费用），已把「${sheetName}」按「${
+        `未识别到命名的 Sheet（模具清单 / 注塑件清单 / 整单参数 / 其他费用），已把「${sheetName}」按「${
           role === 'mold' ? '模具清单' : '注塑件清单'
         }」解析；建议下载官方模板填写，识别更准。`,
       );

@@ -4,7 +4,9 @@
 
 import { useCallback, useState } from 'react';
 
-type ToastKind = 'ok' | 'err';
+// warn 用于「事情办成了，但有东西没办全」——比如报价单导出成功、可里面有几张件图没贴上。
+// 这种既不能报红（用户会以为失败重试），也不能报绿（用户不会去看少了什么）。
+type ToastKind = 'ok' | 'err' | 'warn';
 interface ToastState {
   msg: string;
   kind: ToastKind;
@@ -100,7 +102,9 @@ export function useFeedback(): Feedback {
           className={`fixed bottom-6 right-6 z-[70] max-w-sm rounded-lg border px-4 py-2.5 text-[13px] shadow-lg backdrop-blur ${
             toastState.kind === 'ok'
               ? 'bg-emerald-50/95 border-emerald-200 text-emerald-800'
-              : 'bg-red-50/95 border-red-200 text-red-700'
+              : toastState.kind === 'warn'
+                ? 'bg-amber-50/95 border-amber-300 text-amber-900'
+                : 'bg-red-50/95 border-red-200 text-red-700'
           }`}
           style={{ animation: 'fbToastIn .25s ease-out' }}
         >

@@ -57,6 +57,10 @@ function toBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Prom
  *   · PNG / JPEG 但太大 → 等比缩到长边 1200，仍存原格式；
  *   · WEBP / BMP / 其他 → 转 PNG（PNG 无损、支持透明，最稳）；
  *   · GIF → 转 PNG（保留第一帧；动图在报价单里没意义）。
+ *
+ * ⚠ 绝不允许「解码不了就原样上传」：一份解不开的 WEBP 传上去，
+ * 导出报价单时会被静默跳过，用户看到的现象就是「我明明传了图，Excel 里没有」。
+ * 所以这里解码失败必须抛错，让调用方给用户一句人话提示。
  */
 export async function prepareImage(file: File): Promise<PreparedImage> {
   const originalSize = file.size;
@@ -66,11 +70,20 @@ export async function prepareImage(file: File): Promise<PreparedImage> {
     throw new Error('不是图片文件');
   }
 
+  // 先按 MIME 判断该不该转码。Excel 不认的类型**必须**解码成功才能继续 ——
+  // 有些相机会给 WEBP 塞 image/jpeg 的错 MIME，靠 plan 是兜不住的。
+  const prePlan = planImage(file.type, 1, 1);
+  const typeNeedsConvert = prePlan.needConvert;
+
   let decoded: Awaited<ReturnType<typeof decode>>;
   try {
     decoded = await decode(file);
   } catch {
-    throw new Error('图片打不开，可能已损坏');
+    if (typeNeedsConvert) {
+      throw new Error('这张图片浏览器打不开，没法存成报价单能显示的格式，请换一张（或先存成 PNG / JPG 再上传）');
+    }
+    // PNG / JPEG 解不开仍可原样上传（服务端与 Excel 都认容器格式）
+    return { file, transformed: false, originalSize };
   }
 
   const { w, h, draw, close } = decoded;
@@ -135,6 +148,37 @@ export async function uploadImage(
     source: opts.source ?? 'upload',
     uploadedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * 【前置体检】在上传之前就把「传上去 Excel 也显示不出来」的图拦下来。
+ *
+ * 起因：WEBP / BMP 这类图 exceljs 不认，而 3D 渲染截图、Excel 内嵌图
+ * 走的是 dataURL 直传通道，**不过 prepareImage 的转码**，于是出现
+ * 「图上传成功了，导出的报价单里就是没图」这种静默失败。
+ *
+ * 返回 null 表示「能安全落到报价单里」，否则返回一句给用户看的中文原因。
+ */
+export async function assertExcelDisplayable(file: File | Blob): Promise<string | null> {
+  const name = (file as File).name || 'image';
+  const type = (file.type || '').toLowerCase();
+
+  // 后端只给 png / jpg / jpeg / gif / webp / bmp 建 /uploads 记录（见 uploads.ts 白名单）
+  if (type && !/^image\/(png|jpe?g|gif|webp|bmp)$/.test(type)) {
+    return `这件图是 ${type} 格式，报价单里显示不出来，请换成 PNG / JPG`;
+  }
+
+  // GIF 动图在 Excel 里只会显示第一帧，仍可接受；WEBP / BMP 一律不让过
+  if (type === 'image/webp' || type === 'image/bmp' || /\.(webp|bmp)$/i.test(name)) {
+    return 'WEBP / BMP 的图在 Excel 报价单里显示不出来，请换成 PNG / JPG 再上传';
+  }
+
+  // 体积兜底：单张 > 6MB 的图会让报价单体积失控
+  if (file.size > 6 * 1024 * 1024) {
+    return `这件图 ${humanSize(file.size)} 有点大，请先压缩到 6MB 以内再上传`;
+  }
+
+  return null;
 }
 
 /** 人话版体积，用于提示 */

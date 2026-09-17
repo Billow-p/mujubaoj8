@@ -79,25 +79,37 @@ async function buildTemplate() {
   wb.created = new Date('2026-01-01T00:00:00Z');
   wb.modified = new Date('2026-01-01T00:00:00Z');
   const info = wb.addWorksheet('说明');
-  info.columns = [{ width: 100 }];
+  info.columns = [{ width: 110 }];
   [
     '报价参数导入模板（三期 · Excel 列映射）',
     '',
     '用法：按下面 4 个 Sheet 填数据，上传到「智能识别 → 参数表导入」即可一键生成报价参数。',
     '· 模具清单：每行一套模具（前/后模钢材、模芯长宽高、腔数、热流道、滑块斜顶、寿命…）',
     '· 注塑件清单：每行一个注塑件（材料、单件重量、数量、机台时薪、周期、损耗率…）',
-    '· 公共参数：整单一份（运输箱长/宽/高、运费单价、运输区域）',
+    '· 整单参数：整单一份（运输箱长/宽/高、运费单价、运输区域等整单统一项）',
     '· 其他费用：每行一条自由费用（名称 + 金额 + 备注）',
     '',
     '列名会自动识别（支持「模芯长 / 模芯长度 / CoreLength」等多种写法）；钢材/材料可填编码或中文名。',
     '比例类参数请填小数：5% 写 0.05（写「5%」也能识别，但写「5」会被当成 500% 并给出提示）。',
     '利润率 / 税率即使填了也以「配置中心」为准，本表不会覆盖。',
     '识别不到的列会提示你人工确认，不会悄悄丢数据。',
+    '',
+    '【2026-09 变更】原「公共参数」Sheet 已并入「整单参数」；两种叫法都能识别，老表不用改也能用。',
   ].forEach((t, i) => { const c = info.getCell(i + 1, 1); c.value = t; c.font = i === 0 ? { size: 13, bold: true } : { size: 11 }; });
   const mold = wb.addWorksheet('模具清单'); mold.addRow(MOLD_HEADERS); mold.addRow(MOLD_ROW);
   const inj = wb.addWorksheet('注塑件清单'); inj.addRow(INJ_HEADERS); inj.addRow(INJ_ROW);
-  const common = wb.addWorksheet('公共参数'); common.addRow(COMMON_HEADERS); common.addRow(COMMON_ROW);
+  // Sheet 名与系统口径对齐：报价页上这块叫「整单参数」（scope=common）
+  const common = wb.addWorksheet('整单参数'); common.addRow(COMMON_HEADERS); common.addRow(COMMON_ROW);
   const other = wb.addWorksheet('其他费用'); other.addRow(OTHER_HEADERS); other.addRow(OTHER_ROW);
+  // 表头样式：跟系统导出的报价单保持一致的观感
+  for (const ws of [mold, inj, common, other]) {
+    const head = ws.getRow(1);
+    head.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10.5 };
+    head.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+    head.height = 22;
+    head.alignment = { vertical: 'middle', horizontal: 'center' };
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+  }
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
@@ -198,6 +210,38 @@ const check = (label, fn) => {
     assert.strictEqual(r.otherExtras[0].name, '运输附加费');
     assert.strictEqual(r.otherExtras[0].amount, 500);
     assert.strictEqual(r.otherExtras[0].note, '偏远地区加收');
+  });
+
+  // ---- 新 Sheet 名兼容：「整单参数」必须和老的「公共参数」等效 ----
+  {
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(tplBuf);
+    const names = wb.worksheets.map((w) => w.name);
+    check('模板 Sheet 集合：说明 / 模具清单 / 注塑件清单 / 整单参数 / 其他费用', () => {
+      assert.deepStrictEqual(names, ['说明', '模具清单', '注塑件清单', '整单参数', '其他费用']);
+    });
+    check('模板里不再出现已废除的「公共参数」字样（Sheet 名）', () => {
+      assert.ok(!names.includes('公共参数'), `Sheet 名仍含「公共参数」：${names.join(' / ')}`);
+    });
+  }
+  {
+    // 老表（Sheet 名仍叫「公共参数」）也要照常解析 —— 用户手上的历史文件不能失效
+    const wb = new ExcelJS.Workbook();
+    const old = wb.addWorksheet('公共参数');
+    old.addRow(COMMON_HEADERS); old.addRow(COMMON_ROW);
+    const buf = Buffer.from(await wb.xlsx.writeBuffer());
+    const ab2 = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    const res2 = await importQuoteExcel(ab2, '老模板-公共参数.xlsx');
+    check('老 Sheet 名「公共参数」仍兼容解析', () => {
+      assert.strictEqual(res2.common.params.packLengthCm, 120);
+      assert.strictEqual(res2.common.params.freightZone, 0);
+    });
+  }
+
+  // ---- 件图：导入模板不该带图；但报价单导出必须带图（下一段验证） ----
+  check('参数表导入不产生件图（image 保持 null）', () => {
+    assert.strictEqual(M.image, null);
+    assert.strictEqual(P.image, null);
   });
 
   console.log('\n断言明细：');

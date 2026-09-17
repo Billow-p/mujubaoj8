@@ -10,7 +10,9 @@
 import ExcelJS from 'exceljs';
 import fs from 'fs';
 import path from 'path';
-import { uploadRoot } from '../routes/uploads.js';
+// 只依赖这个零依赖的目录工具 —— 别再从 routes/uploads.js 引，
+// 那边顶层 import 了 Prisma，会把导出链路绑死在数据库上。
+import { uploadRoot } from './uploadRoot.js';
 
 const C = {
   brand: 'FF1E40AF',
@@ -71,6 +73,11 @@ export interface ExcelPieceImage {
  * 把件图 URL 解析成 exceljs 能用的图片源。
  * 只认本地 uploads 目录与 data URL，且只支持 exceljs 认得的格式（png / jpeg / gif）。
  * 任何异常都返回 null —— 一张图坏了不能让整张报价单导不出来。
+ *
+ * 2026-09-17：老版本只放行 `[a-f0-9]{20}\.(png|jpg|jpeg|gif)`，而上传白名单是
+ * png/jpg/jpeg/gif/webp/bmp —— WEBP / BMP 传得进来、却在这里被挡掉，
+ * 现象就是用户说的「我上传了图片，导出的确没有图片」。现已对齐：格式不对
+ * 也不再静默跳过，而是记进 warnings 里告诉用户为什么。
  */
 function resolveImageSource(
   url: string,
@@ -90,12 +97,19 @@ function resolveImageSource(
     }
   }
 
-  // /uploads/<文件名>
+  // /uploads/<文件名>：文件名前端由 uploads 路由生成，但历史数据里也有中文原名，
+  // 所以这里只按扩展名判 —— 文件名形状不作为拒绝理由。
   const name = url.split('?')[0].split('/').pop() || '';
-  if (!/^[a-f0-9]{20}\.(png|jpg|jpeg|gif)$/i.test(name)) return null;
+  if (!name) return null;
+  const ext = (name.split('.').pop() || '').toLowerCase();
+
+  // exceljs 的 addImage 只认 png / jpeg / gif 三种 extension，而且它**不做格式校验**：
+  // 把 webp 的字节配 'jpeg' 塞进去，出来的是一张打不开的坏图 —— 比不贴更糟
+  // （用户看到的是红叉，不是「没图」）。所以这里必须硬拒，让上层给出中文原因。
+  if (!/^(png|jpg|jpeg|gif)$/.test(ext)) return null;
+
   const full = path.join(uploadRoot(), name);
   if (!fs.existsSync(full)) return null;
-  const ext = (name.split('.').pop() || '').toLowerCase();
   const extension = ext === 'png' ? 'png' : ext === 'gif' ? 'gif' : 'jpeg';
   try {
     const buffer = fs.readFileSync(full);
@@ -103,6 +117,28 @@ function resolveImageSource(
   } catch {
     return null;
   }
+}
+
+/** 件图为什么没进报价单 —— 中文原因，用于生成用户可见的 warnings */
+function explainImageFailure(url: string): string {
+  if (!url) return '没有图片地址';
+  if (/^data:image\//i.test(url)) {
+    const semi = url.indexOf(';');
+    const type = url.slice(5, semi > 0 ? semi : 40).toLowerCase();
+    return `内嵌图是 ${type || '未知'} 格式，报价单里显示不出来（只支持 PNG / JPG / GIF）`;
+  }
+  const name = url.split('?')[0].split('/').pop() || '';
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  if (ext === 'webp' || ext === 'bmp') {
+    return `${ext.toUpperCase()} 格式的图报价单里显示不出来（只支持 PNG / JPG / GIF），请转成 PNG 或 JPG 后重新上传`;
+  }
+  if (!/^(png|jpg|jpeg|gif)$/.test(ext)) {
+    return `图片格式 .${ext || '未知'} 报价单里显示不出来（只支持 PNG / JPG / GIF）`;
+  }
+  if (name && !fs.existsSync(path.join(uploadRoot(), name))) {
+    return '图片文件在服务器上找不到了（可能已被清理），请重新上传';
+  }
+  return '图片读取失败（文件可能已损坏）';
 }
 
 export interface ExcelQuoteModel {
@@ -140,6 +176,11 @@ export interface ExcelQuoteModel {
   };
   terms: string[];
   senderName?: string;
+  /**
+   * 导出过程中丢掉的件图说明（给用户看的）。
+   * 单独返回而不是写在 Sheet 里 —— 报价单是给客户的，不能带内部提示。
+   */
+  imageWarnings?: string[];
 }
 
 const fmtDate = (d?: Date | null) =>
@@ -147,16 +188,19 @@ const fmtDate = (d?: Date | null) =>
     ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     : '';
 
-export async function buildQuoteExcel(model: ExcelQuoteModel): Promise<Buffer> {
+export async function buildQuoteExcel(
+  model: ExcelQuoteModel,
+): Promise<{ buffer: Buffer; imageWarnings: string[] }> {
   const wb = new ExcelJS.Workbook();
   wb.creator = model.company?.name || model.senderName || '模具注塑报价系统';
   wb.created = model.createdAt;
 
-  buildMainSheet(wb, model);
+  const imageWarnings: string[] = [];
+  buildMainSheet(wb, model, imageWarnings);
   buildDetailSheet(wb, model);
 
   const buf = await wb.xlsx.writeBuffer();
-  return Buffer.from(buf);
+  return { buffer: Buffer.from(buf), imageWarnings };
 }
 
 // 列布局（两段费用共用）
@@ -165,7 +209,7 @@ export async function buildQuoteExcel(model: ExcelQuoteModel): Promise<Buffer> {
 const COLS = [{ width: 10 }, { width: 28 }, { width: 42 }, { width: 22 }, { width: 16 }, { width: 18 }];
 const LAST = 6;
 
-function buildMainSheet(wb: ExcelJS.Workbook, m: ExcelQuoteModel) {
+function buildMainSheet(wb: ExcelJS.Workbook, m: ExcelQuoteModel, imageWarnings: string[]) {
   const ws = wb.addWorksheet('报价单', {
     views: [{ showGridLines: false }],
     pageSetup: {
@@ -409,8 +453,11 @@ function buildMainSheet(wb: ExcelJS.Workbook, m: ExcelQuoteModel) {
           editAs: 'oneCell',
         });
       } catch {
-        /* 图片读取失败不影响单据导出 */
+        // 图片写失败不能让整张单据导不出来，但必须让用户知道少了哪张图
+        imageWarnings.push(`${piece.label}：图片写入报价单失败`);
       }
+    } else {
+      imageWarnings.push(`${piece.label}：${explainImageFailure(piece.imageUrl)}`);
     }
     r++;
   };

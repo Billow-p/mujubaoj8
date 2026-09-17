@@ -143,7 +143,9 @@ export default function QuoteDetail() {
 
   const doExport = async () => {
     try {
-      await quotes.exportExcel(q.id);
+      const r = await quotes.exportExcel(q.id);
+      // 单据下来了，但可能有件图没写进去 —— 必须说清楚，不然用户只会觉得「图又丢了」
+      if (r.imageWarnings.length) fb.toast('已导出，但' + r.imageWarnings.join('；'), 'warn');
     } catch (e: any) {
       // exportExcel 已把 Blob 里的后端错误还原成 message，这里直接用它
       fb.toast('导出失败：' + (e?.message || '未知错误'), 'err');

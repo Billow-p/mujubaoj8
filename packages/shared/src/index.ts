@@ -427,6 +427,20 @@ export interface QuoteProjectMold {
   params: Record<string, number>;
   /** 手动填写金额的费用项（name → 金额） */
   manualAmounts?: Record<string, number>;
+  /**
+   * 件图（上传的图纸 / 3D 渲染缩略图）。
+   * 不参与算价，只用于导出 Excel 报价单时把图贴在该件旁边 —— 所以「不纳入计算」
+   * 的开关不该把它挡掉。类型故意留宽，避免 shared 反向依赖 api 的 QuoteImageSchema。
+   */
+  image?: QuotePieceImage | null;
+}
+
+/** 件图。字段与后端 QuoteImageSchema 一致，shared 里放宽以保持依赖方向。 */
+export interface QuotePieceImage {
+  url: string;
+  name?: string;
+  source?: string;
+  uploadedAt?: string;
 }
 
 /** 一个注塑件 */
@@ -440,6 +454,8 @@ export interface QuoteProjectPart {
   /** 注塑作用域参数（单件重量、原料单价、损耗率…） */
   params: Record<string, number>;
   manualAmounts?: Record<string, number>;
+  /** 件图（同 QuoteProjectMold.image） */
+  image?: QuotePieceImage | null;
 }
 
 /** 公共参数（整单一份） */

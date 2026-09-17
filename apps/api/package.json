@@ -22,7 +22,6 @@
     "@fastify/static": "^7.0.4",
     "bcryptjs": "^2.4.3",
     "nodemailer": "^6.9.13",
-    "puppeteer": "^22.13.0",
     "exceljs": "^4.4.0",
     "zod": "^3.23.8"
   },

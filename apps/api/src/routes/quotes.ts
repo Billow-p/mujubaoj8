@@ -800,7 +800,7 @@ export async function quoteRoutes(app: FastifyInstance) {
 
       const model = toExcelModel(q, version, moldType?.name);
       if (company?.name) model.company = { ...(model.company ?? {}), name: company.name };
-      const buf = await buildQuoteExcel(model);
+      const { buffer: buf, imageWarnings } = await buildQuoteExcel(model);
 
       reply
         .header(
@@ -810,6 +810,12 @@ export async function quoteRoutes(app: FastifyInstance) {
         .header(
           'Content-Disposition',
           `attachment; filename="${encodeURIComponent(`报价单_${q.quoteNo}.xlsx`)}"`,
+        )
+        // 件图丢了要让前端能提示用户（报价单是给客户的，提示不能写在单据里）
+        .header('X-Image-Warnings', String(imageWarnings.length))
+        .header(
+          'X-Image-Warning-Text',
+          imageWarnings.length ? encodeURIComponent(imageWarnings.slice(0, 3).join('；')) : '',
         )
         .send(buf);
     },
@@ -1218,7 +1224,7 @@ export async function quoteRoutes(app: FastifyInstance) {
     });
 
     // 注塑件：scope=injection 的参数（单件重量、原料单价、损耗…）+ 数量 + 材料库价格
-    const parts: QuoteProjectPart[] = body.parts.map((p) => {
+    const parts: QuoteProjectPart[] = body.parts.map((p, pi) => {
       const params: Record<string, number> = {};
       for (const [k, v] of Object.entries(p.params ?? {})) {
         const n = Number(v);
@@ -1244,12 +1250,16 @@ export async function quoteRoutes(app: FastifyInstance) {
         }
       }
       return {
+        // 同样先摊开原始入参 —— 关键是把「件图 image」带进快照，
+        // 否则注塑件导出 Excel 时没有图（与 molds 那边同一个坑，之前这边也漏了）。
+        ...body.parts[pi],
         code: p.code,
         name: p.name,
         materialCode: p.materialCode,
         qty: Number(p.qty) || 0,
         params,
         manualAmounts: p.manualAmounts,
+        off: p.off,
       };
     });
 

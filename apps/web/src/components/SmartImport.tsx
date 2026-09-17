@@ -11,7 +11,7 @@
 
 import { useRef, useState } from 'react';
 import { parse3DFile, suggestParams, type ItemKind } from '../utils/geometry';
-import { uploadImage, dataUrlToFile } from '../utils/image';
+import { uploadImage, dataUrlToFile, assertExcelDisplayable } from '../utils/image';
 import {
   classifyFile,
   diagnose,
@@ -394,6 +394,9 @@ export function SmartImport({
     const picked = items.filter((it) => it.checked);
     if (!picked.length) return;
     const out: ApplyItem[] = [];
+    // 有图没存上的必须让用户看见 —— 以前只写进折叠日志里，
+    // 用户报完价导出 Excel 才发现没图，根本不知道是哪一步丢的
+    const imageLost: string[] = [];
     for (let i = 0; i < picked.length; i++) {
       const it = picked[i];
       setApplying(`正在保存 ${i + 1}/${picked.length}…`);
@@ -401,12 +404,25 @@ export function SmartImport({
       try {
         let dataUrl = it.previewUrl;
         if (!dataUrl && it.mesh) dataUrl = await capture(it.mesh);
-        if (dataUrl) {
+        if (!dataUrl) {
+          imageLost.push(`${it.name}（没能拿到图片数据）`);
+        } else {
           const f = dataUrlToFile(dataUrl, `${it.name}.png`);
-          if (f) image = await uploadImage(f, { name: it.name, source: it.source === '3d' ? 'render3d' : 'excel' });
+          if (!f) {
+            imageLost.push(`${it.name}（图片数据不完整）`);
+          } else {
+            const bad = await assertExcelDisplayable(f);
+            if (bad) {
+              imageLost.push(`${it.name}（${bad}）`);
+            } else {
+              image = await uploadImage(f, { name: it.name, source: it.source === '3d' ? 'render3d' : 'excel' });
+            }
+          }
         }
-      } catch {
-        logIt.warn('件图保存', `${it.name} 的图没存上，但参数照常导入`);
+      } catch (e: any) {
+        const reason = e?.response?.data?.error || e?.message || '上传失败';
+        imageLost.push(`${it.name}（${reason}）`);
+        logIt.error('件图保存', `${it.name}：${reason}`);
       }
       const params: Record<string, number> = {};
       for (const p of it.params ?? []) if (it.picked.has(p.name)) params[p.name] = p.value;
@@ -414,6 +430,11 @@ export function SmartImport({
       logIt.info('导入', `${it.name} → ${it.kind === 'mold' ? '模具' : '注塑件'}${image ? '（含件图）' : '（无图）'}`);
     }
     setApplying('');
+    if (imageLost.length) {
+      onError(
+        `参数已照常导入，但这 ${imageLost.length} 件的图没存上，导出的报价单里不会有图：${imageLost.join('；')}`,
+      );
+    }
     onApply(out);
     setItems([]);
     setFailures([]);
