@@ -441,18 +441,22 @@ export default function ConfiguredQuote() {
   const injectionDefs = useMemo(() => params.filter((p) => (p.scope as string) === 'injection'), [cfg]);
 
   /**
-   * 整单参数（scope=common）：运输区域、运输箱长/宽/高、运费单价…
+   * 整单参数区（放在最底下「其他价格」板块里）。
    *
-   * 这些原来在配置中心的「公共参数（整单共享一份）」分组里，那个分组已按需求删除，
-   * 于是它们失去了编辑入口。现在统一收进报价页最底下的「其他价格」板块。
+   * 规则：整单（scope=common）参数里，**只放需要业务选择的那一类** ——
+   * 也就是「运输区域」这种下拉。运输箱长/宽/高、运费单价是内部计价参数，
+   * 不在报价单上占位置（值仍在库里，按配置中心的默认值参与算价）。
    *
-   * 为什么不写死「运输区域」一个字段：**配置中心里新增或改动的整单参数要能自动出现**，
-   * 每加一个参数就改一次报价页代码是走不长的。
+   * 这样以后在配置中心新增一个「运输/整单」类下拉参数，报价单会自动出现，
+   * 不需要改报价页代码；而新增数字类计价参数不会跑到报价页上打扰人。
    */
   const commonDefs = useMemo(
     () =>
       (cfg?.parameters ?? []).filter(
-        (p: any) => p.enabled !== false && (p.scope as string) === 'common',
+        (p: any) =>
+          p.enabled !== false &&
+          (p.scope as string) === 'common' &&
+          (p.name === '运输区域' || (p.group === '运输' && p.type === 'select')),
       ),
     [cfg],
   );

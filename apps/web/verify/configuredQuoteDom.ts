@@ -86,9 +86,11 @@ async function main() {
   );
   check('「运输区域」是可编辑下拉（含省内外选项）', !!zoneSel);
   check('「整单参数」区标题存在', text().includes('整单参数'));
-  const iPackLen = html().indexOf('运输箱长');
-  check('运输箱长 也并入「其他价格」（不再是无处可改）', iPackLen > iOther && iOther >= 0);
-  check('运费单价 也在「其他价格」里可改', html().indexOf('运费单价') > iOther);
+  // 箱尺寸 / 运费单价属于内部计价参数，不在报价单上占位置（值仍在库里参与算价）
+  check('运输箱长 不在报价页显示', html().indexOf('运输箱长') === -1);
+  check('运输箱宽 不在报价页显示', html().indexOf('运输箱宽') === -1);
+  check('运输箱高 不在报价页显示', html().indexOf('运输箱高') === -1);
+  check('运费单价 不在报价页显示', html().indexOf('运费单价') === -1);
   if (zoneSel) {
     const setSel = Object.getOwnPropertyDescriptor(
       (dom.window as any).HTMLSelectElement.prototype,
