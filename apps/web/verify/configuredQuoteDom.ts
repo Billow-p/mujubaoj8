@@ -137,6 +137,10 @@ async function main() {
   check('右栏「费用明细」默认展开（显示「收起明细」）', text().includes('收起明细'));
   check('金额为 0 的费用项标成「未设值」', text().includes('未设值'));
 
+  // 页面冗余说明文字已清除（用户明确要求「不要那么多废话」）
+  check('标题下的「一套报价单可含多套模具…」说明文案已删除', !text().includes('一套报价单可含多套模具'));
+  check('「价格从哪来（自动按顺序取）」提示块已删除', !text().includes('价格从哪来'));
+
   await act(async () => { root.unmount(); });
   dom.window.close();
 

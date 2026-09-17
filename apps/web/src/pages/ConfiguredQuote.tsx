@@ -1196,9 +1196,6 @@ export default function ConfiguredQuote() {
       <div className="flex items-start justify-between mb-4">
         <div>
           <h1 className="text-xl font-semibold">{copyFrom ? '按此版本重新报价' : '新建报价单（多注塑件）'}</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            一套报价单可含多套模具（并列）+ 多个注塑件（并列），整单统一利润与税
-          </p>
         </div>
         <div className="flex gap-2">
           <button
@@ -1209,14 +1206,6 @@ export default function ConfiguredQuote() {
             {saving ? '生成中…' : '生成报价单'}
           </button>
         </div>
-      </div>
-
-      {/* 价格从哪来 —— 三级取价顺序，一眼看懂 */}
-      <div className="bg-slate-50 border border-gray-200 rounded-lg px-4 py-2.5 mb-4 text-[12px] text-gray-600 leading-5">
-        <b className="text-gray-800">价格从哪来（自动按顺序取）：</b>
-        ① 选了材料牌号 → 按材料库该牌号现价　
-        ② 没选 → 按配置中心同步价　
-        ③ 都没有 → 该项按 0 计入并<b className="text-red-700">中文提醒你补价</b>，不会默默出错
       </div>
 
       {/* 模具类型 */}

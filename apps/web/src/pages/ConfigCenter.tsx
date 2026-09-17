@@ -427,38 +427,6 @@ export default function ConfigCenter() {
     }
   };
 
-  /** 分类同步：只同步当前激活的这一套（补缺失参数/费用项 + 从材料库补空价），不覆盖已有 */
-  const syncCurrentPreset = () => {
-    const t = types.find((x) => x.id === activeId);
-    if (!t) return;
-    const modeB = cfg?.moldType?.priceFromLibrary === true;
-    const run = async () => {
-      try {
-        const r = await configApi.initPreset({ code: t.code });
-        await loadTypes(activeId!);
-        await loadConfig(activeId!, true);
-        const parts: string[] = [];
-        if (r.created) parts.push('新建了这套配置');
-        if (r.addedParams) parts.push(`补参数 ${r.addedParams} 个`);
-        if (r.addedItems) parts.push(`补费用项 ${r.addedItems} 个`);
-        if (r.filledPrices) parts.push(`从材料库补/刷新价 ${r.filledPrices} 个`);
-        fb.toast(parts.length ? `同步完成：${parts.join('，')}。已有配置未覆盖。` : '配置已是最全状态，无需补充。');
-      } catch (e: any) {
-        fb.toast('同步失败：' + (e.response?.data?.error || e.message), 'err');
-      }
-    };
-    fb.confirmBox(
-      {
-        title: `同步「${t.name}」与官方预置`,
-        message: modeB
-          ? '· 缺的参数 / 费用项 / 条款会补上\n· 材料库价格模式已开启：绑定材料的价格将按材料库现价全量刷新\n· 其余已有配置不动'
-          : '· 缺的参数 / 费用项 / 条款会补上\n· 空着的价格会从材料库自动补价\n· 你已改过的配置和价格一律不动',
-        okText: '开始同步',
-      },
-      run,
-    );
-  };
-
   /** 材料库价格模式：开启后绑定材料的价格默认值由材料库全量刷新（库是唯一真源） */
   const togglePriceMode = () => {
     if (!cfg || togglingPriceMode) return;
@@ -632,13 +600,6 @@ export default function ConfigCenter() {
             >
               材料库价格模式：{cfg?.moldType?.priceFromLibrary === true ? '开' : '关'}
             </button>
-            <button
-              onClick={syncCurrentPreset}
-              className="text-xs text-gray-500 hover:text-gray-900 px-2 border border-gray-200 rounded py-1 hover:border-gray-400"
-              title="把当前类型与官方预置对齐：只补缺失项与空价格，不覆盖已有配置"
-            >
-              同步预置配置
-            </button>
             <button onClick={renameType} className="text-xs text-gray-500 hover:text-gray-900 px-2">重命名</button>
             <button onClick={delType} className="text-xs text-gray-500 hover:text-red-600 px-2">删除类型</button>
           </>
@@ -722,9 +683,6 @@ export default function ConfigCenter() {
                     {modeB ? ' · 模式B：同步即全量刷新' : ''}
                     {missingPrice > 0 ? ` · 缺价 ${missingPrice} 个` : ''}
                   </div>
-                  <button onClick={syncCurrentPreset} className="inline-block text-[11px] bg-blue-600 hover:bg-blue-700 text-white rounded px-2 py-0.5 mt-1">
-                    一键同步
-                  </button>
                 </div>
                 {/* ③ 定费用与算法 */}
                 <div className={`flex-1 min-w-[185px] rounded-lg border p-2.5 ${itemDone ? 'border-gray-200 bg-white' : 'border-amber-300 bg-amber-50'}`}>

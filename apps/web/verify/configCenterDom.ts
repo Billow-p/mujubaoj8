@@ -117,6 +117,10 @@ async function main() {
   );
   check('「+ 加一项」入口仍在（参数区 + 费用区，≥2 处）', addBtns.length >= 2);
 
+  // 「同步预置配置」按钮已移除（保存即同步，按钮冗余）
+  check('「同步预置配置」按钮已删除', !text().includes('同步预置配置'));
+  check('引导条里的「一键同步」按钮已删除', !text().includes('一键同步'));
+
   await act(async () => { root.unmount(); });
   dom.window.close();
 
