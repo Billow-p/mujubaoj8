@@ -284,13 +284,6 @@ export default function Materials() {
               第 1 步 · 共 4 步
             </span>
           </div>
-          <p className="text-[12.5px] text-gray-600 mt-1.5 leading-5 max-w-2xl">
-            这里是<strong>全系统唯一的价格来源</strong>。钢材、原料价格都在这里维护：
-            这里改价 → 到配置中心点「同步」→ 报价自动用新价，中间不需要改任何公式。
-          </p>
-          <p className="text-[11px] text-gray-400 mt-1">
-            改完价别忘了第 2 步：去配置中心点同步，价格才会生效到报价
-          </p>
         </div>
         <div className="flex gap-2 flex-wrap">
           {/* 第 1 步：补齐预置材料 */}
