@@ -822,11 +822,7 @@ export default function ConfigCenter() {
                         <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded whitespace-nowrap" title="计算方式是「报价时手填」：会在报价单上出现输入框，由报价员当场填金额">
                           → 报价页待填
                         </span>
-                      ) : (
-                        <span className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded whitespace-nowrap" title="金额由配置中心的算法算出：在报价页右侧「实时算价 → 费用明细」里显示，报价单上不出现输入框">
-                          → 算价明细
-                        </span>
-                      )}
+                      ) : null}
                       <span className="text-[13.5px] font-semibold tabular-nums whitespace-nowrap">{val}</span>
                     </div>
 

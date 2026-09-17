@@ -124,9 +124,9 @@ async function main() {
   check('「使用四步曲」引导条已整体删除', !text().includes('使用四步曲'));
   check('引导条副标题「价格逻辑只有一条」已删除', !text().includes('价格逻辑只有一条'));
 
-  // 方案B：费用项带「去向」角标 + 标题行说明去向规则
+  // 方案B：只有「报价时手填」的项带角标（用户要求「→ 算价明细」角标删掉，其余项不加角标）
   check('费用项有「→ 报价页待填」去向角标', text().includes('→ 报价页待填'));
-  check('费用项有「→ 算价明细」去向角标', text().includes('→ 算价明细'));
+  check('「→ 算价明细」角标已删除', !text().includes('→ 算价明细'));
   check('「要收哪些费用」标题行说明去向规则', text().includes('计算方式选「报价时手填」的'));
 
   await act(async () => { root.unmount(); });
