@@ -375,7 +375,7 @@ export default function ConfigCenter() {
     if (!cfg || !activeId) return;
     // 参数补编码（用户没填时按名称生成）
     const payload = {
-      parameters: cfg.parameters.map((p: any, i: number) => ({
+      parameters: (cfg.parameters ?? []).map((p: any, i: number) => ({
         id: p.id,
         code: p.code || `p${i + 1}`,
         name: p.name,
@@ -391,8 +391,8 @@ export default function ConfigCenter() {
         enabled: p.enabled !== false,
       })),
       // 材料不在这里保存 —— 材料统一由「材料中心」（全局库）维护
-      terms: cfg.terms.map((t: any) => ({ id: t.id, text: t.text, enabled: t.enabled !== false })),
-      items: cfg.items.map((it: any, i: number) => ({
+      terms: (cfg.terms ?? []).map((t: any) => ({ id: t.id, text: t.text, enabled: t.enabled !== false })),
+      items: (cfg.items ?? []).map((it: any, i: number) => ({
         id: it.id, name: it.name, category: it.category, scope: it.scope,
         calcType: it.calcType, calcConfig: it.calcConfig ?? {}, expression: it.expression ?? null,
         perUnit: it.perUnit === true,

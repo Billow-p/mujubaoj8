@@ -25,6 +25,10 @@ export const CFG = {
     { id: 'p8', name: '单件重量', scope: 'injection', type: 'number', unit: 'kg', group: '注塑', defaultValue: 0.18, enabled: true },
     { id: 'p9', name: '注塑数量', scope: 'injection', type: 'number', unit: '件', group: '注塑', defaultValue: 5000, enabled: true },
   ],
+  /** 条款：配置中心保存时会整体回写，stub 里给一条免得 save() 里 terms 为 undefined */
+  terms: [
+    { id: 't1', text: '报价有效期 30 天', enabled: true },
+  ],
   /**
    * 费用项：前两条是「配置中心预置」，后两条模拟用户在配置中心点「+ 加一项」新增的。
    * 报价页必须能同时体现这两类 —— 这正是「配置中心加了项，报价表看不到」的验收入口。
@@ -79,10 +83,20 @@ export const CFG = {
   ],
 };
 
+/**
+ * 测试用：记录 configApi.save() 收到的 payload。
+ * 用来断言「配置中心保存时 scope 没丢」—— 漏传 scope 会把整批参数刷成 common，
+ * 报价页的模具/注塑参数会整片消失（线上真实事故）。
+ */
+export const savedPayloads: any[] = [];
+
 export const configApi = {
   moldTypes: async () => [MOLD_TYPE],
   get: async () => CFG,
-  save: async () => ({}),
+  save: async (_id?: string, body?: any) => {
+    savedPayloads.push(body);
+    return {};
+  },
 };
 
 export const materials = {

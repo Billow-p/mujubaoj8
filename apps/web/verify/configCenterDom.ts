@@ -1,12 +1,12 @@
 /*
  * 配置中心（ConfigCenter）jsdom 渲染验证。
  *
- * 验的是「报价页 / 配置中心 两边参数分组必须一致」这条：
- *   1) 「产品数据」里只剩「模具参数」「注塑参数」两个分组 —— 「公共参数」整组已删除
- *   2) scope=common 的参数（运输箱长/运费单价…）不再出现在配置中心
- *   3) 「+ 加一项」入口还在，且两处都在（参数区 + 费用区）
- *
- * 背景：报价页早就没有「公共参数」板块了，配置中心留着「整单共享一份」会让两边对不上。
+ * 验两件事：
+ *   ① 参数分组与报价页一致 —— 「产品数据」里只剩「模具参数」「注塑参数」，
+ *      「公共参数（整单共享一份）」整组已删除
+ *   ② 保存时不丢 scope —— 这是线上真实事故的回归测试：
+ *      save() 漏传 scope → 后端按 `?? 'common'` 落库 → 每点一次保存，
+ *      模具/注塑参数就被整批刷成「公共参数」，报价页参数整片消失。
  */
 
 declare const require: any;
@@ -40,6 +40,21 @@ async function main() {
   const { act } = require('react');
   const { MemoryRouter } = require('react-router-dom');
   const Page = require('../src/pages/ConfigCenter').default;
+  const { savedPayloads } = require('./stubApi');
+
+  const NativeInput = dom.window.HTMLInputElement as any;
+  const setVal = Object.getOwnPropertyDescriptor(NativeInput.prototype, 'value')!.set!;
+  const setInput = async (el: any, v: string) => {
+    await act(async () => {
+      setVal.call(el, v);
+      el.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    });
+  };
+  const click = async (el: any) => {
+    await act(async () => {
+      el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+  };
 
   const results: [string, boolean][] = [];
   const check = (label: string, cond: any) => results.push([label, !!cond]);
@@ -56,30 +71,46 @@ async function main() {
 
   const text = () => container.textContent || '';
   const html = () => container.innerHTML || '';
+  const inputs = () => Array.from(container.querySelectorAll('input')) as any[];
+  const buttons = () => Array.from(container.querySelectorAll('button')) as any[];
 
+  // ① 分组：与报价页统一
   check('配置中心能正常渲染（出现「报价时填写」）', text().includes('报价时填写'));
-
-  // —— 分组：只留 模具参数 / 注塑参数 ——
   check('有「模具参数」分组', text().includes('模具参数'));
   check('有「注塑参数」分组', text().includes('注塑参数'));
   check('「公共参数」分组已删除', !text().includes('公共参数'));
   check('「整单共享一份」说明文案已删除', !text().includes('整单共享'));
 
-  // —— 模具 / 注塑参数还在（数据没被删，只是分组收敛）——
+  // 模具组默认展开 → 参数照旧可编辑
   check('模具参数照旧可编辑（腔数）', html().includes('腔数'));
 
-  // 注塑组默认折叠，点开再看
-  const partGroupBtn = (Array.from(container.querySelectorAll('button')) as any[]).find((b) =>
-    (b.textContent || '').includes('注塑参数'),
-  );
-  if (partGroupBtn) {
-    await act(async () => {
-      partGroupBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    });
+  // ② 保存不丢 scope（回归测试）—— 趁模具组还展开着先做
+  const nameInput = inputs().find((i) => i.value === '腔数');
+  check('找到模具参数「腔数」的输入框', !!nameInput);
+  if (nameInput) await setInput(nameInput, '腔数X');
+
+  const saveBtn = buttons().find((b) => (b.textContent || '').trim() === '保存');
+  check('改动后「保存」按钮变为可点', !!saveBtn && !saveBtn.disabled);
+  if (saveBtn) {
+    await click(saveBtn);
+    await act(async () => { await new Promise((r) => setTimeout(r, 100)); });
   }
+  const payload = savedPayloads[savedPayloads.length - 1];
+  check('保存确实被调用', !!payload);
+  if (payload) {
+    const ps: any[] = payload.parameters ?? [];
+    check('payload 里每个参数都带 scope', ps.length > 0 && ps.every((p) => !!p.scope));
+    check('「腔数」保存时 scope=mold（不会被刷成 common）', ps.find((p) => p.name.startsWith('腔数'))?.scope === 'mold');
+    check('「单件重量」保存时 scope=injection', ps.find((p) => p.name === '单件重量')?.scope === 'injection');
+    check('「运输箱长」保存时 scope=common', ps.find((p) => p.name === '运输箱长')?.scope === 'common');
+  }
+
+  // 注塑组默认折叠，点开再看（手风琴：展开注塑会收起模具）
+  const partGroupBtn = buttons().find((b) => (b.textContent || '').includes('注塑参数'));
+  if (partGroupBtn) await click(partGroupBtn);
   check('注塑参数照旧可编辑（单件重量）', html().includes('单件重量'));
 
-  // —— 「+ 加一项」入口仍在：参数区 + 费用区 ——
+  // 「+ 加一项」入口仍在：参数区（模具/注塑）+ 费用区（模具费/注塑费）
   const addBtns = (Array.from(container.querySelectorAll('span,button')) as any[]).filter(
     (b) => (b.textContent || '').trim() === '+ 加一项',
   );
