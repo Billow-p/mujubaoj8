@@ -1203,6 +1203,9 @@ export async function quoteRoutes(app: FastifyInstance) {
         }
       }
       return {
+        // 先摊开原始入参 —— 关键是把「件图 image」带进快照，否则导出 Excel 里模具没有图
+        // （注塑件那边本来就是 spread，只有模具是逐字段重建，之前把 image 漏掉了）。
+        ...body.molds[mi],
         code: m.code,
         name: m.name,
         materialCode: m.materialCode,
