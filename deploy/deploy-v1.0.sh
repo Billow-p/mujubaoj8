@@ -106,8 +106,8 @@ ssh -o StrictHostKeyChecking=no root@47.242.248.104 "
   node scripts/migrate-add-material-unique.mjs
   echo '==> [6.10/8] 补齐模具预置参数 v2（前后模钢材/模具寿命/滑块斜顶/双色系数 + 参数分区调整）'
   node scripts/migrate-mold-params-v2.mjs
-  echo '==> [6.11/8] 价/系数类参数归入「计价单价」分组（产品数据只留量，价统一在费用板块改）'
-  node scripts/migrate-price-group.mjs
+  echo '==> [6.11/8] 撤销「计价单价」分组（参数回归材料/注塑/运输等原分组）'
+  node scripts/migrate-revert-price-group.mjs
 "
 
 echo "==> [7/8] 更新 Nginx 配置并重启服务"

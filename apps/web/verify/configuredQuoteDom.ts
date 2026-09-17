@@ -147,9 +147,9 @@ async function main() {
   // 标题只留「新建报价单」，不再带「（多注塑件）」后缀
   check('标题后缀「（多注塑件）」已删除', !text().includes('多注塑件') && text().includes('新建报价单'));
 
-  // 右栏「实时算价」里的只读「计价单价」区块（单价属公司统一价，报价页只看不改）
-  check('右栏有只读「计价单价」区块', text().includes('计价单价'));
-  check('「计价单价」标注「报价时不可改」', text().includes('报价时不可改'));
+  // 右栏只读「计价单价」区块已按需求删除（报价页不再展示单价）
+  check('右栏只读「计价单价」区块已删除', !text().includes('计价单价'));
+  check('「报价时不可改」标注已删除', !text().includes('报价时不可改'));
 
   await act(async () => { root.unmount(); });
   dom.window.close();

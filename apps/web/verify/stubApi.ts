@@ -39,12 +39,12 @@ export const CFG = {
     { id: 'p8', name: '单件重量', scope: 'injection', type: 'number', unit: 'kg', group: '注塑', defaultValue: 0.18, enabled: true },
     { id: 'p9', name: '注塑数量', scope: 'injection', type: 'number', unit: '件', group: '注塑', defaultValue: 5000, enabled: true },
     /**
-     * 价类参数（group = '计价单价'）：改后它们不属任何产品数据分组，
-     * 而是集中到「要收哪些费用」板块顶部的「计价单价」区。
-     * 放两条在 stub 里，是为了让 jsdom 断言能真正验证这个新板块有内容可渲染。
+     * 价/系数类参数照旧留在产品数据分组里（材料 / 注塑），
+     * 不单独成组 —— 它们与「量」参数混排是既定设计。
+     * 放两条在 stub 里，让 jsdom 能验证「价类参数确实在产品数据里露脸」。
      */
-    { id: 'p10', name: '钢材单价', scope: 'mold', type: 'number', unit: '元/kg', group: '计价单价', defaultValue: 12.5, enabled: true },
-    { id: 'p11', name: '机台时薪', scope: 'injection', type: 'number', unit: '元/时', group: '计价单价', defaultValue: 85, enabled: true },
+    { id: 'p10', name: '钢材单价', scope: 'mold', type: 'number', unit: '元/kg', group: '材料', defaultValue: 25, enabled: true },
+    { id: 'p11', name: '机台时薪', scope: 'injection', type: 'number', unit: '元/时', group: '注塑', defaultValue: 130, enabled: true },
   ],
   /** 条款：配置中心保存时会整体回写，stub 里给一条免得 save() 里 terms 为 undefined */
   terms: [

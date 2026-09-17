@@ -12,20 +12,6 @@ const money2 = (n: number) =>
   '¥ ' + (Number(n) || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const num = (n: any) => (n === '' || n == null ? '' : String(n));
 
-/**
- * 「计价单价」分组名。
- *
- * 产品数据只填「量」（腔数 / 尺寸 / 工时 / 数量），一切「价」与「系数」
- * （钢材单价 / 原料单价 / 密度 / 损耗率 / 机台时薪 / 运费单价…）
- * 统一归到这个分组，在中间「要收哪些费用」板块里编辑。
- *
- * 注意：这只是换了 group 标签 —— 参数本身、scope、materialCode、以及所有
- * 按名字引用它们的公式（模芯钢材费 / 产品材料费 / 机台费 / 运输费…）全都不动。
- */
-const PRICE_GROUP = '计价单价';
-/** 该分组是「价」，不进左侧「产品数据」，改由「要收哪些费用」板块承载 */
-const isPriceParam = (p: any) => (p.group ?? '') === PRICE_GROUP;
-
 const emptyParam = (scope: 'mold' | 'injection' | 'common' = 'common') => ({
   code: '',
   name: '',
@@ -38,12 +24,8 @@ const emptyParam = (scope: 'mold' | 'injection' | 'common' = 'common') => ({
   enabled: true,
 });
 
-/**
- * 组内排序：产品/模具/注塑 在前，材料其次，运输这类放最后。
- * 「计价单价」放在最前面 —— 它已挪出产品数据，只会出现在费用板块顶部，
- * 单列进来是为了排序时它有确定名次，不会掉进兜底分支。
- */
-const GROUP_ORDER = ['计价单价', '产品', '模具', '注塑', '材料', '标准件', '商务', '运输'];
+/** 组内排序：产品/模具/注塑 在前，材料其次，运输这类放最后 */
+const GROUP_ORDER = ['产品', '模具', '注塑', '材料', '标准件', '商务', '运输'];
 const groupRank = (g?: string | null) => {
   const i = GROUP_ORDER.indexOf(String(g ?? '').trim());
   return i < 0 ? 50 : i;
@@ -124,7 +106,6 @@ export default function ConfigCenter() {
   const [itemsOpen, setItemsOpen] = useState<Record<string, boolean>>({ mold: true, injection: true });
   const toggleItemsGroup = (k: string) => setItemsOpen((s) => ({ ...s, [k]: !s[k] }));
   /** 「计价单价」折叠（默认展开 —— 单价是费用的前提，藏着反而让人找不到价在哪改） */
-  const [priceOpen, setPriceOpen] = useState(true);
   const fb = useFeedback();
   /** 材料库索引（code → 材料），用于价格参数显示绑定材料的现价 */
   const [matMap, setMatMap] = useState<Record<string, any>>({});
@@ -582,11 +563,6 @@ export default function ConfigCenter() {
   const params: any[] = cfg?.parameters ?? [];
   const terms: any[] = cfg?.terms ?? [];
   const items: any[] = cfg?.items ?? [];
-  /**
-   * 「计价单价」参数：产品数据里的「价」（单价 / 密度 / 损耗率 / 系数 / 费率）。
-   * 它们在中间「要收哪些费用」板块顶部编辑 —— 想改某笔费用，先看单价再往下一行是算法。
-   */
-  const priceParams: any[] = params.filter(isPriceParam);
   const gridCols = folded ? '330px minmax(0,1fr) 48px' : '330px minmax(0,1fr) 330px';
 
   return (
@@ -687,8 +663,6 @@ export default function ConfigCenter() {
                   const list = params
                     .map((p, i) => ({ p, i }))
                     .filter((x) => (x.p.scope ?? 'common') === g.k)
-                    // 「计价单价」是价不是量 —— 已挪到中间「要收哪些费用」板块，这里不显示
-                    .filter((x) => !isPriceParam(x.p))
                     .sort(
                       (a, b) =>
                         groupRank(a.p.group) - groupRank(b.p.group) ||
@@ -779,31 +753,6 @@ export default function ConfigCenter() {
             </div>
           </div>
           <div className="p-3.5">
-            {/* 计价单价：产品数据里所有「价 / 系数」类参数集中在这里编辑。
-                放在费用项上方 —— 想改某笔费用，先看它的单价，再往下一行就是它的算法。 */}
-            {priceParams.length > 0 && (
-              <div className="mb-3.5 rounded-lg border border-blue-200 bg-blue-50/40 overflow-hidden">
-                <button
-                  onClick={() => setPriceOpen(!priceOpen)}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-left"
-                >
-                  <span className="text-blue-400 text-[10px] w-3">{priceOpen ? '▼' : '▶'}</span>
-                  <span className="text-[12.5px] font-medium text-gray-900">计价单价</span>
-                  <span className="text-[11.5px] text-blue-600">
-                    单价与系数 {priceParams.length} 项 · 产品数据只填数量尺寸，价格统一在这里改
-                  </span>
-                  <div className="flex-1" />
-                  <span className="text-[10.5px] text-blue-500 bg-white border border-blue-200 rounded px-1.5 py-0.5">
-                    绑定材料的改价请去材料库
-                  </span>
-                </button>
-                {priceOpen && (
-                  <div className="px-2 pb-2">
-                    {priceParams.map((p: any) => renderParam(p, params.indexOf(p)))}
-                  </div>
-                )}
-              </div>
-            )}
             {items.length === 0 && <p className="text-center text-gray-400 text-[13px] py-8">还没有费用项，点每个分组右上角的「加一项」</p>}
             {(
               [
