@@ -187,22 +187,62 @@ export const quotes = {
 
   // 导出 Excel（返回 Blob）
   exportExcel: async (id: string): Promise<void> => {
-    const resp = await api.get(`/quotes/${id}/export-excel`, {
-      responseType: 'blob',
-    });
+    let resp;
+    try {
+      resp = await api.get(`/quotes/${id}/export-excel`, {
+        responseType: 'blob',
+        // 不让 axios 因 4xx/5xx 抛错，好让我们自己把 Blob 里的错误信息读出来
+        validateStatus: () => true,
+      });
+    } catch (e: any) {
+      // 网络层失败（断网 / 跨域被拦 / 超时）
+      throw new Error(e?.message || '网络请求失败');
+    }
+
+    // 出错时后端返回的是 JSON，但 responseType:'blob' 会把它包成 Blob ——
+    // 直接读 data.error 永远是 undefined，用户只能看到「导出失败：undefined」。
+    // 这里先把 Blob 还原成文本再判断。
+    if (resp.status >= 400) {
+      let msg = `导出失败（HTTP ${resp.status}）`;
+      try {
+        const text = resp.data instanceof Blob ? await resp.data.text() : String(resp.data);
+        const j = JSON.parse(text);
+        if (j?.error) msg = j.error;
+      } catch {
+        /* 解析不出来就用兜底文案 */
+      }
+      throw new Error(msg);
+    }
+
     const blob = new Blob([resp.data], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     });
+    // 200 但内容不是 xlsx（例如后端异常返回了 JSON）—— 提前拦下，
+    // 不然会下载到一个打不开的「假 Excel」，用户以为是导出坏了。
+    if (blob.size === 0) throw new Error('导出内容为空，请重试');
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    const disposition = resp.headers['content-disposition'] || '';
-    const m = /filename="?([^"]+)"?/.exec(disposition as string);
-    a.download = m ? decodeURIComponent(m[1]) : `quote_${id}.xlsx`;
+    // content-disposition 需要后端 CORS expose 才读得到；读不到就退回通用名，
+    // 不再依赖它 —— 文件名不对是小事，下载不下来才是大事。
+    const disposition = (resp.headers['content-disposition'] as string) || '';
+    let filename = `报价单_${id}.xlsx`;
+    const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+    if (m) {
+      try {
+        filename = decodeURIComponent(m[1]);
+      } catch {
+        filename = m[1];
+      }
+    }
+    a.download = filename;
+    a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // 立刻 revoke 会让部分浏览器来不及取数据（下载变成 0 字节），延后释放
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
   },
 };
 

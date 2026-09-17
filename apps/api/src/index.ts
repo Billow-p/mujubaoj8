@@ -34,7 +34,14 @@ async function bootstrap() {
     },
   });
 
-  await app.register(cors, { origin: true, credentials: true });
+  await app.register(cors, {
+    origin: true,
+    credentials: true,
+    // 导出 Excel 要读 content-disposition 取文件名。CORS 白名单之外的头
+    // 浏览器不会交给 JS，不显式 expose 的话前端永远拿到 undefined，
+    // 只能退回一个通用文件名（用户看到的就是「导出没反应/文件名不对」）。
+    exposedHeaders: ['Content-Disposition', 'Content-Length'],
+  });
   await app.register(jwt, { secret: process.env.JWT_SECRET || 'dev-secret-change-in-prod' });
 
   // 件图上传（一期）：单文件、限 20MB、只收图片

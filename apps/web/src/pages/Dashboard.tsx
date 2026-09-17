@@ -44,7 +44,8 @@ export default function Dashboard() {
     try {
       await quotes.exportExcel(id);
     } catch (e: any) {
-      fb.toast('导出失败：' + (e.response?.data?.error || e.message), 'err');
+      // exportExcel 已把 Blob 里的后端错误还原成 message，这里直接用它
+      fb.toast('导出失败：' + (e?.message || '未知错误'), 'err');
     } finally {
       setExporting(null);
     }
