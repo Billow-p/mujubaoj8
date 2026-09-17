@@ -141,6 +141,9 @@ async function main() {
   check('标题下的「一套报价单可含多套模具…」说明文案已删除', !text().includes('一套报价单可含多套模具'));
   check('「价格从哪来（自动按顺序取）」提示块已删除', !text().includes('价格从哪来'));
 
+  // 标题只留「新建报价单」，不再带「（多注塑件）」后缀
+  check('标题后缀「（多注塑件）」已删除', !text().includes('多注塑件') && text().includes('新建报价单'));
+
   await act(async () => { root.unmount(); });
   dom.window.close();
 

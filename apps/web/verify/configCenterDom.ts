@@ -120,6 +120,9 @@ async function main() {
   // 「同步预置配置」按钮已移除（保存即同步，按钮冗余）
   check('「同步预置配置」按钮已删除', !text().includes('同步预置配置'));
   check('引导条里的「一键同步」按钮已删除', !text().includes('一键同步'));
+  // 整条「使用四步曲」引导条已删除（用户明确要求清冗余）
+  check('「使用四步曲」引导条已整体删除', !text().includes('使用四步曲'));
+  check('引导条副标题「价格逻辑只有一条」已删除', !text().includes('价格逻辑只有一条'));
 
   await act(async () => { root.unmount(); });
   dom.window.close();

@@ -1195,7 +1195,7 @@ export default function ConfiguredQuote() {
       {fb.host}
       <div className="flex items-start justify-between mb-4">
         <div>
-          <h1 className="text-xl font-semibold">{copyFrom ? '按此版本重新报价' : '新建报价单（多注塑件）'}</h1>
+          <h1 className="text-xl font-semibold">{copyFrom ? '按此版本重新报价' : '新建报价单'}</h1>
         </div>
         <div className="flex gap-2">
           <button
