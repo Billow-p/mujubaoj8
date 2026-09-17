@@ -78,6 +78,9 @@ export async function parseWithOcct(
 
   w.onmessage = (ev: MessageEvent) => {
     const data = ev.data || {};
+    // 预热消息是发给 worker 的，不对应任何 pending 请求 —— 直接丢掉，
+    // 否则抢占 onmessage 会让真正的解析响应丢失、请求永远挂着
+    if (data.warm) return;
     const p = pending.get(id);
     if (!p) return; // 已超时
     clearTimeout(p.timer);
@@ -107,6 +110,32 @@ export async function parseWithOcct(
   const result = once(id, timeoutMs);
   w.postMessage({ format, buffer: buf, params: DEFAULT_PARAMS }, [buf]);
   return result;
+}
+
+/**
+ * 预热：页面空闲时先把 7.6MB 的 WASM 起好。
+ * STEP / IGES 的首次解析慢，几乎全耗在 WASM 实例化上；提前起好，
+ * 用户真传文件时就是毫秒级，不会盯着「正在处理」以为卡死。
+ *
+ * 只在要用到 OCCT 的格式上预热（STL/OBJ/PLY/3MF 走自解析，不需要）。
+ * 重复调用无害 —— worker 里对 WASM 做了单例缓存。
+ */
+let warmed = false;
+export function warmUpOcct(): void {
+  if (warmed) return;
+  warmed = true;
+  // requestIdleCallback 不是所有浏览器都有，没有就退到 setTimeout
+  const run = () => {
+    try {
+      // 只发不收：预热不需要回复，避免和真正的解析响应抢 onmessage
+      ensureWorker().postMessage({ warmup: true });
+    } catch {
+      warmed = false; // 起不来就允许下次再试
+    }
+  };
+  const idle = (globalThis as any).requestIdleCallback;
+  if (typeof idle === 'function') idle(run, { timeout: 3000 });
+  else window.setTimeout(run, 1200);
 }
 
 /** 页面卸载 / 切换时主动释放 WASM 内存 */

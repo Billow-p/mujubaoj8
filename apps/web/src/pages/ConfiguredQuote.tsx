@@ -4,6 +4,7 @@ import { SmartImport, type ApplyItem } from '../components/SmartImport';
 import { configApi, materials as materialsApi, quotes, uploads, type QuoteImage } from '../api';
 import { uploadImage, humanSize } from '../utils/image';
 import { applyImportedParams } from '../utils/importParams';
+import { warmUpOcct } from '../utils/geometry/occt';
 import { useFeedback } from '../components/feedback';
 import { calculateQuoteProject } from '@mqs/calc-engine';
 import type { QuoteItemDef, ExtraItem, QuoteExtras } from '@mqs/shared';
@@ -362,6 +363,10 @@ export default function ConfiguredQuote() {
 
   // 加载模具类型；如有 copyFrom，拉取源报价并选中其模具类型
   useEffect(() => {
+    // 空闲时预热 3D 内核：STEP / IGES 首次解析的耗时几乎全在 7.6MB WASM 实例化上，
+    // 提前起好，用户真传文件时就不用盯着「正在处理」等半天。
+    warmUpOcct();
+
     configApi.moldTypes().then((list: any[]) => {
       setTypes(list);
       if (!list.length) {

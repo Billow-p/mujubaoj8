@@ -9,7 +9,7 @@
  * 2. 全过程记日志 —— 界面上能展开看，关键事件同时上报后端落盘。
  */
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { parse3DFile, suggestParams, type ItemKind } from '../utils/geometry';
 import { uploadImage, dataUrlToFile, assertExcelDisplayable } from '../utils/image';
 import {
@@ -98,6 +98,10 @@ export function SmartImport({
   const [log, setLog] = useState<LogEntry[]>([]);
   const [logOpen, setLogOpen] = useState(false);
   const [busy, setBusy] = useState('');
+  // 已等待秒数 —— STEP/IGES 走 OCCT（7.6MB WASM），首次解析可能要几十秒。
+  // 不给个数字的话，用户盯着「正在处理…」会以为卡死了，直接关页面。
+  const [busySec, setBusySec] = useState(0);
+  const busySince = useRef(0);
   const [applying, setApplying] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -331,6 +335,7 @@ export function SmartImport({
     logIt.info('开始', `收到 ${files.length} 个文件`);
 
     for (const file of files) {
+      busySince.current = Date.now();
       setBusy(`正在处理 ${file.name}…`);
       // 1) 前置体检：空 / 太大 / 不支持的格式，先拦下来并给明确建议
       const diag = diagnose({ name: file.name, size: file.size });
@@ -366,10 +371,21 @@ export function SmartImport({
       }
     }
     setBusy('');
+    setBusySec(0);
     const okCount = items.length;
     if (okCount) onInfo(`识别完成，请确认 ${okCount} 个件的归与参数`);
     else if (failures.length) onError(`没能识别出可用内容，请看下面的原因和解决办法`);
   };
+
+  // 处理中的秒表：STEP / IGES 走 OCCT，首次要编译 7.6MB WASM，几十秒很正常。
+  // 不显示数字的话用户会以为卡死；超过 15 秒再补一句「首次会慢」，免得他怀疑文件有问题。
+  useEffect(() => {
+    if (!busy) return;
+    const t = window.setInterval(() => {
+      setBusySec(Math.round((Date.now() - busySince.current) / 1000));
+    }, 1000);
+    return () => window.clearInterval(t);
+  }, [busy]);
 
   const patch = (id: string, fn: (it: ImportItem) => ImportItem) =>
     setItems((p) => p.map((it) => (it.id === id ? fn(it) : it)));
@@ -512,6 +528,13 @@ export function SmartImport({
         />
         <span className="text-[12px] text-gray-500 text-center px-2">
           {busy || '把文件拖到这里，或点击选择（支持一次选多个）'}
+          {busy && (
+            <span className="block text-[11px] text-amber-600 mt-1">
+              已等待 {busySec} 秒
+              {busySec >= 15 ? '　·　STEP / IGES 首次要加载 3D 内核，慢是正常的，请稍候' : ''}
+              {busySec >= 50 ? '　·　超过 50 秒仍未完成，多半是文件本身解析不了，稍后会给出原因' : ''}
+            </span>
+          )}
           {!busy && (
             <span className="block text-[10.5px] text-gray-400 mt-1">
               3D：STEP / IGES / STL / OBJ / PLY / 3MF　·　表格：.xlsx / .docx　·　图片：PNG / JPG / WEBP

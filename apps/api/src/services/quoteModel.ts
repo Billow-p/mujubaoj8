@@ -67,6 +67,21 @@ function pickSinglePiece(params: any, calc: any): ExcelPieceImage | null {
   return null;
 }
 
+/**
+ * 没有 molds / parts 数组的「单实例」结构（配置驱动、老 11 项），
+ * 整单最多只有一张件图（产品图 / 3D 渲染图）。
+ *
+ * 有图时挂在「注塑件」段下面 —— 这两类报价通常是注塑件场景。
+ * 两个分支原本各写了一遍一模一样的逻辑，抽出来避免以后只改一处。
+ */
+function singleInstancePieces(params: any, calc: any): {
+  moldPieces: ExcelPieceImage[];
+  partPieces: ExcelPieceImage[];
+} {
+  const single = pickSinglePiece(params, calc);
+  return { moldPieces: [], partPieces: single ? [single] : [] };
+}
+
 const MOLD_FEE_LABELS: Record<string, string> = {
   coreSteel: '模芯钢料费',
   designFee: '模具设计费',
@@ -257,10 +272,8 @@ export function toExcelModel(quote: QuoteLike, version: VersionLike, moldTypeNam
 
     if (params.productName) project.unshift({ label: '产品名称', value: String(params.productName) });
 
-    // 配置驱动单实例：没有 molds/parts 数组，整单只可能有一张件图（产品图/3D 渲染图）。
-    // 有图时按段落到「注塑件」下面 —— 单实例报价通常是注塑件场景。
-    const single = pickSinglePiece(params, calc);
-    const injectionPieces = single ? [single] : [];
+    // 配置驱动单实例：没有 molds/parts 数组，整单只可能有一张件图（产品图/3D 渲染图）
+    const { moldPieces, partPieces } = singleInstancePieces(params, calc);
 
     return {
       company: params.company,
@@ -272,8 +285,8 @@ export function toExcelModel(quote: QuoteLike, version: VersionLike, moldTypeNam
       project: project.length ? project : [{ label: '产品', value: '—' }],
       moldLines,
       injectionLines,
-      moldPieces: [],
-      partPieces: injectionPieces,
+      moldPieces,
+      partPieces,
       summary: {
         mold: Number(calc.mold) || 0,
         injection: Number(calc.injection) || 0,
@@ -321,7 +334,7 @@ export function toExcelModel(quote: QuoteLike, version: VersionLike, moldTypeNam
   if (params.singleWeightKg) project.push({ label: '单件重量', value: `${params.singleWeightKg} kg` });
 
   // 老结构（11 项模具费）：同样补上整单件图兜底，别让用户上传的图在导出时凭空消失
-  const legacySingle = pickSinglePiece(params, calc);
+  const { moldPieces, partPieces } = singleInstancePieces(params, calc);
 
   return {
     company: params.company,
@@ -333,8 +346,8 @@ export function toExcelModel(quote: QuoteLike, version: VersionLike, moldTypeNam
     project,
     moldLines,
     injectionLines,
-    moldPieces: [],
-    partPieces: legacySingle ? [legacySingle] : [],
+    moldPieces,
+    partPieces,
     summary: {
       mold: Number(sum.moldIncVat) || 0,
       injection: Number(sum.injectionIncVat) || 0,

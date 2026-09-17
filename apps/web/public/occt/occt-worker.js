@@ -12,12 +12,34 @@
 importScripts('./occt-import-js.js');
 importScripts('./merge-meshes.js');
 
+// ⚠️ WASM 只初始化一次，之后复用。
+// 原来每收一条消息都 occtimportjs() 一次 —— 7.6MB 的 WASM 每解析一个文件就重新
+// 实例化一遍，STEP / IGES 会慢到几十秒，用户以为卡死。
+let occtPromise = null;
+function getOcct() {
+  if (!occtPromise) {
+    occtPromise = occtimportjs({ locateFile: (path) => path }); // wasm 与本脚本同目录
+  }
+  return occtPromise;
+}
+
 self.onmessage = async (ev) => {
-  const { format, buffer, params } = ev.data || {};
+  const { format, buffer, params, warmup } = ev.data || {};
+
+  // 预热：页面空闲时先起好 WASM，等用户真传 STEP 就不用再等了
+  if (warmup) {
+    try {
+      await getOcct();
+      self.postMessage({ ok: true, warm: true });
+    } catch (e) {
+      occtPromise = null; // 失败就丢掉，下次再试
+      self.postMessage({ ok: false, error: (e && e.message) || '3D 内核预热失败' });
+    }
+    return;
+  }
+
   try {
-    const occt = await occtimportjs({
-      locateFile: (path) => path, // wasm 与本脚本同目录
-    });
+    const occt = await getOcct();
     const result = occt.ReadFile(format, new Uint8Array(buffer), params || {});
 
     if (!result || !result.success) {

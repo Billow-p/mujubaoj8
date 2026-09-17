@@ -205,6 +205,22 @@ const OTHER_COL_MAP = buildMatcher({
 
 // ------------------------------------------------------------------ Sheet 识别
 
+/**
+ * 内部一律用 `common` 这个词（对应参数的 `scope: 'common'`），
+ * 但对用户显示的是「整单参数」—— 2026-09 起配置中心已废除「公共参数」这个叫法。
+ *
+ * ⚠️ 不要为了「名字对齐」去改这个标识符：
+ * `common` 同时是数据库里落库的 scope 值、API 返回体的字段名（前端读 `data.common.params`）、
+ * 以及配置中心 `p.scope === 'common'` 的判断条件。改名要动 DB 历史数据 + 前后端协议，
+ * 收益却只是让源码好看一点 —— 不划算。
+ * 正确做法是：**内部保持 common，对外统一说「整单参数」**，靠下面这个常量做映射。
+ */
+export const SCOPE_LABEL: Record<string, string> = {
+  common: '整单参数',
+  mold: '模具参数',
+  injection: '注塑参数',
+};
+
 function identifySheet(name: string): 'mold' | 'part' | 'common' | 'other' | 'unknown' {
   const n = normHeader(name);
   if (/模具清单|模具参数|molds?/.test(n) && !/注塑/.test(n)) return 'mold';
@@ -405,7 +421,7 @@ export async function importQuoteExcel(buffer: ArrayBuffer, fileName: string): P
       continue;
     }
 
-    // ---------- 公共参数：通常一行 ----------
+    // ---------- 整单参数（内部 scope=common）：通常一行 ----------
     if (role === 'common') {
       const row = rows[0];
       if (!row) continue;
@@ -419,7 +435,7 @@ export async function importQuoteExcel(buffer: ArrayBuffer, fileName: string): P
       }
       warnHighRates(
         { profitRate: mapped.profitRate, taxRate: mapped.taxRate },
-        `公共参数（${sheetName}）`,
+        `${SCOPE_LABEL.common}（${sheetName}）`,
         result.warnings,
       );
       continue;
