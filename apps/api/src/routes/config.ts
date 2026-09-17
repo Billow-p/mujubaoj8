@@ -272,17 +272,44 @@ export async function configRoutes(app: FastifyInstance) {
             })
           ).map((x) => [x.id, x.scope] as const),
         );
+        // 材料库现价索引：绑定类参数的价格必须跟着绑定走，落库前用它兜一道。
+        const boundCodes = [
+          ...new Set(
+            body.parameters
+              .map((p) => p.materialCode?.trim())
+              .filter((c): c is string => !!c),
+          ),
+        ];
+        const libPrice = new Map<string, number>(
+          (
+            await tx.material.findMany({
+              where: { companyId, moldTypeId: null, code: { in: boundCodes } },
+              select: { code: true, currentPrice: true },
+            })
+          ).map((m) => [m.code, m.currentPrice] as const),
+        );
         await tx.customParameter.deleteMany({ where: { companyId, moldTypeId, id: { notIn: ids } } });
         for (const [i, p] of body.parameters.entries()) {
+          const materialCode = p.materialCode?.trim() || null;
+          // 绑定材料的价格一律以材料库现价为准，**忽略前端传来的旧值**。
+          // 不这么兜底的话，换绑后仍带旧价的请求（老客户端缓存、并发保存）
+          // 会把「绑 A360 却存 25」这种自相矛盾的状态写进库，进而错误参与算价。
+          // 材料库查不到价 → 置空，让界面显示「待同步（材料库未设价）」，不落假价格。
+          const libPriceHit = materialCode ? libPrice.get(materialCode) : undefined;
           const data: any = {
             code: p.code,
             name: p.name,
             unit: p.unit ?? null,
-            defaultValue: p.defaultValue == null ? null : String(p.defaultValue),
+            defaultValue:
+              materialCode && libPriceHit != null
+                ? String(libPriceHit)
+                : p.defaultValue == null
+                  ? null
+                  : String(p.defaultValue),
             group: p.group ?? '通用',
             scope: p.scope ?? (p.id ? existingParamScopes.get(p.id) : undefined) ?? 'common',
             type: p.type ?? 'decimal',
-            materialCode: p.materialCode?.trim() || null,
+            materialCode,
             options: p.options && p.options.length ? JSON.stringify(p.options) : null,
             sortOrder: i,
             enabled: p.enabled !== false,

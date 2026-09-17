@@ -251,13 +251,24 @@ export default function ConfigCenter() {
     });
 
   /**
-   * 换绑材料：把参数的 materialCode 指向另一条材料库记录。
-   * 只改绑定关系 —— 参数名、分组、scope 都不动；
-   * 价格默认值在「材料库价格模式」下会在保存时按新材料现价刷新（第 324 行的语义）。
+   * 换绑材料：把参数的 materialCode 指向另一条材料库记录，**并同步刷新默认价**。
+   *
+   * 为什么必须一起改：绑定参数的价格语义是「以此价格为报价表基数」——
+   * 换了材料却留着旧价，界面就会出现「绑 A360（现价 23）、默认却显示 25」
+   * 这种自相矛盾的状态，报价表也会按错误基数算钱。
+   *
+   * 只改绑定关系与价格默认值 —— 参数名、分组、scope、类型都不动。
    */
   const setParamMaterial = (idx: number, code: string) =>
     patch((c) => {
-      c.parameters[idx].materialCode = code || null;
+      const p = c.parameters[idx];
+      p.materialCode = code || null;
+      // 换绑后把默认价拉成新材料现价；材料库查不到价时留空，
+      // 由页面显示「待同步（材料库未设价）」，避免展示一个假价格。
+      if (code) {
+        const m = matMap[code];
+        p.defaultValue = m != null && m.currentPrice != null ? String(m.currentPrice) : '';
+      }
     });
 
   const addParamOption = (idx: number) =>
@@ -982,6 +993,11 @@ export default function ConfigCenter() {
                 </div>
               );
             })}
+
+            {/* 变更影响提示：增删改都会带到新建报价单，说清楚免得用户以为只影响本页 */}
+            <p className="mt-3 pt-3 border-t border-gray-100 text-[11.5px] text-gray-400 leading-relaxed">
+              注明：增删改动的项，会同步更新到新建报价单中。
+            </p>
           </div>
         </div>
 

@@ -164,6 +164,9 @@ async function main() {
       matSel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
     });
     check('换成 H13 后下拉值随之为 H13', matSel.value === 'H13');
+    // 换绑后默认价必须跟着走 —— 只改绑定不改价会出现
+    // 「绑 H13（现价 38）、默认却显示 25」这种自相矛盾状态，报价基数也就错了
+    check('换绑 H13 后默认价同步为材料库现价 38', text().includes('38'));
     // 端到端：换绑后点保存，payload 里该参数的 materialCode 必须是新材料
     // （否则前端看着改了、后端存的还是旧绑定 —— 这是最容易漏的一环）
     const saveBtn2 = buttons().find((b) => (b.textContent || '').trim() === '保存');
@@ -173,15 +176,20 @@ async function main() {
       const p2 = savedPayloads[savedPayloads.length - 1];
       const steel = (p2?.parameters ?? []).find((x: any) => x.name === '钢材单价');
       check('换绑后保存：payload 里钢材单价 materialCode=H13', steel?.materialCode === 'H13');
+      // 价格也要一起进 payload，否则后端按旧价落库、同步等于没做
+      check('换绑后保存：payload 里钢材单价 defaultValue=38（新材料现价）', String(steel?.defaultValue) === '38');
     }
     await act(async () => {
       setSel.call(matSel, 'P20');
       matSel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
     });
+    check('换回 P20 后默认价同步回 25', matSel.value === 'P20');
   }
   // 绑定材料说明文字统一为「以此价格为报价表基数」
   check('绑定材料说明改为「以此价格为报价表基数」', text().includes('以此价格为报价表基数'));
   check('旧的「保存即按材料库现价刷新」说明已删除', !text().includes('保存即按材料库现价刷新'));
+  // 费用板块底部的变更影响提示
+  check('费用板块底部有「会同步更新到新建报价单中」提示', text().includes('增删改动的项，会同步更新到新建报价单中'));
 
   await act(async () => { root.unmount(); });
   dom.window.close();

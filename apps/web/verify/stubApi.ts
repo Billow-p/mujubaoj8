@@ -9,6 +9,10 @@ export const MOLD_TYPE = {
   code: 'injection',
   profitRate: 0.1,
   taxRate: 0.13,
+  // 线上新建模具类型即启用该模式（模式B：价格唯一来源=材料库）。
+  // stub 开着它，才会走到「默认值只读展示」那条分支 —— 用户报的
+  // 「换绑材料后价格没变」正是发生在这条分支上，关掉就测不到了。
+  priceFromLibrary: true,
 };
 
 /** 一份够用的配置中心快照：运输 5 项 + 模具 2 项 + 注塑 2 项 */
