@@ -18,7 +18,16 @@ const { importQuoteExcel } = require(path.join(CACHE, 'excelImport.cjs'));
 const { applyImportedParams } = require(path.join(CACHE, 'importParams.cjs'));
 
 const TEMPLATE_DIR = path.join(ROOT, 'apps', 'web', 'public', 'templates');
-const TEMPLATE_PATH = path.join(TEMPLATE_DIR, '报价参数导入模板.xlsx');
+/** 随包交付、给用户下载的那份模板 */
+const SHIPPED_TEMPLATE = path.join(TEMPLATE_DIR, '报价参数导入模板.xlsx');
+/**
+ * 本脚本自己用来跑断言的那份。
+ * 故意不直接写「交付版」—— exceljs 每次生成的 xlsx 字节都不同（zip 条目带当前时间），
+ * 若每次验证都覆盖，git 会一直显示模板被改。要更新交付版请显式跑：
+ *   MQS_WRITE_TEMPLATE=1 node apps/api/scripts/verifyParamsE2E.cjs
+ */
+const TEST_TEMPLATE = path.join(ROOT, 'node_modules', '.cache', 'mqs-verify', 'verify-template.xlsx');
+const TEMPLATE_PATH = TEST_TEMPLATE;
 
 const MOLD_HEADERS = ['模具编号','模具名称','前模钢材','后模钢材','钢材编码','模芯长(mm)','模芯宽(mm)','模芯高(mm)','腔数','热流道点数','EDM工时(h)','线切割长度(mm)','抛光工时(h)','滑块斜顶数量','模具寿命(万模)','双色模系数','模具重量(kg)'];
 const MOLD_ROW = ['M001','外壳模具','NAK80','S136','P20',500,400,150,2,4,96,1200,40,2,30,0,800];
@@ -66,6 +75,9 @@ const CFG = {
 async function buildTemplate() {
   const wb = new ExcelJS.Workbook();
   wb.creator = '模具注塑报价系统';
+  // 固定时间戳：让产物可重现（否则每次生成 core.xml 时间都不同，git 一直显示模板被改动）
+  wb.created = new Date('2026-01-01T00:00:00Z');
+  wb.modified = new Date('2026-01-01T00:00:00Z');
   const info = wb.addWorksheet('说明');
   info.columns = [{ width: 100 }];
   [
@@ -96,10 +108,20 @@ const check = (label, fn) => {
 };
 
 (async () => {
+  fs.mkdirSync(path.dirname(TEST_TEMPLATE), { recursive: true });
   fs.mkdirSync(TEMPLATE_DIR, { recursive: true });
   const tplBuf = await buildTemplate();
-  fs.writeFileSync(TEMPLATE_PATH, tplBuf);
-  console.log(`模板：${TEMPLATE_PATH}（${tplBuf.length} 字节）`);
+  fs.writeFileSync(TEST_TEMPLATE, tplBuf);
+
+  // 交付版：只在「还没有」或「显式要求更新」时才落盘（避免每次验证都动到版本库）
+  const writeShipped = process.env.MQS_WRITE_TEMPLATE === '1' || !fs.existsSync(SHIPPED_TEMPLATE);
+  if (writeShipped) {
+    fs.writeFileSync(SHIPPED_TEMPLATE, tplBuf);
+    console.log(`交付模板已写入：${SHIPPED_TEMPLATE}（${tplBuf.length} 字节）`);
+  } else {
+    console.log(`交付模板保持不动（要更新请加 MQS_WRITE_TEMPLATE=1）：${SHIPPED_TEMPLATE}`);
+  }
+  console.log(`本次断言用模板：${TEST_TEMPLATE}（${tplBuf.length} 字节）`);
 
   // ---- 第一段：后端列映射 ----
   const ab = tplBuf.buffer.slice(tplBuf.byteOffset, tplBuf.byteOffset + tplBuf.byteLength);
