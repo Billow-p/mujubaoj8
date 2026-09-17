@@ -62,6 +62,9 @@ export default function QuoteDetail() {
   const [tab, setTab] = useState<'calc' | 'versions' | 'logs'>('calc');
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [adjustForm, setAdjustForm] = useState({ field: 'grandTotalIncVat', adjustedValue: '', reason: '' });
+  // 导出是同步等后端把整本 xlsx（含内嵌件图）生成完 —— 带大图的单子要十几秒。
+  // 不给状态的话用户以为按钮坏了，会连点好几下（每次都真发一个请求）。
+  const [exporting, setExporting] = useState(false);
   const fb = useFeedback();
 
   const load = (silent = false) => {
@@ -142,13 +145,20 @@ export default function QuoteDetail() {
   };
 
   const doExport = async () => {
+    if (exporting) return;
+    setExporting(true);
     try {
       const r = await quotes.exportExcel(q.id);
       // 单据下来了，但可能有件图没写进去 —— 必须说清楚，不然用户只会觉得「图又丢了」
       if (r.imageWarnings.length) fb.toast('已导出，但' + r.imageWarnings.join('；'), 'warn');
+      // 干净导出也要说一声：大单子下载要等十几秒，完成时浏览器下载条一闪而过，
+      // 用户根本不确定到底成没成。
+      else fb.toast('已导出，看看浏览器下载');
     } catch (e: any) {
       // exportExcel 已把 Blob 里的后端错误还原成 message，这里直接用它
       fb.toast('导出失败：' + (e?.message || '未知错误'), 'err');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -230,8 +240,13 @@ export default function QuoteDetail() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button onClick={doExport} className="border border-gray-300 px-3 py-2 rounded text-sm hover:bg-gray-50">
-            导出 Excel
+          <button
+            onClick={doExport}
+            disabled={exporting}
+            title={exporting ? '正在生成文件，含大图时需要十几秒' : '导出 Excel'}
+            className="border border-gray-300 px-3 py-2 rounded text-sm hover:bg-gray-50 disabled:opacity-60 disabled:cursor-wait"
+          >
+            {exporting ? '正在导出…' : '导出 Excel'}
           </button>
           <button onClick={doSend} className="border border-gray-300 px-3 py-2 rounded text-sm hover:bg-gray-50">
             发送邮件

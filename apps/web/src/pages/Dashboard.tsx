@@ -44,6 +44,8 @@ export default function Dashboard() {
     try {
       const r = await quotes.exportExcel(id);
       if (r.imageWarnings.length) fb.toast('已导出，但' + r.imageWarnings.join('；'), 'warn');
+      // 干净导出也要说一声：含大图的单子要等十几秒，完成时下载条一闪而过，用户不确定成没成
+      else fb.toast('已导出，看看浏览器下载');
     } catch (e: any) {
       // exportExcel 已把 Blob 里的后端错误还原成 message，这里直接用它
       fb.toast('导出失败：' + (e?.message || '未知错误'), 'err');
