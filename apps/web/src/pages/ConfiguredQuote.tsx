@@ -441,6 +441,24 @@ export default function ConfiguredQuote() {
   const injectionDefs = useMemo(() => params.filter((p) => (p.scope as string) === 'injection'), [cfg]);
 
   /**
+   * 「运输区域」—— 整单一个值的下拉参数。
+   * 它原来属于配置中心的「公共参数（整单共享一份）」分组，那个分组已按需求删除，
+   * 于是它失去了编辑入口。现在按需求收进报价页的「其他价格」板块里编辑（整单统一）。
+   * 值仍写回 commonParams，和其它整单参数一样参与算价（运输费公式里用到它）。
+   */
+  const transportZoneDef = useMemo(() => {
+    const list = (cfg?.parameters ?? []).filter((p: any) => p.enabled !== false);
+    return (
+      list.find((p: any) => p.name === '运输区域') ??
+      list.find(
+        (p: any) =>
+          (p.scope as string) === 'common' && p.group === '运输' && p.type === 'select',
+      ) ??
+      null
+    );
+  }, [cfg]);
+
+  /**
    * 配置中心「要收哪些费用」里的项，按套（mold）/ 按件（injection）拆开。
    *
    * 这些项以前只出现在右栏折叠的「费用明细」里，而且金额常常是 0 ——
@@ -1700,6 +1718,32 @@ export default function ConfiguredQuote() {
               <span className="text-[12px] font-normal text-gray-500">利润前计入总价</span>
             </div>
             <div className="p-3.5">
+              {/* 整单参数：运输区域（原「公共参数」分组已删，按需求并入这里编辑） */}
+              {transportZoneDef && (
+                <div className="mb-3 pb-3 border-b border-dashed border-gray-200">
+                  <label className="flex items-center gap-3">
+                    <span className="text-[13px] text-gray-700 shrink-0">
+                      {transportZoneDef.name}
+                    </span>
+                    <select
+                      value={String(commonParams[transportZoneDef.name] ?? '')}
+                      onChange={(e) =>
+                        setCommonParams((s) => ({ ...s, [transportZoneDef.name]: e.target.value }))
+                      }
+                      className="flex-1 min-w-0 border border-gray-300 rounded px-2.5 py-2 text-sm"
+                    >
+                      {(transportZoneDef.options ?? []).map((o: any) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    整单统一 · 影响「{transportZoneDef.name === '运输区域' ? '运输费' : transportZoneDef.name}」的计算
+                  </p>
+                </div>
+              )}
               <ExtrasEditor
                 title=""
                 unitHint="整单级，可自由增删"

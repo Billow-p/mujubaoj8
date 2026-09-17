@@ -260,6 +260,18 @@ export async function configRoutes(app: FastifyInstance) {
       // 参数
       if (body.parameters) {
         const ids = body.parameters.map((p) => p.id).filter(Boolean) as string[];
+        // ⚠️ scope 缺失时回退到**库里已有的值**，绝不能默认 'common'。
+        // PUT 是「更新」语义：调用方没提供的字段应保持原值。
+        // 历史事故：前端 payload 漏传 scope，这里 ?? 'common' 把整批参数刷成公共参数，
+        // 配置中心变成「模具参数 0 / 注塑参数 0 / 公共参数 29」，报价页参数整片消失。
+        const existingParamScopes = new Map(
+          (
+            await tx.customParameter.findMany({
+              where: { companyId, moldTypeId },
+              select: { id: true, scope: true },
+            })
+          ).map((x) => [x.id, x.scope] as const),
+        );
         await tx.customParameter.deleteMany({ where: { companyId, moldTypeId, id: { notIn: ids } } });
         for (const [i, p] of body.parameters.entries()) {
           const data: any = {
@@ -268,7 +280,7 @@ export async function configRoutes(app: FastifyInstance) {
             unit: p.unit ?? null,
             defaultValue: p.defaultValue == null ? null : String(p.defaultValue),
             group: p.group ?? '通用',
-            scope: p.scope ?? 'common',
+            scope: p.scope ?? (p.id ? existingParamScopes.get(p.id) : undefined) ?? 'common',
             type: p.type ?? 'decimal',
             materialCode: p.materialCode?.trim() || null,
             options: p.options && p.options.length ? JSON.stringify(p.options) : null,
@@ -296,12 +308,21 @@ export async function configRoutes(app: FastifyInstance) {
       // 费用项
       if (body.items) {
         const ids = body.items.map((x) => x.id).filter(Boolean) as string[];
+        // 同参数：scope 缺失时保留原值，别把「按件收」和「按套收」弄反
+        const existingItemScopes = new Map(
+          (
+            await tx.quoteItem.findMany({
+              where: { companyId, moldTypeId },
+              select: { id: true, scope: true },
+            })
+          ).map((x) => [x.id, x.scope] as const),
+        );
         await tx.quoteItem.deleteMany({ where: { companyId, moldTypeId, id: { notIn: ids } } });
         for (const [i, it] of body.items.entries()) {
           const data: any = {
             name: it.name,
             category: it.category ?? '自定义',
-            scope: it.scope ?? 'mold',
+            scope: it.scope ?? (it.id ? existingItemScopes.get(it.id) : undefined) ?? 'mold',
             calcType: it.calcType,
             calcConfig: it.calcConfig ?? undefined,
             expression: it.expression ?? null,

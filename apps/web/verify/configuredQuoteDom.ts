@@ -65,11 +65,11 @@ async function main() {
   check('整页渲染成功（有「实时算价」）', text().includes('实时算价'));
   check('渲染出「客户信息」', text().includes('客户信息'));
 
-  // —— 运输参数整块删除 ——
-  check('「运输区域」板块已删除', !text().includes('运输区域'));
-  check('箱长/宽/高 不可填', !html().includes('运输箱长') && !html().includes('运输箱宽') && !html().includes('运输箱高'));
-  check('运费单价 不可填', !html().includes('运费单价'));
+  // —— 运输参数：独立的「公共参数」板块已删除，只剩「运输区域」并收进「其他价格」—— 
+  check('箱长/宽/高 不再可填', !html().includes('运输箱长') && !html().includes('运输箱宽') && !html().includes('运输箱高'));
+  check('运费单价 不再可填', !html().includes('运费单价'));
   check('「运输信息」标题已移除', !text().includes('运输信息'));
+  check('「公共参数」板块不存在', !text().includes('公共参数'));
 
   // —— 其他价格：存在，且挪到页面最底下（客户信息、注塑件 之后） ——
   const iOther = html().indexOf('其他价格');
@@ -78,6 +78,26 @@ async function main() {
   check('「其他价格」板块存在', iOther >= 0);
   check('「其他价格」不在客户信息之上', iOther >= 0 && iCust >= 0 && iOther > iCust);
   check('「其他价格」在注塑件段之后（页面最底下）', iOther >= 0 && iPartParam >= 0 && iOther > iPartParam);
+
+  // —— 「运输区域」已并入「其他价格」板块里编辑 ——
+  const iZone = html().indexOf('运输区域');
+  check('「运输区域」仍在页面上（不再被删）', iZone >= 0);
+  check('「运输区域」位于「其他价格」板块之内（在其后）', iZone > iOther && iOther >= 0);
+  const zoneSel = (Array.from(container.querySelectorAll('select')) as any[]).find((el) =>
+    (el.textContent || '').includes('广东省内'),
+  );
+  check('「运输区域」是可编辑下拉（含省内外选项）', !!zoneSel);
+  if (zoneSel) {
+    const setSel = Object.getOwnPropertyDescriptor(
+      (dom.window as any).HTMLSelectElement.prototype,
+      'value',
+    )!.set!;
+    await act(async () => {
+      setSel.call(zoneSel, '2');
+      zoneSel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    });
+    check('切换「运输区域」后仍持有该值（可参与算价）', zoneSel.value === '2');
+  }
 
   // —— 自定义栏 / 模具附加费 / 注塑附加费 已全部移除 ——
   check('没有「自定义栏」入口', !text().includes('自定义栏') && !text().includes('添加一栏'));
