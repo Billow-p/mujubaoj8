@@ -143,6 +143,46 @@ async function main() {
   if (moldGroupBtn) await click(moldGroupBtn);
   check('价类参数（钢材单价）回到产品数据分组里', html().includes('钢材单价'));
 
+  // 绑定材料：从静态小标签改成可换绑的下拉框
+  const matSel = (Array.from(container.querySelectorAll('select')) as any[]).find(
+    (s) => Array.from(s.options).some((o: any) => o.value === 'P20'),
+  );
+  check('绑定材料是可换绑的下拉框（存在 P20 选项）', !!matSel);
+  check('下拉里能从材料库换选其它材料（有 H13 选项）',
+    !!matSel && Array.from(matSel.options).some((o: any) => o.value === 'H13'));
+  // 材料库存在同 code 多条的历史数据，下拉必须去重（stub 里故意放了两条 ABS）
+  if (matSel) {
+    const codes = Array.from(matSel.options).map((o: any) => o.value);
+    check('下拉选项按 code 去重（ABS 只出现一次）', codes.filter((c: string) => c === 'ABS').length === 1);
+  }
+  if (matSel) {
+    // 换绑：选 H13 → 验证 onChange 真的改到了参数。select 要用自己的 value setter
+    const NativeSelect = dom.window.HTMLSelectElement as any;
+    const setSel = Object.getOwnPropertyDescriptor(NativeSelect.prototype, 'value')!.set!;
+    await act(async () => {
+      setSel.call(matSel, 'H13');
+      matSel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    });
+    check('换成 H13 后下拉值随之为 H13', matSel.value === 'H13');
+    // 端到端：换绑后点保存，payload 里该参数的 materialCode 必须是新材料
+    // （否则前端看着改了、后端存的还是旧绑定 —— 这是最容易漏的一环）
+    const saveBtn2 = buttons().find((b) => (b.textContent || '').trim() === '保存');
+    if (saveBtn2) {
+      await click(saveBtn2);
+      await act(async () => { await new Promise((r) => setTimeout(r, 100)); });
+      const p2 = savedPayloads[savedPayloads.length - 1];
+      const steel = (p2?.parameters ?? []).find((x: any) => x.name === '钢材单价');
+      check('换绑后保存：payload 里钢材单价 materialCode=H13', steel?.materialCode === 'H13');
+    }
+    await act(async () => {
+      setSel.call(matSel, 'P20');
+      matSel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    });
+  }
+  // 绑定材料说明文字统一为「以此价格为报价表基数」
+  check('绑定材料说明改为「以此价格为报价表基数」', text().includes('以此价格为报价表基数'));
+  check('旧的「保存即按材料库现价刷新」说明已删除', !text().includes('保存即按材料库现价刷新'));
+
   await act(async () => { root.unmount(); });
   dom.window.close();
 

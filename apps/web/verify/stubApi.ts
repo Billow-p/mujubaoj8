@@ -43,7 +43,7 @@ export const CFG = {
      * 不单独成组 —— 它们与「量」参数混排是既定设计。
      * 放两条在 stub 里，让 jsdom 能验证「价类参数确实在产品数据里露脸」。
      */
-    { id: 'p10', name: '钢材单价', scope: 'mold', type: 'number', unit: '元/kg', group: '材料', defaultValue: 25, enabled: true },
+    { id: 'p10', name: '钢材单价', scope: 'mold', type: 'number', unit: '元/kg', group: '材料', defaultValue: 25, enabled: true, materialCode: 'P20' },
     { id: 'p11', name: '机台时薪', scope: 'injection', type: 'number', unit: '元/时', group: '注塑', defaultValue: 130, enabled: true },
   ],
   /** 条款：配置中心保存时会整体回写，stub 里给一条免得 save() 里 terms 为 undefined */
@@ -120,8 +120,19 @@ export const configApi = {
   },
 };
 
+/** 材料库：给几条能覆盖「钢材 / 塑料」两类的数据，供绑定材料下拉渲染选项。
+ *  故意放一条重复 code 的 ABS —— 线上材料库确有同 code 多条的历史数据，
+ *  下拉必须去重，否则会出现两个一样的选项。 */
+export const MATERIALS = [
+  { id: 'm1', code: 'P20', name: 'P20 预硬钢', category: '模具钢材', unit: 'kg', currentPrice: 25 },
+  { id: 'm2', code: 'H13', name: 'H13 热作模具钢', category: '模具钢材', unit: 'kg', currentPrice: 38 },
+  { id: 'm3', code: 'ABS', name: 'ABS', category: '塑料原料', unit: 'kg', currentPrice: 12 },
+  { id: 'm3b', code: 'ABS', name: 'ABS 备用牌号', category: '塑料原料', unit: 'kg', currentPrice: 12 },
+  { id: 'm4', code: 'PP', name: 'PP 聚丙烯', category: '塑料原料', unit: 'kg', currentPrice: 9.5 },
+];
+
 export const materials = {
-  list: async () => [],
+  list: async () => MATERIALS,
   seedPreset: async () => ({}),
 };
 

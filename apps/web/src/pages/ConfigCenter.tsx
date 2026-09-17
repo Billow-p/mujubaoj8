@@ -105,10 +105,11 @@ export default function ConfigCenter() {
   /** 费用分组折叠（默认全开） */
   const [itemsOpen, setItemsOpen] = useState<Record<string, boolean>>({ mold: true, injection: true });
   const toggleItemsGroup = (k: string) => setItemsOpen((s) => ({ ...s, [k]: !s[k] }));
-  /** 「计价单价」折叠（默认展开 —— 单价是费用的前提，藏着反而让人找不到价在哪改） */
   const fb = useFeedback();
   /** 材料库索引（code → 材料），用于价格参数显示绑定材料的现价 */
   const [matMap, setMatMap] = useState<Record<string, any>>({});
+  /** 材料库原始列表 —— 绑定材料的下拉框要按它渲染选项（map 只有索引，没法出选项） */
+  const [matList, setMatList] = useState<any[]>([]);
   const [togglingPriceMode, setTogglingPriceMode] = useState(false);
 
   useEffect(() => {
@@ -116,12 +117,31 @@ export default function ConfigCenter() {
       const map: Record<string, any> = {};
       for (const m of list) map[m.code] = m;
       setMatMap(map);
+      setMatList(list);
     }).catch(() => {});
   }, []);
 
   // ---------- 加载 ----------
-  const loadTypes = async (keepId?: string) => {
-    const list = await configApi.moldTypes();
+  /**
+   * 绑定材料下拉的选项：按 code 去重（材料库存在同 code 多条的历史数据，
+   * 不去重会在下拉里出现重复项），并按分类聚拢，方便找。
+   */
+  const matOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: any[] = [];
+    for (const m of matList) {
+      if (!m?.code || seen.has(m.code)) continue;
+      seen.add(m.code);
+      out.push(m);
+    }
+    return out.sort(
+      (a, b) =>
+        String(a.category ?? '').localeCompare(String(b.category ?? ''), 'zh') ||
+        String(a.code).localeCompare(String(b.code)),
+    );
+  }, [matList]);
+
+  const loadTypes = async (keepId?: string) => {    const list = await configApi.moldTypes();
     setTypes(list);
     const next = keepId ?? activeId ?? list[0]?.id ?? null;
     setActiveId(next);
@@ -230,6 +250,16 @@ export default function ConfigCenter() {
       else o.label = v;
     });
 
+  /**
+   * 换绑材料：把参数的 materialCode 指向另一条材料库记录。
+   * 只改绑定关系 —— 参数名、分组、scope 都不动；
+   * 价格默认值在「材料库价格模式」下会在保存时按新材料现价刷新（第 324 行的语义）。
+   */
+  const setParamMaterial = (idx: number, code: string) =>
+    patch((c) => {
+      c.parameters[idx].materialCode = code || null;
+    });
+
   const addParamOption = (idx: number) =>
     patch((c) => {
       const opts = c.parameters[idx].options ?? [];
@@ -258,12 +288,20 @@ export default function ConfigCenter() {
             className="flex-1 min-w-0 text-[13px] bg-transparent border border-transparent hover:border-gray-200 focus:border-gray-400 rounded px-1 py-0.5"
           />
           {p.materialCode && (
-            <span
-              className="shrink-0 text-[10.5px] bg-blue-50 border border-blue-200 text-blue-700 rounded px-1 py-0.5"
-              title={`绑定材料「${boundMat?.name ?? p.materialCode}」，价格来自材料库`}
+            // 绑定材料：下拉可换 —— 改绑材料不用删参数重建，直接在这里选
+            // （钢材类从 P20 换 H13、原料类从 ABS 换 PP）。选项来自材料库。
+            <select
+              value={p.materialCode}
+              onChange={(e) => setParamMaterial(i, e.target.value)}
+              title={`绑定材料「${boundMat?.name ?? p.materialCode}」，价格来自材料库；可在此换绑`}
+              className="shrink-0 max-w-[92px] text-[10.5px] bg-blue-50 border border-blue-200 text-blue-700 rounded px-1 py-0.5 cursor-pointer hover:bg-blue-100"
             >
-              {p.materialCode}
-            </span>
+              {/* 兜底：材料库里找不到这个 code 时，仍把它显示出来，避免下拉变成空选中 */}
+              {!matMap[p.materialCode] && <option value={p.materialCode}>{p.materialCode}</option>}
+              {matOptions.map((m: any) => (
+                <option key={m.code} value={m.code}>{m.code}</option>
+              ))}
+            </select>
           )}
           <select
             value={p.type ?? 'decimal'}
@@ -316,12 +354,12 @@ export default function ConfigCenter() {
           </span>
         </div>
 
-        {/* 绑定材料提示行：显示材料库现价与同步语义 */}
+        {/* 绑定材料提示行：显示材料库现价 + 统一语义说明 */}
         {p.materialCode && (
           <p className="text-[10.5px] text-blue-600 mt-0.5 pl-1 leading-snug">
             绑定材料「{boundMat?.name ?? p.materialCode}」
             {boundMat != null && <> · 材料库现价 ¥{Number(boundMat.currentPrice).toFixed(2)}/{boundMat.unit || 'kg'}</>}
-            {priceMode ? ' · 保存即按材料库现价刷新' : ' · 保存不覆盖已填价'}
+            {' · 以此价格为报价表基数'}
           </p>
         )}
 
