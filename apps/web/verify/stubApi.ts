@@ -25,7 +25,58 @@ export const CFG = {
     { id: 'p8', name: '单件重量', scope: 'injection', type: 'number', unit: 'kg', group: '注塑', defaultValue: 0.18, enabled: true },
     { id: 'p9', name: '注塑数量', scope: 'injection', type: 'number', unit: '件', group: '注塑', defaultValue: 5000, enabled: true },
   ],
-  items: [],
+  /**
+   * 费用项：前两条是「配置中心预置」，后两条模拟用户在配置中心点「+ 加一项」新增的。
+   * 报价页必须能同时体现这两类 —— 这正是「配置中心加了项，报价表看不到」的验收入口。
+   */
+  items: [
+    { id: 'i1', name: '设计费', category: '模具', scope: 'mold', calcType: 'fixed', calcConfig: { amount: 6000 }, enabled: true, sortOrder: 0 },
+    { id: 'i2', name: 'CNC加工费', category: '模具', scope: 'mold', calcType: 'qty', calcConfig: { src: '腔数', price: 400 }, enabled: true, sortOrder: 1 },
+    { id: 'i3', name: '产品材料费', category: '注塑', scope: 'injection', calcType: 'qty', calcConfig: { src: '单件重量', price: 20 }, perUnit: true, enabled: true, sortOrder: 2 },
+    {
+      id: 'i4',
+      name: '配置中心新增的模具费',
+      category: '自定义',
+      scope: 'mold',
+      calcType: 'fixed',
+      calcConfig: { amount: 500 },
+      enabled: true,
+      sortOrder: 3,
+    },
+    {
+      id: 'i5',
+      name: '配置中心新增的注塑费',
+      category: '自定义',
+      scope: 'injection',
+      calcType: 'fixed',
+      calcConfig: { amount: 0.2 },
+      perUnit: true,
+      enabled: true,
+      sortOrder: 4,
+    },
+    // 手填金额类：报价页必须给出输入框（以前这里是死代码，根本没法填）
+    {
+      id: 'i6',
+      name: '配置中心新增的手填费',
+      category: '自定义',
+      scope: 'mold',
+      calcType: 'manual',
+      calcConfig: {},
+      enabled: true,
+      sortOrder: 5,
+    },
+    // 金额为 0 的项：报价页要标成「未设值」，不能只是灰灰一个 ¥0
+    {
+      id: 'i7',
+      name: '配置中心新增的零值费',
+      category: '自定义',
+      scope: 'mold',
+      calcType: 'fixed',
+      calcConfig: { amount: 0 },
+      enabled: true,
+      sortOrder: 6,
+    },
+  ],
 };
 
 export const configApi = {

@@ -85,6 +85,35 @@ async function main() {
   check('没有「注塑附加费」板块', !text().includes('注塑附加费'));
   check('注塑件卡片仍能正常渲染（材料/数量/单件重量）', !!iPartParam);
 
+  // —— 配置中心「+ 加一项」的项，报价页必须一眼看见；手填类必须能填 ——
+  const iRight = html().indexOf('实时算价');
+  const iNewMold = html().indexOf('配置中心新增的模具费');
+  check('新增的模具费用项出现在左栏模具卡片里', iNewMold >= 0 && iRight >= 0 && iNewMold < iRight);
+  check('新增的注塑费用项出现在左栏注塑件卡片里', html().indexOf('配置中心新增的注塑费') >= 0);
+  check('费用项区标了「来自配置中心」', text().includes('来自配置中心'));
+  check('配置中心预置项照旧出现（设计费）', text().includes('设计费'));
+  check('公式类费用项显示算出来的值（¥ 500）', text().includes('¥ 500'));
+
+  // 手填金额类（calcType=manual）以前在报价页没有任何输入入口 —— 必须是可填的
+  const manualLabel = (Array.from(container.querySelectorAll('label')) as any[]).find((l) =>
+    (l.textContent || '').includes('配置中心新增的手填费'),
+  );
+  const manualInput = manualLabel?.querySelector('input');
+  check('手填类费用项在报价页有输入框', !!manualInput);
+  if (manualInput) {
+    const NativeInput = dom.window.HTMLInputElement as any;
+    const setVal = Object.getOwnPropertyDescriptor(NativeInput.prototype, 'value')!.set!;
+    await act(async () => {
+      setVal.call(manualInput, '888');
+      manualInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    });
+    check('手填金额能录入并参与算价（888 出现在页面）', text().includes('888'));
+  }
+
+  // 右栏「费用明细」默认展开 + 0 值项标「未设值」（否则新增的 0 元项完全看不见）
+  check('右栏「费用明细」默认展开（显示「收起明细」）', text().includes('收起明细'));
+  check('金额为 0 的费用项标成「未设值」', text().includes('未设值'));
+
   await act(async () => { root.unmount(); });
   dom.window.close();
 

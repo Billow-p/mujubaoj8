@@ -88,6 +88,13 @@ export default function ConfigCenter() {
       return next;
     });
   const [picking, setPicking] = useState(false);
+  /** 「+ 加一项」后只提醒一次保存 —— 加完不保存是「配置中心加了项、报价页没生效」最常见的坑 */
+  const [addHinted, setAddHinted] = useState(false);
+  const hintSave = () => {
+    if (addHinted) return;
+    setAddHinted(true);
+    fb.toast('加好了 —— 记得点右上角「保存」，保存后报价页才会出现这一项');
+  };
   /** 四步引导展开/收起（默认展开） */
   const [guideOpen, setGuideOpen] = useState(true);
   /** 费用分组折叠（默认全开） */
@@ -375,6 +382,9 @@ export default function ConfigCenter() {
         unit: p.unit || null,
         defaultValue: String(p.defaultValue ?? ''),
         group: p.group || '通用',
+        // ⚠️ scope 必须回传！漏了它后端会按 'common' 落库 ——
+        // 结果是「模具参数 / 注塑参数」全部变成「公共参数」，报价页的模具、注塑卡片里参数全空。
+        scope: p.scope || 'common',
         type: p.type || 'decimal',
         materialCode: p.materialCode || null,
         options: p.type === 'select' && Array.isArray(p.options) ? p.options : null,
@@ -775,10 +785,12 @@ export default function ConfigCenter() {
             {pane === 'param' && (
               <div className="space-y-3">
                 {(
+                  // 「公共参数（整单共享一份）」分组已按需求移除 —— 报价页早就没有这一块了，
+                  // 配置中心留着只会让人以为两边的参数对不上。scope=common 的参数仍留在库里参与算价，
+                  // 只是不再提供编辑入口（要改整单参数请走材料中心 / 费用项算法）。
                   [
                     { k: 'mold', t: '模具参数', d: '每套模具单独填' },
                     { k: 'injection', t: '注塑参数', d: '每个注塑件单独填' },
-                    { k: 'common', t: '公共参数', d: '整单共享一份' },
                   ] as const
                 ).map((g) => {
                   const list = params
@@ -804,6 +816,7 @@ export default function ConfigCenter() {
                           onClick={(e) => {
                             e.stopPropagation();
                             patch((c) => { c.parameters.push(emptyParam(g.k)); });
+                            hintSave();
                           }}
                           className="border border-gray-300 px-2 py-0.5 rounded text-[11.5px] hover:bg-gray-50"
                         >+ 加一项</span>
@@ -903,6 +916,7 @@ export default function ConfigCenter() {
                       onClick={(e) => {
                         e.stopPropagation();
                         patch((c) => { c.items.push({ ...emptyItem(), scope: g.k }); });
+                        hintSave();
                       }}
                       className="border border-gray-300 px-2 py-0.5 rounded text-[11.5px] hover:bg-gray-50"
                     >+ 加一项</span>

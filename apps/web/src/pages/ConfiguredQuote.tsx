@@ -440,6 +440,30 @@ export default function ConfiguredQuote() {
   const moldDefs = useMemo(() => params.filter((p) => (p.scope as string) === 'mold'), [cfg]);
   const injectionDefs = useMemo(() => params.filter((p) => (p.scope as string) === 'injection'), [cfg]);
 
+  /**
+   * 配置中心「要收哪些费用」里的项，按套（mold）/ 按件（injection）拆开。
+   *
+   * 这些项以前只出现在右栏折叠的「费用明细」里，而且金额常常是 0 ——
+   * 用户在配置中心点「+ 加一项」、保存、回到报价页，左栏卡片毫无变化，
+   * 就会以为「配置中心加了项，报价表里没生效」。
+   * 所以现在直接列进模具 / 注塑件卡片：
+   *   · 手填金额类 → 给输入框（落到 state.manuals，会随报价单一起存）
+   *   · 其它类型   → 显示配置中心公式算出来的值（只读，改公式去配置中心）
+   */
+  const scopeItems = (scope: 'mold' | 'injection') =>
+    (cfg?.items ?? []).filter((it: any) => it.scope === scope && it.enabled !== false);
+  const manualItems = (scope: 'mold' | 'injection') =>
+    scopeItems(scope).filter((it: any) => it.calcType === 'manual');
+  const autoItems = (scope: 'mold' | 'injection') =>
+    scopeItems(scope).filter((it: any) => it.calcType !== 'manual');
+
+  /** 某个费用项在某套模具 / 某个注塑件上算出来的那一行（右栏明细同源） */
+  const lineOfItem = (
+    rows: any[] | undefined,
+    idx: number,
+    name: string,
+  ): any | undefined => (rows?.[idx]?.lines ?? []).find((l: any) => l.name === name);
+
   // 数量参数名（注塑数量 / 压铸数量 / 成型数量…）
   const qtyVarName = useMemo(() => {
     const hit = params.find((p) => QTY_VAR_CANDIDATES.includes(p.name));
@@ -769,6 +793,26 @@ export default function ConfiguredQuote() {
       extras,
     });
   }, [cfg, calcInput, qtyVarName, extras]);
+
+  /**
+   * 「费用明细」默认展开。
+   * 折叠状态下新增费用项（尤其金额为 0 的）完全看不见，用户会以为没同步；展开后一目了然，
+   * 用户手动收起后不会再被强制打开（只在出现新的行时才补展开）。
+   */
+  useEffect(() => {
+    if (!result) return;
+    setDetailOpen((s) => {
+      let changed = false;
+      const next = { ...s };
+      (result.moldResults ?? []).forEach((_: any, i: number) => {
+        if (next[`m${i}`] === undefined) { next[`m${i}`] = true; changed = true; }
+      });
+      (result.partResults ?? []).forEach((_: any, i: number) => {
+        if (next[`p${i}`] === undefined) { next[`p${i}`] = true; changed = true; }
+      });
+      return changed ? next : s;
+    });
+  }, [result]);
 
   const submit = async () => {
     if (!cfg) return;
@@ -1378,6 +1422,56 @@ export default function ConfiguredQuote() {
                     </div>
                   )}
 
+                  {/* 费用项（来自配置中心）—— 加什么就看得见什么 */}
+                  {(manualItems('mold').length > 0 || autoItems('mold').length > 0) && (
+                    <div className="mt-3 pt-3 border-t border-dashed border-gray-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-[12px] font-medium text-gray-600">费用项</span>
+                        <span className="text-[11px] text-gray-400">
+                          来自配置中心「要收哪些费用」·共 {scopeItems('mold').length} 项
+                        </span>
+                      </div>
+                      {manualItems('mold').length > 0 && (
+                        <div className="grid grid-cols-3 gap-x-4 gap-y-3">
+                          {manualItems('mold').map((it: any) => (
+                            <div key={it.id ?? it.name} className="min-w-0">
+                              {renderManualField(
+                                it.name,
+                                m.manuals[it.name],
+                                (v) => setMold(i, { manuals: { ...m.manuals, [it.name]: v } }),
+                                !!m.off[it.name],
+                                () => toggleMoldOff(i, it.name),
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {autoItems('mold').length > 0 && (
+                        <div className="grid grid-cols-3 gap-x-4 gap-y-0.5 mt-1">
+                          {autoItems('mold').map((it: any) => {
+                            const line = lineOfItem(result?.moldResults, i, it.name);
+                            return (
+                              <div
+                                key={it.id ?? it.name}
+                                className="flex items-baseline justify-between gap-2 text-[12px] min-w-0"
+                                title={`按配置中心「${it.name}」的算法自动算，改算法请去配置中心`}
+                              >
+                                <span className="text-gray-500 truncate">{it.name}</span>
+                                <span
+                                  className={`tabular-nums shrink-0 ${
+                                    line?.error ? 'text-red-600' : 'text-gray-700'
+                                  }`}
+                                >
+                                  {line?.error ? '缺参数' : money(line?.value ?? 0)}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                 </div>
               ))}
               {molds.length === 0 && (
@@ -1540,6 +1634,56 @@ export default function ConfiguredQuote() {
                       })}
                   </div>
 
+                  {/* 费用项（来自配置中心）—— 加什么就看得见什么 */}
+                  {(manualItems('injection').length > 0 || autoItems('injection').length > 0) && (
+                    <div className="mt-3 pt-3 border-t border-dashed border-gray-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-[12px] font-medium text-gray-600">费用项</span>
+                        <span className="text-[11px] text-gray-400">
+                          来自配置中心「要收哪些费用」·共 {scopeItems('injection').length} 项
+                        </span>
+                      </div>
+                      {manualItems('injection').length > 0 && (
+                        <div className="grid grid-cols-3 gap-x-4 gap-y-3">
+                          {manualItems('injection').map((it: any) => (
+                            <div key={it.id ?? it.name} className="min-w-0">
+                              {renderManualField(
+                                it.name,
+                                p.manuals[it.name],
+                                (v) => setPart(i, { manuals: { ...p.manuals, [it.name]: v } }),
+                                !!p.off[it.name],
+                                () => togglePartOff(i, it.name),
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {autoItems('injection').length > 0 && (
+                        <div className="grid grid-cols-3 gap-x-4 gap-y-0.5 mt-1">
+                          {autoItems('injection').map((it: any) => {
+                            const line = lineOfItem(result?.partResults, i, it.name);
+                            return (
+                              <div
+                                key={it.id ?? it.name}
+                                className="flex items-baseline justify-between gap-2 text-[12px] min-w-0"
+                                title={`按配置中心「${it.name}」的算法自动算，改算法请去配置中心`}
+                              >
+                                <span className="text-gray-500 truncate">{it.name}</span>
+                                <span
+                                  className={`tabular-nums shrink-0 ${
+                                    line?.error ? 'text-red-600' : 'text-gray-700'
+                                  }`}
+                                >
+                                  {line?.error ? '缺参数' : money(line?.value ?? 0)}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                 </div>
               ))}
               {parts.length === 0 && (
@@ -1597,7 +1741,15 @@ export default function ConfiguredQuote() {
                           <div className="flex justify-between text-[11.5px] text-gray-500 gap-2">
                             <span className="truncate">{l.name}</span>
                             <span className="tabular-nums shrink-0">
-                              {l.error ? '—' : l.manual ? '报价时填' : money(l.value)}
+                              {l.error ? (
+                                <span className="text-red-600">缺参数</span>
+                              ) : l.manual ? (
+                                '报价时填'
+                              ) : Number(l.value) ? (
+                                money(l.value)
+                              ) : (
+                                <span className="text-gray-400">未设值</span>
+                              )}
                             </span>
                           </div>
                           {l.warning && (
@@ -1638,7 +1790,15 @@ export default function ConfiguredQuote() {
                           <div className="flex justify-between text-[11.5px] text-gray-500 gap-2">
                             <span className="truncate">{l.name}</span>
                             <span className="tabular-nums shrink-0">
-                              {l.error ? '—' : l.manual ? '报价时填' : money(l.value)}
+                              {l.error ? (
+                                <span className="text-red-600">缺参数</span>
+                              ) : l.manual ? (
+                                '报价时填'
+                              ) : Number(l.value) ? (
+                                money(l.value)
+                              ) : (
+                                <span className="text-gray-400">未设值</span>
+                              )}
                             </span>
                           </div>
                           {l.warning && (

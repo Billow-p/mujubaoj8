@@ -89,7 +89,7 @@ bundle(path.join(ROOT, 'apps/web/src/utils/importParams.ts'), path.join(OUTDIR, 
 
 let code = 0;
 
-console.log('\n▶ [1/3] 数据端到端：模板 → 后端列映射 → 前端落状态');
+console.log('\n▶ [1/4] 数据端到端：模板 → 后端列映射 → 前端落状态');
 // 打包产物放在 node_modules/.cache 下找不到 exceljs；用 NODE_PATH 指回 apps/api 的依赖
 code |= run(path.join(ROOT, 'apps/api/scripts/verifyParamsE2E.cjs'), {
   NODE_PATH: path.join(ROOT, 'apps/api', 'node_modules'),
@@ -100,17 +100,25 @@ if (!hasJsdom(env)) {
   console.log('\n⚠ 未检测到 jsdom，跳过 [2][3] UI 验证（不影响 [1]）。');
   console.log('  启用：在含 jsdom 的环境下设置 MQS_JSDOM_NODE_PATH，例如 npm i jsdom 后指向其 node_modules。');
 } else {
-  console.log('\n▶ [2/3] UI 交互（jsdom）：SmartImport「参数表导入」入口');
+  console.log('\n▶ [2/4] UI 交互（jsdom）：SmartImport「参数表导入」入口');
   bundle(path.join(ROOT, 'apps/web/verify/smartimportDom.ts'), path.join(OUTDIR, 'smartimportDom.cjs'), ['jsdom']);
   code |= run(path.join(OUTDIR, 'smartimportDom.cjs'), env);
 
-  console.log('\n▶ [3/3] 报价页渲染（jsdom）：运输区域/其他价格位置 + 自定义栏');
+  console.log('\n▶ [3/4] 报价页渲染（jsdom）：运输区域/其他价格位置 + 配置中心费用项可见可填');
   await bundleWithStubApi(
     path.join(ROOT, 'apps/web/verify/configuredQuoteDom.ts'),
     path.join(OUTDIR, 'configuredQuoteDom.cjs'),
     path.join(ROOT, 'apps/web/verify/stubApi.ts'),
   );
   code |= run(path.join(OUTDIR, 'configuredQuoteDom.cjs'), env);
+
+  console.log('\n▶ [4/4] 配置中心渲染（jsdom）：参数分组与报价页一致（无「公共参数」）');
+  await bundleWithStubApi(
+    path.join(ROOT, 'apps/web/verify/configCenterDom.ts'),
+    path.join(OUTDIR, 'configCenterDom.cjs'),
+    path.join(ROOT, 'apps/web/verify/stubApi.ts'),
+  );
+  code |= run(path.join(OUTDIR, 'configCenterDom.cjs'), env);
 }
 
 console.log('\n' + '='.repeat(56));
