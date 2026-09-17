@@ -4,11 +4,13 @@
  *   [1] 数据端到端：模板 .xlsx → 后端 importQuoteExcel（列映射）→ 前端 applyImportedParams（落状态）
  *   [2] UI 交互（jsdom）：SmartImport 的「参数表导入」入口
  *   [3] 报价页渲染（jsdom）：运输区域/其他价格的位置、模具与注塑件自定义栏增删
+ *   [4] 配置中心渲染（jsdom）：参数分组与报价页一致
+ *   [5] 导出下载链路（jsdom）：文件名解析 / Blob 错误还原 / 空内容拦截
  *
  *   node verify-third-phase.mjs
  *
- * 说明：本机无可用真机浏览器，[2][3] 以 jsdom 作为降级手段；
- *      若未安装 jsdom 会自动跳过 [2][3] 并给出启用提示，不影响 [1]。
+ * 说明：本机无可用真机浏览器，[2][3][4][5] 以 jsdom 作为降级手段；
+ *      若未安装 jsdom 会自动跳过并给出启用提示，不影响 [1]。
  *      UI 测试需要 jsdom 可被 require 到，可用环境变量 MQS_JSDOM_NODE_PATH 指定含 jsdom 的 node_modules。
  */
 
@@ -89,7 +91,7 @@ bundle(path.join(ROOT, 'apps/web/src/utils/importParams.ts'), path.join(OUTDIR, 
 
 let code = 0;
 
-console.log('\n▶ [1/4] 数据端到端：模板 → 后端列映射 → 前端落状态');
+console.log('\n▶ [1/5] 数据端到端：模板 → 后端列映射 → 前端落状态');
 // 打包产物放在 node_modules/.cache 下找不到 exceljs；用 NODE_PATH 指回 apps/api 的依赖
 code |= run(path.join(ROOT, 'apps/api/scripts/verifyParamsE2E.cjs'), {
   NODE_PATH: path.join(ROOT, 'apps/api', 'node_modules'),
@@ -97,14 +99,14 @@ code |= run(path.join(ROOT, 'apps/api/scripts/verifyParamsE2E.cjs'), {
 
 const env = jsdomEnv();
 if (!hasJsdom(env)) {
-  console.log('\n⚠ 未检测到 jsdom，跳过 [2][3] UI 验证（不影响 [1]）。');
+  console.log('\n⚠ 未检测到 jsdom，跳过 [2][3][4][5] UI 验证（不影响 [1]）。');
   console.log('  启用：在含 jsdom 的环境下设置 MQS_JSDOM_NODE_PATH，例如 npm i jsdom 后指向其 node_modules。');
 } else {
-  console.log('\n▶ [2/4] UI 交互（jsdom）：SmartImport「参数表导入」入口');
+  console.log('\n▶ [2/5] UI 交互（jsdom）：SmartImport「参数表导入」入口');
   bundle(path.join(ROOT, 'apps/web/verify/smartimportDom.ts'), path.join(OUTDIR, 'smartimportDom.cjs'), ['jsdom']);
   code |= run(path.join(OUTDIR, 'smartimportDom.cjs'), env);
 
-  console.log('\n▶ [3/4] 报价页渲染（jsdom）：运输区域/其他价格位置 + 配置中心费用项可见可填');
+  console.log('\n▶ [3/5] 报价页渲染（jsdom）：运输区域/其他价格位置 + 配置中心费用项可见可填');
   await bundleWithStubApi(
     path.join(ROOT, 'apps/web/verify/configuredQuoteDom.ts'),
     path.join(OUTDIR, 'configuredQuoteDom.cjs'),
@@ -112,13 +114,32 @@ if (!hasJsdom(env)) {
   );
   code |= run(path.join(OUTDIR, 'configuredQuoteDom.cjs'), env);
 
-  console.log('\n▶ [4/4] 配置中心渲染（jsdom）：参数分组与报价页一致（无「公共参数」）');
+  console.log('\n▶ [4/5] 配置中心渲染（jsdom）：参数分组与报价页一致（无「公共参数」）');
   await bundleWithStubApi(
     path.join(ROOT, 'apps/web/verify/configCenterDom.ts'),
     path.join(OUTDIR, 'configCenterDom.cjs'),
     path.join(ROOT, 'apps/web/verify/stubApi.ts'),
   );
   code |= run(path.join(OUTDIR, 'configCenterDom.cjs'), env);
+  console.log('\n▶ [5/5] 导出下载链路（jsdom）：文件名解析 / Blob 错误还原 / 空内容拦截');
+  // 这个验证要保留真实 axios 模块（靠替换 axios 实例来注入假响应），
+  // 所以**不能**走 bundleWithStubApi 的整模块替换。
+  // 产物落在 node_modules/.cache 下找不到 axios，与 [1] 同法用 NODE_PATH 指回。
+  bundle(
+    path.join(ROOT, 'apps/web/verify/exportDownloadDom.ts'),
+    path.join(OUTDIR, 'exportDownloadDom.cjs'),
+    ['jsdom', 'axios'],
+  );
+  code |= run(path.join(OUTDIR, 'exportDownloadDom.cjs'), {
+    ...env,
+    NODE_PATH: [
+      path.join(ROOT, 'apps/web', 'node_modules'),
+      path.join(ROOT, 'node_modules'),
+      env.NODE_PATH,
+    ]
+      .filter(Boolean)
+      .join(path.delimiter),
+  });
 }
 
 console.log('\n' + '='.repeat(56));

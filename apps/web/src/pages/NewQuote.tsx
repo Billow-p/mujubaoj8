@@ -214,8 +214,9 @@ export default function NewQuote() {
       // 3. 自动下载 Excel（不阻塞导航）
       try {
         await quotes.exportExcel(created.id);
-      } catch (e) {
-        console.warn('Excel 下载失败，可稍后手动重试', e);
+      } catch (e: any) {
+        // 这里刻意只告警不弹错：报价单已经建好了，下载失败不该打断主流程
+        console.warn('Excel 下载失败，可稍后手动重试：' + (e?.message || e));
       }
       const okMsg = input.customerEmail
         ? `已生成报价单 ${created.quoteNo}，邮件已${created.emailSent ? '发送' : '尝试发送'}至 ${input.customerEmail}（${created.emailSent ? '成功' : (created.emailError || '失败')})`

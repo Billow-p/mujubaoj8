@@ -263,21 +263,55 @@ export const customers = {
     api.patch(`/customers/${id}`, body).then((r) => r.data),
 
   // 一键导出全部客户数据（Sheet1 报价明细 + Sheet2 客户汇总）
+  // 与 exportExcel 同一套下载链路，坑也一样：blob 会把错误响应体吞掉、
+  // 文件名头要 CORS expose 才读得到 —— 这里保持一致的加固。
   exportAll: async (): Promise<void> => {
-    const resp = await api.get('/customers/export-all', { responseType: 'blob' });
+    let resp;
+    try {
+      resp = await api.get('/customers/export-all', {
+        responseType: 'blob',
+        validateStatus: () => true,
+      });
+    } catch (e: any) {
+      throw new Error(e?.message || '网络请求失败');
+    }
+
+    if (resp.status >= 400) {
+      let msg = `导出失败（HTTP ${resp.status}）`;
+      try {
+        const text = resp.data instanceof Blob ? await resp.data.text() : String(resp.data);
+        const j = JSON.parse(text);
+        if (j?.error) msg = j.error;
+      } catch {
+        /* 解析不出来就用兜底文案 */
+      }
+      throw new Error(msg);
+    }
+
     const blob = new Blob([resp.data], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     });
+    if (blob.size === 0) throw new Error('导出内容为空，请重试');
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    const disposition = resp.headers['content-disposition'] || '';
-    const m = /filename="?([^"]+)"?/.exec(disposition as string);
-    a.download = m ? decodeURIComponent(m[1]) : '客户数据.xlsx';
+    const disposition = (resp.headers['content-disposition'] as string) || '';
+    let filename = '客户数据.xlsx';
+    const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+    if (m) {
+      try {
+        filename = decodeURIComponent(m[1]);
+      } catch {
+        filename = m[1];
+      }
+    }
+    a.download = filename;
+    a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
     a.remove();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
   },
 };
 
