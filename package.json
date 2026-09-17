@@ -6,7 +6,7 @@
   "scripts": {
     "dev:api": "pnpm --filter @mqs/api dev",
     "dev:web": "pnpm --filter @mqs/web dev",
-    "build": "pnpm -r build",
+    "build": "node scripts/build-seq.mjs",
     "test": "pnpm -r test",
     "db:migrate": "pnpm --filter @mqs/api prisma migrate dev",
     "db:seed": "pnpm --filter @mqs/api prisma db seed",

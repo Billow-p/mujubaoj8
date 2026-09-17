@@ -15,28 +15,21 @@ PKG=/tmp/mqs-v10.tar.gz
 STAMP=$(date +%Y%m%d-%H%M%S)
 
 echo "==> [1/8] 本地构建（前端产物 + 后端 dist）"
-# 优先用 PATH 里的 pnpm；没有就回退到 WorkBuddy 托管 Node 自带的 corepack
-if command -v pnpm >/dev/null 2>&1; then
-  PNPM=pnpm
-elif [ -f "C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-3/node_modules/corepack/dist/pnpm.js" ]; then
-  echo "    本地 PATH 里没有 pnpm，改用托管 Node 的 corepack"
-  PNPM="C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-3/node.exe C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-3/node_modules/corepack/dist/pnpm.js"
+# 构建逻辑统一收在 scripts/build-seq.mjs —— 它**逐包串行**跑，并自己找 pnpm
+# （优先 $npm_execpath，其次 corepack），不依赖 PATH 里有 pnpm。
+#
+# ⚠️ 不要改回 `pnpm -r build`：pnpm 默认并行跑 workspace 构建，本机 16G 内存下
+# 同时起 4 个 tsc + vite 会耗尽虚拟内存，tsc 报 `Fatal process out of memory: Zone`
+# 被杀，退出码 2147483651（0x80000003）—— 报错完全看不出是内存问题。
+if [ -f "C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-3/node.exe" ]; then
+  NODE_BIN="C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-3/node.exe"
+elif command -v node >/dev/null 2>&1; then
+  NODE_BIN=node
 else
-  echo "✗ 找不到 pnpm（也未找到托管 Node 的 corepack），无法构建" >&2
+  echo "✗ 找不到 node，无法构建" >&2
   exit 1
 fi
-
-# ⚠️ 必须**逐个包**构建，不能用 `pnpm -r build`。
-# pnpm 默认并行跑 workspace 构建，本机 16G 内存下同时起 4 个 tsc + vite
-# 会撞上虚拟内存耗尽 —— tsc 直接 `Fatal process out of memory: Zone` 被杀，
-# 退出码 2147483651（0x80000003）。单独跑每个包都正常。
-# 顺序按依赖来：shared → calc-engine → api → web（web/api 都依赖前两者）。
-# heap 上限给 3G：够用，又不会把机器压死。
-export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=3072}"
-for pkg in @mqs/shared @mqs/calc-engine @mqs/api @mqs/web; do
-  echo "    building $pkg ..."
-  $PNPM --filter "$pkg" build
-done
+"$NODE_BIN" scripts/build-seq.mjs
 
 echo "==> [2/8] 打包（排除 node_modules / .git / .env / 日志）"
 echo "    注意：.env 含生产密钥，禁止随包覆盖服务器，由步骤 [4/8] 单独备份、解压时保留"
