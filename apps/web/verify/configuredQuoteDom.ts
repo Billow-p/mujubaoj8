@@ -2,9 +2,9 @@
  * 报价页（ConfiguredQuote）jsdom 渲染验证。
  *
  * 本机没有真机浏览器，这里渲染**真实页面组件**（api 换成固定假数据），验证：
- *   1) 公共参数板块已收窄：只剩「运输区域」，箱长/宽/高、运费单价不再可填
- *   2) 「运输区域」+「其他价格」都在「客户信息」之上
- *   3) 模具 / 注塑件卡片都有「自定义栏」且可增可删
+ *   1) 公共参数（运输）整块已删除：运输区域 / 箱长宽高 / 运费单价 都不再出现
+ *   2) 「其他价格」已挪到页面最底下（客户信息、注塑件段之后）
+ *   3) 「自定义栏」「模具附加费」「注塑附加费」已移除
  *   4) 整页能正常渲染（不抛运行时报错）
  */
 
@@ -60,49 +60,30 @@ async function main() {
 
   const html = () => container.innerHTML || '';
   const text = () => container.textContent || '';
-  const buttons = () => Array.from(container.querySelectorAll('button')) as any[];
 
   // —— 整页渲染 ——
   check('整页渲染成功（有「实时算价」）', text().includes('实时算价'));
   check('渲染出「客户信息」', text().includes('客户信息'));
 
-  // —— 运输参数收窄 ——
-  check('只剩「运输区域」可填', text().includes('运输区域'));
-  check('箱长/宽/高 不再可填', !html().includes('运输箱长') && !html().includes('运输箱宽') && !html().includes('运输箱高'));
-  check('运费单价 不再可填', !html().includes('运费单价'));
-  check('旧的「运输信息」板块标题已移除', !text().includes('运输信息'));
+  // —— 运输参数整块删除 ——
+  check('「运输区域」板块已删除', !text().includes('运输区域'));
+  check('箱长/宽/高 不可填', !html().includes('运输箱长') && !html().includes('运输箱宽') && !html().includes('运输箱高'));
+  check('运费单价 不可填', !html().includes('运费单价'));
+  check('「运输信息」标题已移除', !text().includes('运输信息'));
 
-  // —— 位置：都在客户信息之上 ——
-  const iZone = html().indexOf('运输区域');
+  // —— 其他价格：存在，且挪到页面最底下（客户信息、注塑件 之后） ——
   const iOther = html().indexOf('其他价格');
   const iCust = html().indexOf('客户信息');
+  const iPartParam = html().indexOf('单件重量'); // 注塑件段内的特征字段
   check('「其他价格」板块存在', iOther >= 0);
-  check('「运输区域」在「客户信息」之上', iZone >= 0 && iCust >= 0 && iZone < iCust);
-  check('「其他价格」在「客户信息」之上', iOther >= 0 && iCust >= 0 && iOther < iCust);
+  check('「其他价格」不在客户信息之上', iOther >= 0 && iCust >= 0 && iOther > iCust);
+  check('「其他价格」在注塑件段之后（页面最底下）', iOther >= 0 && iPartParam >= 0 && iOther > iPartParam);
 
-  // —— 自定义栏：模具 + 注塑件 可增可删 ——
-  const addBtns = buttons().filter((b) => (b.textContent || '').includes('添加一栏'));
-  check('模具/注塑件卡片都有「＋ 添加一栏」（≥2 个）', addBtns.length >= 2);
-
-  await act(async () => {
-    addBtns[0].dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-  });
-  const nameInput = container.querySelector('input[placeholder="名称"]') as any;
-  check('点「＋ 添加一栏」后出现自定义栏输入框', !!nameInput);
-
-  if (nameInput) {
-    const row = nameInput.parentElement as any;
-    const rowDel = (Array.from(row.querySelectorAll('button')) as any[]).find((b) =>
-      (b.textContent || '').includes('删除'),
-    );
-    check('自定义栏行内带「删除」按钮', !!rowDel);
-    if (rowDel) {
-      await act(async () => {
-        rowDel.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-      });
-      check('点「删除」后该栏消失', !container.querySelector('input[placeholder="名称"]'));
-    }
-  }
+  // —— 自定义栏 / 模具附加费 / 注塑附加费 已全部移除 ——
+  check('没有「自定义栏」入口', !text().includes('自定义栏') && !text().includes('添加一栏'));
+  check('没有「模具附加费」板块', !text().includes('模具附加费'));
+  check('没有「注塑附加费」板块', !text().includes('注塑附加费'));
+  check('注塑件卡片仍能正常渲染（材料/数量/单件重量）', !!iPartParam);
 
   await act(async () => { root.unmount(); });
   dom.window.close();
