@@ -120,6 +120,8 @@ ssh -o StrictHostKeyChecking=no root@47.242.248.104 "
   node scripts/migrate-dedup-materials.mjs
   echo '==> [6.13/8] 对齐绑定材料的价格与材料库现价（幂等）'
   node scripts/migrate-sync-bound-material-prices.mjs
+  echo '==> [6.14/8] 已有材料按分类开启库存管理（钢材/塑料/合金/橡胶 开，辅料 关）'
+  node scripts/migrate-enable-stock.mjs
 "
 
 echo "==> [7/8] 更新 Nginx 配置并重启服务"
