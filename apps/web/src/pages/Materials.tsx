@@ -282,10 +282,11 @@ export default function Materials() {
 
   const exportLedger = async () => {
     try {
-      const ok = await downloadBlob(
-        await materials.ledgerExportBlob({}),
-        `库存台账_${new Date().toISOString().slice(0, 10)}.xlsx`,
-      );
+      // 文件名精确到秒：同一天多次导出不重名，避免在下载目录里开到旧文件
+      const d = new Date();
+      const p2 = (n: number) => String(n).padStart(2, '0');
+      const ts = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+      const ok = await downloadBlob(await materials.ledgerExportBlob({}), `库存台账_${ts}.xlsx`);
       if (ok) fb.toast('台账已导出', 'ok');
     } catch (e: any) {
       fb.toast('导出失败：' + (e?.message ?? '未知错误'), 'err');
