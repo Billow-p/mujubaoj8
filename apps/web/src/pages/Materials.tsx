@@ -96,16 +96,25 @@ export default function Materials() {
   const [ledgerAllRows, setLedgerAllRows] = useState<any[]>([]);
   const [lowOpen, setLowOpen] = useState(false);
 
-  const load = () => {
-    setLoading(true);
+  /**
+   * silent=true 静默刷新：不触发整页 loading。
+   * 页面操作（出入库 / 导入 / 保存）之后都用静默刷新 —— 否则列表会被
+   * 「加载中…」整块替换掉，滚动位置丢失，页面猛跳一下。
+   */
+  const load = (silent = false) => {
+    if (!silent) setLoading(true);
     Promise.all([materials.list(), materials.lowStock().catch(() => [])])
       .then(([l, low]) => {
         setList(l);
         setLowStock(Array.isArray(low) ? low : []);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!silent) setLoading(false);
+      });
   };
-  useEffect(load, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   // 按一级分类分组：预置顺序在前，用户自建的分类排最后
   // 只要有材料，就把 5 个标准分类都列出来 —— 每个分类右上角都有自己的「+ 新增材料」，
@@ -136,7 +145,7 @@ export default function Materials() {
       const scope = codes && codes.length ? '所选类型相关材料' : '全部材料';
       fb.toast(`已补充 ${r.created} 个预置材料（${scope}，共 ${r.total} 个，已存在的不覆盖价格）${extra}`);
       setSeedOpen(false);
-      load();
+      load(true);
     } catch (e: any) {
       fb.toast('初始化失败：' + (e.response?.data?.error || e.message), 'err');
     } finally {
@@ -192,7 +201,7 @@ export default function Materials() {
         fb.toast(r.unchanged ? '库存无变化' : `盘点完成，库存调整为 ${r.balanceAfter}${r.unit}`, 'ok');
       }
       setStockOp(null);
-      load();
+      load(true);
       if (ledgerOf?.id === m.id) showLedger(m);
     } catch (e: any) {
       fb.toast('操作失败：' + (e.response?.data?.error || e.message), 'err');
@@ -260,7 +269,7 @@ export default function Materials() {
           `已入库 ${r.created} 种材料（表内 ${r.total} 行）${r.errors?.length ? `，${r.errors.length} 行有问题` : ''}`,
           r.errors?.length ? 'warn' : 'ok',
         );
-        load();
+        load(true);
       } else {
         fb.toast('一条都没入库成功，看下面的明细', 'err');
       }
