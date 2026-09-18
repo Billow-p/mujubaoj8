@@ -5,7 +5,9 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { resolveMaterialPrice } from '@mqs/shared';
 import { prisma } from '../db.js';
-import { stockIn, stockOut, stockAdjust, listLedger, listLowStock } from '../services/stock.js';
+import { stockIn, stockOut, stockAdjust, listLedger, listLowStock, listCompanyLedger } from '../services/stock.js';
+import { parseStockInWorkbook } from '../services/stockImport.js';
+import ExcelJS from 'exceljs';
 
 // 预置材料（单价为行业参考值，企业可改）
 //
@@ -493,6 +495,218 @@ export async function materialRoutes(app: FastifyInstance) {
   app.get('/api/materials/stock/low', { preHandler: [app.authenticate] }, async (req) => {
     const { companyId } = reqUser(req);
     return listLowStock(companyId);
+  });
+
+  // Excel 批量入库：上传「材料编码 + 数量」表，按编码匹配后批量生成入库流水
+  app.post('/api/materials/stock-import', { preHandler: [app.authenticate] }, async (req, reply) => {
+    const { companyId, userId } = reqUser(req);
+    const data: any = await (req as any).file().catch(() => null);
+    if (!data) return reply.code(400).send({ error: '没有收到文件' });
+
+    const fname = String(data.filename || '');
+    if (!fname.toLowerCase().endsWith('.xlsx')) {
+      await data.toBuffer().catch(() => {});
+      return reply
+        .code(415)
+        .send({ error: fname.endsWith('.xls') ? '老版 .xls 不支持，用 Excel 另存为 .xlsx 再上传' : '只支持 .xlsx 文件' });
+    }
+
+    let buf: Buffer;
+    try {
+      buf = await data.toBuffer();
+    } catch (e: any) {
+      const tooLarge = e?.code === 'FST_REQ_FILE_TOO_LARGE';
+      return reply.code(tooLarge ? 413 : 400).send({ error: tooLarge ? '文件太大' : '文件读取失败' });
+    }
+
+    let parsed: Awaited<ReturnType<typeof parseStockInWorkbook>>;
+    try {
+      parsed = await parseStockInWorkbook(buf);
+    } catch (e: any) {
+      return reply.code(400).send({ error: 'Excel 读不出来：' + (e?.message ?? '文件可能已损坏或加了密码') });
+    }
+    if (parsed.rows.length === 0) {
+      return reply.code(400).send({
+        error: parsed.errors[0]?.reason ?? '表里没读到可入库的数据行',
+        errors: parsed.errors,
+      });
+    }
+
+    // 按编码匹配材料（只认全局库）
+    const codes = [...new Set(parsed.rows.map((r) => r.code))];
+    const mats = await prisma.material.findMany({
+      where: { companyId, moldTypeId: null, code: { in: codes } },
+      select: { id: true, code: true, name: true, unit: true, currentPrice: true, stockEnabled: true },
+    });
+    const byCode = new Map(mats.map((m) => [m.code, m]));
+
+    // 同一编码出现多行 → 累加后只记一笔（唯一索引 [materialId, refType, refId] 要求）
+    const agg = new Map<string, { qty: number; unitCost?: number; remark?: string; rows: number[] }>();
+    const errors = [...parsed.errors];
+    for (const r of parsed.rows) {
+      const m = byCode.get(r.code);
+      if (!m) {
+        errors.push({ row: r.row, code: r.code, reason: '材料库里找不到这个编码' });
+        continue;
+      }
+      const prev = agg.get(r.code);
+      if (prev) {
+        prev.qty += r.qty;
+        prev.rows.push(r.row);
+        if (r.unitCost != null) prev.unitCost = r.unitCost;
+        if (r.remark) prev.remark = [prev.remark, r.remark].filter(Boolean).join('；');
+      } else {
+        agg.set(r.code, { qty: r.qty, unitCost: r.unitCost, remark: r.remark, rows: [r.row] });
+      }
+    }
+
+    const batchNo = `IMP${Date.now().toString(36).toUpperCase()}`;
+    const done: any[] = [];
+    for (const [code, v] of agg) {
+      const m = byCode.get(code)!;
+      if (!m.stockEnabled) {
+        await prisma.material.update({ where: { id: m.id }, data: { stockEnabled: true } });
+      }
+      try {
+        const r = await stockIn({
+          companyId,
+          materialId: m.id,
+          qty: v.qty,
+          unitCost: v.unitCost ?? m.currentPrice,
+          refType: 'excel',
+          refId: batchNo,
+          remark: v.remark || `Excel 批量入库（第 ${v.rows.join('/')} 行）`,
+          createdById: userId,
+        });
+        done.push({
+          code,
+          name: m.name,
+          qty: v.qty,
+          unit: r.unit,
+          balanceAfter: r.balanceAfter,
+          lowStock: r.lowStock,
+        });
+      } catch (e: any) {
+        errors.push({ row: v.rows[0], code, reason: '入库失败：' + (e?.message ?? '未知错误') });
+      }
+    }
+
+    return {
+      ok: done.length > 0,
+      batchNo,
+      created: done.length,
+      total: parsed.rows.length,
+      items: done,
+      errors,
+    };
+  });
+
+  // 批量入库模板：第一个 Sheet 是要填的表，第二个 Sheet 附上本企业的材料编码对照
+  app.get('/api/materials/stock-import/template', { preHandler: [app.authenticate] }, async (req, reply) => {
+    const { companyId } = reqUser(req);
+    const mats = await prisma.material.findMany({
+      where: { companyId, moldTypeId: null, enabled: true },
+      orderBy: [{ category: 'asc' }, { code: 'asc' }],
+      select: { code: true, name: true, unit: true, currentPrice: true, stockQty: true },
+    });
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('批量入库');
+    ws.columns = [
+      { header: '材料编码', key: 'code', width: 16 },
+      { header: '材料名称', key: 'name', width: 22 },
+      { header: '数量', key: 'qty', width: 12 },
+      { header: '单价', key: 'price', width: 12 },
+      { header: '备注', key: 'remark', width: 24 },
+    ];
+    const sample = mats[0];
+    ws.addRow({
+      code: sample?.code ?? 'P20',
+      name: sample?.name ?? 'P20 预硬钢',
+      qty: 100,
+      price: sample?.currentPrice ?? 0,
+      remark: '示例行，正式使用前删掉',
+    });
+    ws.getRow(1).font = { bold: true };
+    ws.addRow([]);
+    ws.addRow({ code: '填写说明：材料编码必填且与材料库一致；数量必填且大于 0；单价/备注选填，单价留空则用材料库现价。' });
+
+    const ws2 = wb.addWorksheet('材料编码对照');
+    ws2.columns = [
+      { header: '材料编码', key: 'code', width: 16 },
+      { header: '材料名称', key: 'name', width: 24 },
+      { header: '单位', key: 'unit', width: 8 },
+      { header: '当前库存', key: 'stock', width: 12 },
+    ];
+    for (const m of mats) ws2.addRow({ code: m.code, name: m.name, unit: m.unit, stock: Number(m.stockQty) });
+    ws2.getRow(1).font = { bold: true };
+
+    const out = await wb.xlsx.writeBuffer();
+    reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    reply.header('Content-Disposition', 'attachment; filename="stock-import-template.xlsx"');
+    return reply.send(Buffer.from(out));
+  });
+
+  // 库存台账（全公司流水，支持筛选）
+  app.get('/api/materials/stock/ledger', { preHandler: [app.authenticate] }, async (req) => {
+    const { companyId } = reqUser(req);
+    const q = (req.query ?? {}) as any;
+    return listCompanyLedger({
+      companyId,
+      materialId: q.materialId || undefined,
+      direction: q.direction || undefined,
+      from: q.from || undefined,
+      to: q.to || undefined,
+      take: Number(q.take) || 100,
+    });
+  });
+
+  // 导出库存台账 Excel
+  app.get('/api/materials/stock/ledger/export', { preHandler: [app.authenticate] }, async (req, reply) => {
+    const { companyId } = reqUser(req);
+    const q = (req.query ?? {}) as any;
+    const rows = await listCompanyLedger({
+      companyId,
+      materialId: q.materialId || undefined,
+      direction: q.direction || undefined,
+      from: q.from || undefined,
+      to: q.to || undefined,
+      take: 1000,
+    });
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('库存台账');
+    ws.columns = [
+      { header: '时间', key: 't', width: 20 },
+      { header: '材料编码', key: 'code', width: 14 },
+      { header: '材料名称', key: 'name', width: 22 },
+      { header: '类型', key: 'dir', width: 8 },
+      { header: '数量', key: 'qty', width: 12 },
+      { header: '单位', key: 'unit', width: 8 },
+      { header: '变动后库存', key: 'bal', width: 14 },
+      { header: '来源单号', key: 'ref', width: 18 },
+      { header: '备注', key: 'remark', width: 30 },
+    ];
+    const dirText = (d: string) => (d === 'in' ? '入库' : d === 'out' ? '出库' : '盘点');
+    for (const r of rows) {
+      ws.addRow({
+        t: new Date(r.createdAt).toLocaleString('zh-CN', { hour12: false }),
+        code: (r as any).material?.code ?? '',
+        name: (r as any).material?.name ?? '',
+        dir: dirText(r.direction),
+        qty: r.direction === 'out' ? -Math.abs(Number(r.qty)) : Number(r.qty),
+        unit: (r as any).material?.unit ?? '',
+        bal: Number(r.balanceAfter),
+        ref: r.refId ?? '手动',
+        remark: r.remark ?? '',
+      });
+    }
+    ws.getRow(1).font = { bold: true };
+
+    const out = await wb.xlsx.writeBuffer();
+    reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    reply.header('Content-Disposition', 'attachment; filename="stock-ledger.xlsx"');
+    return reply.send(Buffer.from(out));
   });
 }
 

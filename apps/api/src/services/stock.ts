@@ -359,19 +359,35 @@ export async function listLedger(args: {
   });
 }
 
-/** 全公司库存流水（台账用） */
+/** 全公司库存流水（台账用），支持按材料 / 类型 / 时间区间筛选 */
 export async function listCompanyLedger(args: {
   companyId: string;
   take?: number;
   materialId?: string;
+  direction?: string;
+  from?: string | Date;
+  to?: string | Date;
 }) {
+  const from = args.from ? new Date(args.from) : null;
+  const to = args.to ? new Date(args.to) : null;
+  const hasRange = !!(from || to);
   return prisma.stockLedger.findMany({
     where: {
       companyId: args.companyId,
       ...(args.materialId ? { materialId: args.materialId } : {}),
+      ...(args.direction ? { direction: args.direction } : {}),
+      ...(hasRange
+        ? {
+            createdAt: {
+              ...(from ? { gte: from } : {}),
+              ...(to ? { lte: to } : {}),
+            },
+          }
+        : {}),
     },
+    include: { material: { select: { code: true, name: true, unit: true } } },
     orderBy: { createdAt: 'desc' },
-    take: args.take ?? 100,
+    take: Math.min(args.take ?? 100, 1000),
   });
 }
 
@@ -382,4 +398,57 @@ export async function listLowStock(companyId: string) {
     select: { id: true, code: true, name: true, unit: true, stockQty: true, safetyStock: true },
   });
   return rows.filter((r) => r.stockQty < r.safetyStock);
+}
+
+/**
+ * 报价作废 / 未成交 → 冲销退料。
+ *
+ * 做法：把当初扣的那几笔 out 流水按原量反向入库，refType 用 'quote-revert'
+ * （另一套 refType，所以不会撞「扣料」那条唯一索引）。
+ * 幂等同样靠唯一索引：重复作废只会退一次。
+ */
+export async function revertStockForQuote(args: {
+  companyId: string;
+  quoteNo: string;
+  createdById?: string | null;
+}): Promise<{ items: any[]; warnings: string[] }> {
+  const items: any[] = [];
+  const warnings: string[] = [];
+
+  const outs = await prisma.stockLedger.findMany({
+    where: {
+      companyId: args.companyId,
+      refType: 'quote',
+      refId: args.quoteNo,
+      direction: 'out',
+    },
+  });
+  if (outs.length === 0) return { items, warnings }; // 当初没扣过料，无需退
+
+  for (const o of outs) {
+    try {
+      const r = await stockIn({
+        companyId: args.companyId,
+        materialId: o.materialId,
+        qty: o.qty,
+        unitCost: o.unitCost,
+        refType: 'quote-revert',
+        refId: args.quoteNo,
+        remark: `报价 ${args.quoteNo} 作废/未成交，退回用料`,
+        createdById: args.createdById ?? null,
+      });
+      items.push({
+        materialId: o.materialId,
+        materialName: r.materialName,
+        unit: r.unit,
+        qty: o.qty,
+        balanceAfter: r.balanceAfter,
+      });
+    } catch (e: any) {
+      // P2002 = 这笔已经退过，跳过
+      if (e?.code === 'P2002') continue;
+      warnings.push(`退料失败：${e?.message ?? '未知错误'}`);
+    }
+  }
+  return { items, warnings };
 }

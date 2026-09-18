@@ -85,10 +85,25 @@ export default function Materials() {
   const [stockBusy, setStockBusy] = useState(false);
   const [ledgerOf, setLedgerOf] = useState<any | null>(null);
   const [ledgerRows, setLedgerRows] = useState<any[]>([]);
+  const [lowStock, setLowStock] = useState<any[]>([]);
+  // Excel 批量入库
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importResult, setImportResult] = useState<any>(null);
+  // 全公司台账 / 低库存清单
+  const [ledgerAllOpen, setLedgerAllOpen] = useState(false);
+  const [ledgerAllRows, setLedgerAllRows] = useState<any[]>([]);
+  const [lowOpen, setLowOpen] = useState(false);
 
   const load = () => {
     setLoading(true);
-    materials.list().then(setList).finally(() => setLoading(false));
+    Promise.all([materials.list(), materials.lowStock().catch(() => [])])
+      .then(([l, low]) => {
+        setList(l);
+        setLowStock(Array.isArray(low) ? low : []);
+      })
+      .finally(() => setLoading(false));
   };
   useEffect(load, []);
 
@@ -183,6 +198,88 @@ export default function Materials() {
       fb.toast('操作失败：' + (e.response?.data?.error || e.message), 'err');
     } finally {
       setStockBusy(false);
+    }
+  };
+
+  /**
+   * blob 下载。坑：后端报错时返回的也是 200 + JSON（content-type: application/json），
+   * 直接存盘会得到一个打不开的「xlsx」，所以先认出 JSON 并把错误读出来。
+   */
+  const downloadBlob = async (blob: any, filename: string): Promise<boolean> => {
+    if (!blob || (blob.type && String(blob.type).includes('application/json'))) {
+      try {
+        const t = typeof blob?.text === 'function' ? await blob.text() : '';
+        const j = JSON.parse(t || '{}');
+        fb.toast(j.error ? '失败：' + j.error : '下载失败', 'err');
+      } catch {
+        fb.toast('下载失败', 'err');
+      }
+      return false;
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return true;
+  };
+
+  const openCompanyLedger = async () => {
+    setLedgerAllOpen(true);
+    setLedgerAllRows([]);
+    try {
+      setLedgerAllRows(await materials.ledgerAll({ take: 200 }));
+    } catch {
+      /* 拉不到就显示空态，不打断页面 */
+    }
+  };
+
+  const downloadTemplate = async () => {
+    try {
+      const ok = await downloadBlob(await materials.stockTemplateBlob(), '批量入库模板.xlsx');
+      if (ok) fb.toast('模板已下载，填好数量再上传', 'ok');
+    } catch (e: any) {
+      fb.toast('模板下载失败：' + (e?.message ?? '未知错误'), 'err');
+    }
+  };
+
+  const submitImport = async () => {
+    if (!importFile) {
+      fb.toast('先选一个 .xlsx 文件', 'err');
+      return;
+    }
+    setImportBusy(true);
+    try {
+      const r = await materials.stockImport(importFile);
+      setImportResult(r);
+      if (r.created > 0) {
+        fb.toast(
+          `已入库 ${r.created} 种材料（表内 ${r.total} 行）${r.errors?.length ? `，${r.errors.length} 行有问题` : ''}`,
+          r.errors?.length ? 'warn' : 'ok',
+        );
+        load();
+      } else {
+        fb.toast('一条都没入库成功，看下面的明细', 'err');
+      }
+    } catch (e: any) {
+      fb.toast('导入失败：' + (e.response?.data?.error || e.message), 'err');
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
+  const exportLedger = async () => {
+    try {
+      const ok = await downloadBlob(
+        await materials.ledgerExportBlob({}),
+        `库存台账_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      );
+      if (ok) fb.toast('台账已导出', 'ok');
+    } catch (e: any) {
+      fb.toast('导出失败：' + (e?.message ?? '未知错误'), 'err');
     }
   };
 
@@ -360,6 +457,20 @@ export default function Materials() {
           >
             {list.length === 0 ? '第 1 步：初始化预置材料' : '第 1 步：补齐预置材料'}
           </button>
+          <button
+            onClick={() => { setImportResult(null); setImportFile(null); setImportOpen(true); }}
+            className="border border-gray-300 px-4 py-2 rounded text-sm hover:bg-gray-50 whitespace-nowrap"
+            title="上传 Excel 批量登记入库：先下载模板，按材料编码填数量"
+          >
+            批量入库
+          </button>
+          <button
+            onClick={() => openCompanyLedger()}
+            className="border border-gray-300 px-4 py-2 rounded text-sm hover:bg-gray-50 whitespace-nowrap"
+            title="查看全公司出入库流水，可导出 Excel"
+          >
+            库存台账
+          </button>
           {/* 第 2 步：去配置中心同步 */}
           <Link
             to="/settings/config"
@@ -369,6 +480,21 @@ export default function Materials() {
           </Link>
         </div>
       </div>
+
+      {/* 低库存预警（只提示，不拦任何操作） */}
+      {!loading && lowStock.length > 0 && (
+        <div className="flex items-center justify-between gap-3 border border-amber-200 bg-amber-50 rounded px-4 py-2.5">
+          <span className="text-[12.5px] text-amber-800">
+            {lowStock.length} 种材料低于安全库存，建议尽快补货
+          </span>
+          <button
+            onClick={() => setLowOpen(true)}
+            className="text-[12.5px] text-amber-900 underline hover:no-underline whitespace-nowrap"
+          >
+            看清单
+          </button>
+        </div>
+      )}
 
       {/* 分类概览 */}
       {!loading && list.length > 0 && (
@@ -690,6 +816,181 @@ export default function Materials() {
                   </tbody>
                 </table>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Excel 批量入库 */}
+      {importOpen && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-6 z-50">
+          <div className="bg-white rounded-lg w-full max-w-lg shadow-xl max-h-[80vh] flex flex-col">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="font-medium">Excel 批量入库</h2>
+              <p className="text-[12.5px] text-gray-500 mt-1">
+                先下载模板，按「材料编码 + 数量」填好再上传；同一个编码填多行会自动累加成一条记录。
+              </p>
+            </div>
+            <div className="px-6 py-4 space-y-3 flex-1 overflow-auto">
+              <button onClick={downloadTemplate} className="text-[12.5px] text-blue-700 underline hover:no-underline">
+                下载模板（含材料编码对照）
+              </button>
+              <div>
+                <input
+                  type="file"
+                  accept=".xlsx"
+                  onChange={(e) => {
+                    setImportFile(e.target.files?.[0] ?? null);
+                    setImportResult(null);
+                  }}
+                  className="block w-full text-[12.5px] text-gray-600 file:mr-3 file:px-3 file:py-1.5 file:border file:border-gray-300 file:rounded file:text-[12.5px] file:bg-white hover:file:bg-gray-50"
+                />
+                {importFile && <p className="text-[11.5px] text-gray-400 mt-1">已选：{importFile.name}</p>}
+              </div>
+              {importResult && (
+                <div className="border border-gray-200 rounded p-3 text-[12.5px]">
+                  <div className="text-gray-700">
+                    成功 {importResult.created} 种 / 表内 {importResult.total} 行
+                    {importResult.batchNo && <span className="text-gray-400 ml-2">批次 {importResult.batchNo}</span>}
+                  </div>
+                  {importResult.items?.length > 0 && (
+                    <ul className="mt-2 space-y-1">
+                      {importResult.items.map((it: any) => (
+                        <li key={it.code} className="text-gray-600">
+                          {it.code} {it.name} +{it.qty}
+                          {it.unit} → 库存 {it.balanceAfter}
+                          {it.unit}
+                          {it.lowStock && <span className="text-amber-700 ml-1">（仍偏低）</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {importResult.errors?.length > 0 && (
+                    <div className="mt-2 text-red-700">
+                      有 {importResult.errors.length} 行没处理：
+                      <ul className="mt-1 space-y-0.5">
+                        {importResult.errors.map((e: any, i: number) => (
+                          <li key={i}>
+                            第 {e.row} 行「{e.code || '空'}」— {e.reason}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-3 border-t border-gray-200 flex justify-end gap-2">
+              <button onClick={() => setImportOpen(false)} className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50">
+                关闭
+              </button>
+              <button
+                onClick={submitImport}
+                disabled={importBusy}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50"
+              >
+                {importBusy ? '导入中…' : '开始导入'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 全公司库存台账 */}
+      {ledgerAllOpen && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-6 z-50">
+          <div className="bg-white rounded-lg w-full max-w-3xl shadow-xl max-h-[80vh] flex flex-col">
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+              <h2 className="font-medium">库存台账</h2>
+              <div className="flex items-center gap-3">
+                <button onClick={exportLedger} className="text-[12.5px] text-blue-700 underline hover:no-underline">
+                  导出 Excel
+                </button>
+                <button onClick={() => setLedgerAllOpen(false)} className="text-gray-400 hover:text-gray-700 text-sm">
+                  关闭
+                </button>
+              </div>
+            </div>
+            <div className="overflow-auto px-6 py-4 flex-1">
+              {ledgerAllRows.length === 0 ? (
+                <p className="text-[12.5px] text-gray-400 text-center py-8">还没有出入库记录</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="text-gray-500 text-[12px]">
+                    <tr className="border-b border-gray-100">
+                      <th className="text-left py-2 font-normal">时间</th>
+                      <th className="text-left py-2 font-normal">材料</th>
+                      <th className="text-left py-2 font-normal">类型</th>
+                      <th className="text-right py-2 font-normal">数量</th>
+                      <th className="text-right py-2 font-normal">变动后</th>
+                      <th className="text-left py-2 font-normal">来源</th>
+                      <th className="text-left py-2 font-normal">备注</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {ledgerAllRows.map((r: any) => (
+                      <tr key={r.id}>
+                        <td className="py-2 text-[11.5px] text-gray-500 whitespace-nowrap">
+                          {new Date(r.createdAt).toLocaleString('zh-CN', { hour12: false })}
+                        </td>
+                        <td className="py-2 text-[11.5px]">
+                          {r.material?.name ?? '—'}
+                          <span className="text-gray-400 ml-1 font-mono">{r.material?.code ?? ''}</span>
+                        </td>
+                        <td className="py-2">
+                          <span
+                            className={`text-[11.5px] px-1.5 py-0.5 rounded border ${
+                              r.direction === 'in'
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                : r.direction === 'out'
+                                ? 'bg-red-50 text-red-700 border-red-200'
+                                : 'bg-gray-50 text-gray-600 border-gray-200'
+                            }`}
+                          >
+                            {r.direction === 'in' ? '入库' : r.direction === 'out' ? '出库' : '盘点'}
+                          </span>
+                        </td>
+                        <td className="py-2 text-right tabular-nums">
+                          {r.direction === 'out' ? '-' : r.direction === 'in' ? '+' : ''}
+                          {Number(r.qty).toFixed(2)}
+                        </td>
+                        <td className="py-2 text-right tabular-nums text-gray-600">
+                          {Number(r.balanceAfter).toFixed(2)}
+                        </td>
+                        <td className="py-2 text-[11.5px] text-gray-500">{r.refId ?? '手动'}</td>
+                        <td className="py-2 text-[11.5px] text-gray-500">{r.remark ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 低库存清单 */}
+      {lowOpen && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-6 z-50">
+          <div className="bg-white rounded-lg w-full max-w-md shadow-xl">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="font-medium">低库存材料（{lowStock.length}）</h2>
+              <p className="text-[12.5px] text-gray-500 mt-1">低于安全库存的材料，建议补货；系统不会拦报价。</p>
+            </div>
+            <div className="px-6 py-4 space-y-2 max-h-[50vh] overflow-auto">
+              {lowStock.map((m: any) => (
+                <div key={m.id} className="flex justify-between items-center text-[12.5px]">
+                  <span className="text-gray-800">{m.name}</span>
+                  <span className="text-amber-700 tabular-nums">
+                    {Number(m.stockQty).toFixed(2)} / 安全 {Number(m.safetyStock ?? 0).toFixed(0)} {m.unit}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="px-6 py-3 border-t border-gray-200 flex justify-end">
+              <button onClick={() => setLowOpen(false)} className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50">
+                关闭
+              </button>
             </div>
           </div>
         </div>

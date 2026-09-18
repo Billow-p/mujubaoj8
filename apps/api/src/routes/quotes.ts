@@ -14,7 +14,7 @@ import { buildQuoteExcel } from '../services/excel.js';
 import { toExcelModel } from '../services/quoteModel.js';
 import { calcTotal } from '../services/quoteTotal.js';
 import { genQuoteNo, genShareToken, publicWebUrl, shareSummary, mailTotals, shareSpecs, parseParamOptions, projectSpecParams, sizeItemWeightKg, loadEnabledFormulas, mergeFormulas } from '../services/quoteHelpers.js';
-import { deductForQuote } from '../services/stock.js';
+import { deductForQuote, revertStockForQuote } from '../services/stock.js';
 
 const CreateQuoteSchema = z.object({
   customerId: z.string().nullable().optional(),
@@ -1324,6 +1324,14 @@ export async function quoteRoutes(app: FastifyInstance) {
           createdById: userId,
         });
       }
+      // 作废 / 未成交 → 冲销退料：当初扣的料原样退回去
+      if ((body.status === 'lost' || body.status === 'void') && q.status === 'confirmed') {
+        stock = await revertStockOnCancel({
+          companyId,
+          quoteNo: q.quoteNo,
+          createdById: userId,
+        });
+      }
 
       await prisma.quoteLog.create({
         data: {
@@ -1477,5 +1485,21 @@ async function deductStockOnConfirm(args: {
     });
   } catch (e: any) {
     return { items: [], warnings: [`库存扣减失败：${e?.message ?? '未知错误'}`] };
+  }
+}
+
+/**
+ * 作废 / 未成交 → 冲销退料：把成交时扣的料按原量退回去。
+ * 只在「已成交 → 作废/未成交」时触发；本来就没成交过的单查不到扣料流水，自然什么都不做。
+ */
+async function revertStockOnCancel(args: {
+  companyId: string;
+  quoteNo: string;
+  createdById?: string | null;
+}): Promise<{ items: any[]; warnings: string[] }> {
+  try {
+    return await revertStockForQuote(args);
+  } catch (e: any) {
+    return { items: [], warnings: [`退料失败：${e?.message ?? '未知错误'}`] };
   }
 }

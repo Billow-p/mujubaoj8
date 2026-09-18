@@ -472,6 +472,22 @@ export const materials = {
   ledger: (id: string, take?: number) =>
     api.get(`/materials/${id}/ledger`, { params: { take } }).then((r) => r.data),
   lowStock: () => api.get('/materials/stock/low').then((r) => r.data),
+
+  // Excel 批量入库（multipart）
+  stockImport: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post('/materials/stock-import', fd).then((r) => r.data);
+  },
+  // 模板 / 台账导出：一律按 blob 取，且不让 axios 因 4xx/5xx 抛错
+  // （blob 会把 JSON 错误体吞掉，交给调用方按 content-type 判断）
+  stockTemplateBlob: () =>
+    api.get('/materials/stock-import/template', { responseType: 'blob', validateStatus: () => true }).then((r) => r.data),
+  ledgerAll: (params?: any) => api.get('/materials/stock/ledger', { params }).then((r) => r.data),
+  ledgerExportBlob: (params?: any) =>
+    api
+      .get('/materials/stock/ledger/export', { params, responseType: 'blob', validateStatus: () => true })
+      .then((r) => r.data),
 };
 
 // 参数中心
