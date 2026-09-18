@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { resolveMaterialPrice } from '@mqs/shared';
 import { prisma } from '../db.js';
+import { stockIn, stockOut, stockAdjust, listLedger, listLowStock } from '../services/stock.js';
 
 // 预置材料（单价为行业参考值，企业可改）
 //
@@ -121,6 +122,15 @@ const MaterialSchema = z.object({
     .optional(),
   remark: z.string().max(200, '备注最多 200 个字符').nullable().optional(),
   enabled: z.boolean().optional(),
+
+  // ---- 库存管理（ERP）----
+  // 注意：不包含 stockQty —— 余额只能通过出入库/盘点变动，不允许手改
+  safetyStock: z.number().nonnegative('安全库存不能为负').optional(),
+  stockEnabled: z.boolean().optional(),
+  allowNegative: z.boolean().optional(),
+  machiningAllowanceMm: z.number().nonnegative('加工余量不能为负').max(50, '加工余量最多 50mm').optional(),
+  perCavity: z.boolean().optional(),
+  rawWeightKg: z.number().nonnegative('毛料重量不能为负').nullable().optional(),
 });
 
 // 更新：所有字段可选（partially），但校验规则沿用
@@ -260,6 +270,9 @@ export async function materialRoutes(app: FastifyInstance) {
           priceRule: 'fixed',
           isPreset: true,
           enabled: true,
+          // 决策（吴老师 2026-09-19）：钢材/塑料/压铸合金/橡胶 纳入库存管理，
+          // 辅助材料（纸箱/木箱/脱模剂/喷涂粉末）默认不管库存
+          stockEnabled: m.category !== '辅助材料',
           remark: m.remark,
           prices: { create: [{ version: 1, price: m.price, note: '预置初始价' }] },
         },
@@ -364,6 +377,122 @@ export async function materialRoutes(app: FastifyInstance) {
 
     await prisma.material.delete({ where: { id } });
     return { ok: true };
+  });
+
+  // ================================================================
+  // 库存管理（ERP）—— 入库 / 出库 / 盘点 / 流水
+  // 余额只走这三类操作变动，不提供「直接改余额」的接口（防手改导致对不上账）
+  // ================================================================
+
+  const StockInSchema = z.object({
+    qty: z.number().positive('入库数量必须大于 0'),
+    unitCost: z.number().nonnegative('单价不能为负').optional(),
+    remark: z.string().max(200, '备注最多 200 个字符').optional(),
+  });
+
+  const StockOutSchema = z.object({
+    qty: z.number().positive('出库数量必须大于 0'),
+    remark: z.string().max(200, '备注最多 200 个字符').optional(),
+  });
+
+  const StockAdjustSchema = z.object({
+    actualQty: z.number().nonnegative('实际库存不能为负'),
+    remark: z.string().max(200, '备注最多 200 个字符').optional(),
+  });
+
+  const reqUser = (req: any) => req.user as any;
+
+  // 入库
+  app.post('/api/materials/:id/stock-in', { preHandler: [app.authenticate] }, async (req, reply) => {
+    const { companyId, userId } = reqUser(req);
+    const { id } = req.params as any;
+    const body = StockInSchema.parse(req.body);
+
+    const m = await prisma.material.findFirst({ where: { id, companyId } });
+    if (!m) return reply.code(404).send({ error: '材料不存在' });
+    // 用户主动入库说明这块料要开始管了，顺手把开关打开
+    if (!m.stockEnabled) {
+      await prisma.material.update({ where: { id }, data: { stockEnabled: true } });
+    }
+    try {
+      const r = await stockIn({
+        companyId,
+        materialId: id,
+        qty: body.qty,
+        unitCost: body.unitCost ?? m.currentPrice,
+        refType: 'manual',
+        refId: null,
+        remark: body.remark ?? '手动入库',
+        createdById: userId,
+      });
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return reply.code(400).send({ error: e?.message ?? '入库失败' });
+    }
+  });
+
+  // 出库（手动领料）
+  app.post('/api/materials/:id/stock-out', { preHandler: [app.authenticate] }, async (req, reply) => {
+    const { companyId, userId } = reqUser(req);
+    const { id } = req.params as any;
+    const body = StockOutSchema.parse(req.body);
+
+    const m = await prisma.material.findFirst({ where: { id, companyId } });
+    if (!m) return reply.code(404).send({ error: '材料不存在' });
+    try {
+      const r = await stockOut({
+        companyId,
+        materialId: id,
+        qty: body.qty,
+        unitCost: m.currentPrice,
+        refType: 'manual',
+        refId: null,
+        remark: body.remark ?? '手动出库',
+        createdById: userId,
+      });
+      // 库存不足照扣（已定：预警不拦），lowStock 交给前端提示
+      return { ok: true, ...r };
+    } catch (e: any) {
+      return reply.code(400).send({ error: e?.message ?? '出库失败' });
+    }
+  });
+
+  // 盘点：把库存调成实际数，差额自动生成 adjust 流水（盘盈盘亏都留痕）
+  app.post('/api/materials/:id/stock-adjust', { preHandler: [app.authenticate] }, async (req, reply) => {
+    const { companyId, userId } = reqUser(req);
+    const { id } = req.params as any;
+    const body = StockAdjustSchema.parse(req.body);
+
+    const m = await prisma.material.findFirst({ where: { id, companyId } });
+    if (!m) return reply.code(404).send({ error: '材料不存在' });
+    try {
+      const r = await stockAdjust({
+        companyId,
+        materialId: id,
+        actualQty: body.actualQty,
+        remark: body.remark ?? '库存盘点',
+        createdById: userId,
+      });
+      return { ok: true, ...r, unchanged: r.balanceAfter === m.stockQty };
+    } catch (e: any) {
+      return reply.code(400).send({ error: e?.message ?? '盘点失败' });
+    }
+  });
+
+  // 单个材料的库存流水
+  app.get('/api/materials/:id/ledger', { preHandler: [app.authenticate] }, async (req, reply) => {
+    const { companyId } = reqUser(req);
+    const { id } = req.params as any;
+    const take = Math.min(Number((req.query as any)?.take) || 50, 200);
+    const m = await prisma.material.findFirst({ where: { id, companyId }, select: { id: true } });
+    if (!m) return reply.code(404).send({ error: '材料不存在' });
+    return listLedger({ companyId, materialId: id, take });
+  });
+
+  // 低库存预警清单
+  app.get('/api/materials/stock/low', { preHandler: [app.authenticate] }, async (req) => {
+    const { companyId } = reqUser(req);
+    return listLowStock(companyId);
   });
 }
 

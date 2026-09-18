@@ -309,9 +309,20 @@ model Material {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // ---- 库存管理（ERP）----
+  // 库存余额是流水累加的快照，真值以 StockLedger 逐笔为准，可随时重算对账
+  stockQty        Float   @default(0)       // 当前库存
+  safetyStock     Float   @default(0)       // 安全库存，低于此值预警（不拦截）
+  stockEnabled    Boolean @default(false)   // 是否纳入库存管理（钢材/原料开，包装辅料关）
+  allowNegative   Boolean @default(true)    // 库存不足是否允许继续出库（已定：允许，只预警）
+  machiningAllowanceMm Float @default(5)    // 钢材开料加工余量（双边 mm，行业标准 3-5mm）
+  perCavity       Boolean @default(false)   // 模具尺寸口径：true=填的是单腔尺寸（需×腔数）
+  rawWeightKg     Float?                    // 直接指定毛料重量(kg)，有值则优先于体积换算
+
   company  Company   @relation(fields: [companyId], references: [id])
   moldType MoldType? @relation(fields: [moldTypeId], references: [id], onDelete: Cascade)
   prices   MaterialPrice[]
+  ledger   StockLedger[]
 
   @@unique([companyId, moldTypeId, code])
   @@index([companyId, category])
@@ -331,6 +342,31 @@ model MaterialPrice {
 
   @@unique([materialId, version])
   @@index([materialId])
+}
+
+// 材料出入库流水 —— ERP 库存变动的唯一真源
+// Material.stockQty 只是余额快照，本表逐笔留痕，可随时重算对账、查谁在什么时候动了料
+model StockLedger {
+  id            String   @id @default(cuid())
+  companyId     String
+  materialId    String
+  direction     String   // 'in' 入库 | 'out' 出库 | 'adjust' 盘点调整
+  qty           Float    // 变动量（恒为正，增减由 direction 决定）
+  balanceAfter  Float    // 变动后余额（快照，便于逐笔对账）
+  unitCost      Float?   // 本次单价（入库记采购价，出库记当时材料价）
+  refType       String?  // 'manual' | 'quote' | 'excel' | 'adjust'
+  refId         String?  // 关联单号（报价单号 BJ-xxx / 入库批次号）
+  remark        String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  material Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  // 幂等闸门：同一来源单号对同一材料只记一笔。
+  // 注意 refType/refId 为 NULL 时 Postgres 认为 NULL 互不相等 → 手动多笔入库不会被误拦。
+  @@unique([materialId, refType, refId])
+  @@index([companyId, materialId, createdAt])
+  @@index([companyId, createdAt])
 }
 
 // 11. 参数中心（对应 PRD P4）

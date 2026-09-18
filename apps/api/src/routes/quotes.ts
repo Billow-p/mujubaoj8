@@ -14,6 +14,7 @@ import { buildQuoteExcel } from '../services/excel.js';
 import { toExcelModel } from '../services/quoteModel.js';
 import { calcTotal } from '../services/quoteTotal.js';
 import { genQuoteNo, genShareToken, publicWebUrl, shareSummary, mailTotals, shareSpecs, parseParamOptions, projectSpecParams, sizeItemWeightKg, loadEnabledFormulas, mergeFormulas } from '../services/quoteHelpers.js';
+import { deductForQuote } from '../services/stock.js';
 
 const CreateQuoteSchema = z.object({
   customerId: z.string().nullable().optional(),
@@ -1312,6 +1313,18 @@ export async function quoteRoutes(app: FastifyInstance) {
       if (body.status === 'sent' && !q.sentAt) data.sentAt = new Date();
 
       await prisma.quote.update({ where: { id }, data });
+
+      // 成交 → 自动扣减材料库存（ERP）。只从未成交转成交时扣一次。
+      let stock: { items: any[]; warnings: string[] } = { items: [], warnings: [] };
+      if (body.status === 'confirmed' && q.status !== 'confirmed') {
+        stock = await deductStockOnConfirm({
+          companyId,
+          quoteId: id,
+          quoteNo: q.quoteNo,
+          createdById: userId,
+        });
+      }
+
       await prisma.quoteLog.create({
         data: {
           quoteId: id,
@@ -1320,7 +1333,7 @@ export async function quoteRoutes(app: FastifyInstance) {
           detail: `状态变更为 ${body.status}${body.note ? `（${body.note}）` : ''}`,
         },
       });
-      return { ok: true, status: body.status };
+      return { ok: true, status: body.status, stock };
     },
   );
 
@@ -1417,6 +1430,18 @@ export async function quoteRoutes(app: FastifyInstance) {
       where: { id: share.quoteId },
       data: { status: 'confirmed', confirmedAt: new Date() },
     });
+
+    // 成交 → 自动扣减材料库存（ERP）
+    let stock: { items: any[]; warnings: string[] } = { items: [], warnings: [] };
+    if (share.quote.status !== 'confirmed') {
+      stock = await deductStockOnConfirm({
+        companyId: share.quote.companyId,
+        quoteId: share.quoteId,
+        quoteNo: share.quote.quoteNo,
+        createdById: null, // 客户确认，无内部操作人
+      });
+    }
+
     await prisma.quoteLog.create({
       data: {
         quoteId: share.quoteId,
@@ -1424,6 +1449,33 @@ export async function quoteRoutes(app: FastifyInstance) {
         detail: `客户 ${share.email} 已确认`,
       },
     });
-    return { ok: true };
+    return { ok: true, stock };
   });
+}
+
+/**
+ * 成交后扣减材料库存：取最新版本参数 → 按材料编码归并用料 → 出库。
+ * 扣料失败绝不影响成交本身（成交是主流程，库存是记账），只把警告带回去。
+ */
+async function deductStockOnConfirm(args: {
+  companyId: string;
+  quoteId: string;
+  quoteNo: string;
+  createdById?: string | null;
+}): Promise<{ items: any[]; warnings: string[] }> {
+  try {
+    const latest = await prisma.quoteVersion.findFirst({
+      where: { quoteId: args.quoteId },
+      orderBy: { versionNo: 'desc' },
+      select: { paramsJson: true },
+    });
+    return await deductForQuote({
+      companyId: args.companyId,
+      quoteNo: args.quoteNo,
+      paramsJson: latest?.paramsJson,
+      createdById: args.createdById ?? null,
+    });
+  } catch (e: any) {
+    return { items: [], warnings: [`库存扣减失败：${e?.message ?? '未知错误'}`] };
+  }
 }

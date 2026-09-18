@@ -461,6 +461,17 @@ export const materials = {
   update: (id: string, body: any) => api.patch(`/materials/${id}`, body).then((r) => r.data),
   prices: (id: string) => api.get(`/materials/${id}/prices`).then((r) => r.data),
   remove: (id: string) => api.delete(`/materials/${id}`).then((r) => r.data),
+
+  // ---- 库存管理（ERP）----
+  stockIn: (id: string, body: { qty: number; unitCost?: number; remark?: string }) =>
+    api.post(`/materials/${id}/stock-in`, body).then((r) => r.data),
+  stockOut: (id: string, body: { qty: number; remark?: string }) =>
+    api.post(`/materials/${id}/stock-out`, body).then((r) => r.data),
+  stockAdjust: (id: string, body: { actualQty: number; remark?: string }) =>
+    api.post(`/materials/${id}/stock-adjust`, body).then((r) => r.data),
+  ledger: (id: string, take?: number) =>
+    api.get(`/materials/${id}/ledger`, { params: { take } }).then((r) => r.data),
+  lowStock: () => api.get('/materials/stock/low').then((r) => r.data),
 };
 
 // 参数中心

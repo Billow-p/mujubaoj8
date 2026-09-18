@@ -78,6 +78,14 @@ export default function Materials() {
   const [seeding, setSeeding] = useState(false);
   const fb = useFeedback();
 
+  // 库存操作（ERP）：kind = 入库 / 出库 / 盘点
+  const [stockOp, setStockOp] = useState<{ m: any; kind: 'in' | 'out' | 'adjust' } | null>(null);
+  const [stockQty, setStockQty] = useState('');
+  const [stockRemark, setStockRemark] = useState('');
+  const [stockBusy, setStockBusy] = useState(false);
+  const [ledgerOf, setLedgerOf] = useState<any | null>(null);
+  const [ledgerRows, setLedgerRows] = useState<any[]>([]);
+
   const load = () => {
     setLoading(true);
     materials.list().then(setList).finally(() => setLoading(false));
@@ -126,6 +134,56 @@ export default function Materials() {
     const all = SEED_OPTIONS.every((o) => seedSel[o.code]);
     if (!codes.length) return; // 按钮已禁用，双保险
     seed(all ? undefined : codes);
+  };
+
+  // ---- 库存操作（ERP）----
+  const openStock = (m: any, kind: 'in' | 'out' | 'adjust') => {
+    setStockOp({ m, kind });
+    setStockQty('');
+    setStockRemark('');
+  };
+
+  const showLedger = async (m: any) => {
+    setLedgerOf(m);
+    setLedgerRows([]);
+    try {
+      setLedgerRows(await materials.ledger(m.id, 50));
+    } catch {
+      /* 流水拉不到就显示空态，不打断页面 */
+    }
+  };
+
+  const submitStock = async () => {
+    if (!stockOp) return;
+    const qty = Number(stockQty);
+    const isAdjust = stockOp.kind === 'adjust';
+    // 盘点允许填 0（实际清空了），入库/出库必须大于 0
+    if (!Number.isFinite(qty) || qty < 0 || (!isAdjust && qty === 0)) {
+      fb.toast('数量要填一个大于 0 的数字', 'err');
+      return;
+    }
+    setStockBusy(true);
+    try {
+      const { m, kind } = stockOp;
+      const lowHint = (r: any) => (r.lowStock ? '，已低于安全库存，记得补货' : '');
+      if (kind === 'in') {
+        const r = await materials.stockIn(m.id, { qty, remark: stockRemark || undefined });
+        fb.toast(`已入库 ${qty}${m.unit}，当前库存 ${r.balanceAfter}${r.unit}${lowHint(r)}`, r.lowStock ? 'warn' : 'ok');
+      } else if (kind === 'out') {
+        const r = await materials.stockOut(m.id, { qty, remark: stockRemark || undefined });
+        fb.toast(`已出库 ${qty}${m.unit}，当前库存 ${r.balanceAfter}${r.unit}${lowHint(r)}`, r.lowStock ? 'warn' : 'ok');
+      } else {
+        const r = await materials.stockAdjust(m.id, { actualQty: qty, remark: stockRemark || undefined });
+        fb.toast(r.unchanged ? '库存无变化' : `盘点完成，库存调整为 ${r.balanceAfter}${r.unit}`, 'ok');
+      }
+      setStockOp(null);
+      load();
+      if (ledgerOf?.id === m.id) showLedger(m);
+    } catch (e: any) {
+      fb.toast('操作失败：' + (e.response?.data?.error || e.message), 'err');
+    } finally {
+      setStockBusy(false);
+    }
   };
 
   /**
@@ -379,6 +437,7 @@ export default function Materials() {
                       <th className="text-left px-3 py-2 font-normal">单位</th>
                       <th className="text-right px-3 py-2 font-normal">单价</th>
                       <th className="text-right px-3 py-2 font-normal">损耗率</th>
+                      <th className="text-right px-3 py-2 font-normal">库存</th>
                       <th className="text-left px-3 py-2 font-normal">状态</th>
                       <th className="text-right px-4 py-2 font-normal">操作</th>
                     </tr>
@@ -386,7 +445,7 @@ export default function Materials() {
                   <tbody className="divide-y divide-gray-50">
                     {items.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="px-4 py-6 text-center text-[12.5px] text-gray-400">
+                        <td colSpan={8} className="px-4 py-6 text-center text-[12.5px] text-gray-400">
                           这一类还没有材料，点右上角「+ 新增材料」按「{g}」添加
                         </td>
                       </tr>
@@ -418,6 +477,28 @@ export default function Materials() {
                         <td className="px-3 py-2 text-right tabular-nums text-gray-600">
                           {Math.round(m.lossRate * 100)}%
                         </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {m.stockEnabled ? (
+                            <>
+                              <span
+                                className={m.stockQty < m.safetyStock ? 'text-amber-700' : 'text-gray-900'}
+                                title={m.stockQty < m.safetyStock ? '低于安全库存，建议补货' : ''}
+                              >
+                                {Number(m.stockQty).toFixed(2)}
+                              </span>
+                              {m.safetyStock > 0 && (
+                                <span className="ml-1 text-[10.5px] text-gray-400">
+                                  / 安全 {Number(m.safetyStock).toFixed(0)}
+                                </span>
+                              )}
+                              {m.stockQty < m.safetyStock && (
+                                <div className="text-[10.5px] text-amber-700">库存偏低</div>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-gray-300 text-[11.5px]">未管库存</span>
+                          )}
+                        </td>
                         <td className="px-3 py-2">
                           <button
                             onClick={() => toggleEnabled(m)}
@@ -433,6 +514,27 @@ export default function Materials() {
                           {m.isPreset && <span className="ml-1 text-[11.5px] text-gray-400">预置</span>}
                         </td>
                         <td className="px-4 py-2 text-right whitespace-nowrap">
+                          <button
+                            onClick={() => openStock(m, 'in')}
+                            title="登记入库（采购到货），库存增加"
+                            className="text-gray-600 hover:text-gray-900 text-xs px-1.5"
+                          >
+                            入库
+                          </button>
+                          <button
+                            onClick={() => openStock(m, 'out')}
+                            title="登记出库（车间领料），库存减少"
+                            className="text-gray-600 hover:text-gray-900 text-xs px-1.5"
+                          >
+                            出库
+                          </button>
+                          <button
+                            onClick={() => showLedger(m)}
+                            title="查看出入库流水"
+                            className="text-gray-600 hover:text-gray-900 text-xs px-1.5"
+                          >
+                            流水
+                          </button>
                           <button onClick={() => showPrices(m.id)} className="text-gray-600 hover:text-gray-900 text-xs px-2">
                             价格历史
                           </button>
@@ -464,6 +566,134 @@ export default function Materials() {
             </div>
           );
         })}
+
+      {/* 入库 / 出库 / 盘点 */}
+      {stockOp && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-6 z-50">
+          <div className="bg-white rounded-lg w-full max-w-sm shadow-xl">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="font-medium">
+                {stockOp.kind === 'in' ? '入库' : stockOp.kind === 'out' ? '出库' : '库存盘点'} — {stockOp.m.name}
+              </h2>
+              <p className="text-[12.5px] text-gray-500 mt-1">
+                {stockOp.kind === 'in'
+                  ? '登记采购到货，库存增加'
+                  : stockOp.kind === 'out'
+                  ? '登记车间领料，库存减少'
+                  : '按实际盘点数调整库存，差额自动生成盘盈/盘亏记录'}
+              </p>
+            </div>
+            <div className="px-6 py-4 space-y-3">
+              <label className="block text-sm">
+                <span className="text-gray-600">
+                  {stockOp.kind === 'adjust' ? '实际库存数量' : '数量'}（{stockOp.m.unit}）
+                </span>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={stockQty}
+                  onChange={(e) => setStockQty(e.target.value)}
+                  placeholder="0.00"
+                  className="mt-1 w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-gray-600">备注</span>
+                <input
+                  value={stockRemark}
+                  onChange={(e) => setStockRemark(e.target.value)}
+                  placeholder="选填，如供应商 / 用途 / 批次"
+                  className="mt-1 w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
+                />
+              </label>
+              <p className="text-[11.5px] text-gray-400">
+                当前库存 {Number(stockOp.m.stockQty).toFixed(2)} {stockOp.m.unit}
+                {Number(stockOp.m.safetyStock) > 0 && `，安全库存 ${Number(stockOp.m.safetyStock).toFixed(0)}`}
+              </p>
+            </div>
+            <div className="px-6 py-3 border-t border-gray-200 flex justify-end gap-2">
+              <button onClick={() => setStockOp(null)} className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50">
+                取消
+              </button>
+              <button
+                onClick={submitStock}
+                disabled={stockBusy}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50"
+              >
+                {stockBusy ? '处理中…' : '确定'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 库存流水 */}
+      {ledgerOf && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-6 z-50">
+          <div className="bg-white rounded-lg w-full max-w-2xl shadow-xl max-h-[80vh] flex flex-col">
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+              <div>
+                <h2 className="font-medium">库存流水 — {ledgerOf.name}</h2>
+                <p className="text-[12.5px] text-gray-500 mt-1">
+                  当前库存 {Number(ledgerOf.stockQty).toFixed(2)} {ledgerOf.unit}
+                </p>
+              </div>
+              <button onClick={() => setLedgerOf(null)} className="text-gray-400 hover:text-gray-700 text-sm">
+                关闭
+              </button>
+            </div>
+            <div className="overflow-auto px-6 py-4 flex-1">
+              {ledgerRows.length === 0 ? (
+                <p className="text-[12.5px] text-gray-400 text-center py-8">还没有出入库记录</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="text-gray-500 text-[12px]">
+                    <tr className="border-b border-gray-100">
+                      <th className="text-left py-2 font-normal">时间</th>
+                      <th className="text-left py-2 font-normal">类型</th>
+                      <th className="text-right py-2 font-normal">数量</th>
+                      <th className="text-right py-2 font-normal">变动后</th>
+                      <th className="text-left py-2 font-normal">来源</th>
+                      <th className="text-left py-2 font-normal">备注</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {ledgerRows.map((r: any) => (
+                      <tr key={r.id}>
+                        <td className="py-2 text-[11.5px] text-gray-500 whitespace-nowrap">
+                          {new Date(r.createdAt).toLocaleString('zh-CN', { hour12: false })}
+                        </td>
+                        <td className="py-2">
+                          <span
+                            className={`text-[11.5px] px-1.5 py-0.5 rounded border ${
+                              r.direction === 'in'
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                : r.direction === 'out'
+                                ? 'bg-red-50 text-red-700 border-red-200'
+                                : 'bg-gray-50 text-gray-600 border-gray-200'
+                            }`}
+                          >
+                            {r.direction === 'in' ? '入库' : r.direction === 'out' ? '出库' : '盘点'}
+                          </span>
+                        </td>
+                        <td className="py-2 text-right tabular-nums">
+                          {r.direction === 'out' ? '-' : r.direction === 'in' ? '+' : ''}
+                          {Number(r.qty).toFixed(2)}
+                        </td>
+                        <td className="py-2 text-right tabular-nums text-gray-600">
+                          {Number(r.balanceAfter).toFixed(2)}
+                        </td>
+                        <td className="py-2 text-[11.5px] text-gray-500">{r.refId ?? '手动'}</td>
+                        <td className="py-2 text-[11.5px] text-gray-500">{r.remark ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 初始化预置材料：按模具类型分类同步 */}
       {seedOpen && (
