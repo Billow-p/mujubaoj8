@@ -21,15 +21,19 @@ echo "==> [1/8] 本地构建（前端产物 + 后端 dist）"
 # ⚠️ 不要改回 `pnpm -r build`：pnpm 默认并行跑 workspace 构建，本机 16G 内存下
 # 同时起 4 个 tsc + vite 会耗尽虚拟内存，tsc 报 `Fatal process out of memory: Zone`
 # 被杀，退出码 2147483651（0x80000003）—— 报错完全看不出是内存问题。
-if [ -f "C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-3/node.exe" ]; then
-  NODE_BIN="C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-3/node.exe"
-elif command -v node >/dev/null 2>&1; then
-  NODE_BIN=node
+if [ -n "$SKIP_BUILD" ]; then
+  echo "==> [1/8] 跳过本地构建（SKIP_BUILD 已设，假定 dist 已是最新）"
 else
-  echo "✗ 找不到 node，无法构建" >&2
-  exit 1
+  if [ -f "C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-3/node.exe" ]; then
+    NODE_BIN="C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-3/node.exe"
+  elif command -v node >/dev/null 2>&1; then
+    NODE_BIN=node
+  else
+    echo "✗ 找不到 node，无法构建" >&2
+    exit 1
+  fi
+  "$NODE_BIN" scripts/build-seq.mjs
 fi
-"$NODE_BIN" scripts/build-seq.mjs
 
 echo "==> [2/8] 打包（排除 node_modules / .git / .env / 日志）"
 echo "    注意：.env 含生产密钥，禁止随包覆盖服务器，由步骤 [4/8] 单独备份、解压时保留"
